@@ -1,0 +1,11 @@
+cd-info version 2.1.0 i686-pc-linux-gnu
+
+CD-ROM Device          : /dev/sr0
+Disc mode is listed as: CD-ROM Mode 1
+__________________________________
+
+CD Analysis Report
+
+ISO 9660: ISO 9660:1988 STANDARD
+Volume      : DEBIAN_12_5_0
+Volume Set  :
