@@ -38,8 +38,12 @@ RUN CGO_ENABLED=0 go build \
 # Stage 3 — runtime: python slim + apprise + the daemon binary
 ###############################################################################
 FROM python:3.12-slim-bookworm AS runtime
+# whipper is not on PyPI, so install it from Debian apt. cdparanoia +
+# libcdio-utils provide the lower-level rippers and cd-info that
+# identify/classify use.
 RUN apt-get update \
- && apt-get install -y --no-install-recommends ca-certificates eject \
+ && apt-get install -y --no-install-recommends \
+        ca-certificates eject cdparanoia libcdio-utils whipper \
  && rm -rf /var/lib/apt/lists/* \
  && pip install --no-cache-dir apprise
 
