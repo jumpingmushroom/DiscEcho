@@ -1,0 +1,32 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --bg: #000000;
+    --surface-0: #0b0b0c;
+    --surface-1: #111113;
+    --surface-2: #17171a;
+    --surface-3: #1d1d21;
+    --border: #232327;
+    --border-strong: #2e2e34;
+    --text: #f4f4f5;
+    --text-2: #a1a1aa;
+    --text-3: #6b6b73;
+    --accent: #00d68f;
+    --accent-soft: rgba(0, 214, 143, 0.12);
+    --accent-glow: rgba(0, 214, 143, 0.35);
+    --warn: #f5a524;
+    --error: #ff5b5b;
+    --info: #5ea3ff;
+  }
+
+  html,
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Inter', -apple-system, system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+}
