@@ -1,7 +1,9 @@
 package version
 
 // These are overridden at build time via -ldflags
-//   "-X github.com/jumpingmushroom/DiscEcho/daemon/version.Version=..."
+//
+//	"-X github.com/jumpingmushroom/DiscEcho/daemon/version.Version=..."
+//
 // When unset (e.g. plain `go build`) sensible defaults apply so callers
 // always get a non-empty struct.
 var (
