@@ -17,7 +17,7 @@ func TestVersionHandler(t *testing.T) {
 	api.VersionHandler(w, req)
 
 	res := w.Result()
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 
 	if res.StatusCode != http.StatusOK {
 		t.Fatalf("status: want 200, got %d", res.StatusCode)

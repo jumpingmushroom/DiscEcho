@@ -18,7 +18,7 @@ func Watch(ctx context.Context, onMediaChange func(Uevent)) error {
 	if err := conn.Connect(netlink.UdevEvent); err != nil {
 		return fmt.Errorf("netlink connect: %w", err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	queue := make(chan netlink.UEvent, 16)
 	errs := make(chan error, 1)
