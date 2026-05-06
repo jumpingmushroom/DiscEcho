@@ -1,0 +1,28 @@
+# DiscEcho — local / homelab deploy.
+# Required: at least one optical drive at /dev/sr0.
+
+services:
+  discecho:
+    build:
+      context: .
+      args:
+        VERSION: ${DISCECHO_VERSION:-dev}
+        COMMIT: ${DISCECHO_COMMIT:-unknown}
+        BUILD_DATE: ${DISCECHO_BUILD_DATE:-unknown}
+    image: discecho:${DISCECHO_VERSION:-dev}
+    container_name: discecho
+    restart: unless-stopped
+    devices:
+      - /dev/sr0:/dev/sr0
+    group_add:
+      - "${CDROM_GID:-24}"
+    volumes:
+      - ${DISCECHO_LIBRARY_PATH:-/srv/media}:/library
+      - ./.docker-data:/var/lib/discecho
+      - ./config:/etc/discecho
+    environment:
+      DISCECHO_ADDR: ":8088"
+      DISCECHO_LIBRARY: "/library"
+      DISCECHO_DATA: "/var/lib/discecho"
+    ports:
+      - "8088:8088"
