@@ -31,7 +31,14 @@ func main() {
 		os.Exit(1)
 	}
 	static := api.StaticHandler(embedFS)
-	router := api.NewRouter(static)
+	// Phase F wires the API surface; Phase G replaces this with a fully
+	// populated Handlers (Store, Broadcaster, Orchestrator, Pipelines,
+	// Classifier, Token from settings). Until then we pass an empty
+	// Handlers so the daemon still builds and serves /api/health +
+	// /api/version. Authenticated routes will panic on nil deps if
+	// hit — that's intentional, they aren't usable yet.
+	handlers := &api.Handlers{}
+	router := api.NewRouter(handlers, static)
 	server := api.NewServer(addr, router)
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
