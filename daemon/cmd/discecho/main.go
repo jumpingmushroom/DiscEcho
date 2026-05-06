@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/jumpingmushroom/DiscEcho/daemon/api"
+	"github.com/jumpingmushroom/DiscEcho/daemon/drive"
 )
 
 func main() {
@@ -29,6 +30,19 @@ func main() {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+
+	go func() {
+		err := drive.Watch(ctx, func(ev drive.Uevent) {
+			slog.Info("disc media change",
+				"dev", ev.DevName,
+				"action", ev.Action,
+				"path", ev.DevPath,
+			)
+		})
+		if err != nil {
+			slog.Error("udev watcher exited", "err", err)
+		}
+	}()
 
 	errCh := make(chan error, 1)
 	go func() { errCh <- server.ListenAndServe() }()
