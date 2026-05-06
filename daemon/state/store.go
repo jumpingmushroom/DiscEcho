@@ -912,3 +912,151 @@ func (s *Store) TailLogLines(ctx context.Context, jobID string, n int) ([]LogLin
 	}
 	return reversed, nil
 }
+
+// triggersInclude reports whether `triggers` (a comma-separated list)
+// contains the given trigger token.
+func triggersInclude(triggers, trigger string) bool {
+	for _, t := range strings.Split(triggers, ",") {
+		if strings.TrimSpace(t) == trigger {
+			return true
+		}
+	}
+	return false
+}
+
+// ---- NOTIFICATIONS --------------------------------------------------------
+
+// CreateNotification inserts a new notification.
+func (s *Store) CreateNotification(ctx context.Context, n *Notification) error {
+	if n.ID == "" {
+		n.ID = NewID()
+	}
+	now := time.Now()
+	if n.CreatedAt.IsZero() {
+		n.CreatedAt = now
+	}
+	if n.UpdatedAt.IsZero() {
+		n.UpdatedAt = now
+	}
+	if n.Triggers == "" {
+		n.Triggers = "done,failed"
+	}
+	_, err := s.db.Conn().ExecContext(ctx, `
+		INSERT INTO notifications (id, name, url, tags, triggers, enabled,
+		                           created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		n.ID, n.Name, n.URL, n.Tags, n.Triggers, boolToInt(n.Enabled),
+		timestamp(n.CreatedAt), timestamp(n.UpdatedAt))
+	return err
+}
+
+// GetNotification fetches a notification by ID.
+func (s *Store) GetNotification(ctx context.Context, id string) (*Notification, error) {
+	row := s.db.Conn().QueryRowContext(ctx, `
+		SELECT id, name, url, tags, triggers, enabled, created_at, updated_at
+		FROM notifications WHERE id = ?`, id)
+	return scanNotification(row)
+}
+
+// ListNotifications returns every notification ordered by name.
+func (s *Store) ListNotifications(ctx context.Context) ([]Notification, error) {
+	return s.queryNotifications(ctx, `
+		SELECT id, name, url, tags, triggers, enabled, created_at, updated_at
+		FROM notifications ORDER BY name`)
+}
+
+// ListNotificationsForTrigger returns enabled notifications whose
+// triggers list contains the given token. SQL pre-filter is by LIKE
+// (cheap) then post-checked in Go to avoid false positives like
+// "donezo" matching "done".
+func (s *Store) ListNotificationsForTrigger(ctx context.Context, trigger string) ([]Notification, error) {
+	rows, err := s.db.Conn().QueryContext(ctx, `
+		SELECT id, name, url, tags, triggers, enabled, created_at, updated_at
+		FROM notifications
+		WHERE enabled = 1 AND triggers LIKE '%' || ? || '%'`, trigger)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	var out []Notification
+	for rows.Next() {
+		n, err := scanNotification(rows)
+		if err != nil {
+			return nil, err
+		}
+		if triggersInclude(n.Triggers, trigger) {
+			out = append(out, *n)
+		}
+	}
+	return out, rows.Err()
+}
+
+// UpdateNotification rewrites every mutable column. ID + CreatedAt stay.
+func (s *Store) UpdateNotification(ctx context.Context, n *Notification) error {
+	n.UpdatedAt = time.Now()
+	res, err := s.db.Conn().ExecContext(ctx, `
+		UPDATE notifications SET name = ?, url = ?, tags = ?, triggers = ?,
+		                         enabled = ?, updated_at = ?
+		WHERE id = ?`,
+		n.Name, n.URL, n.Tags, n.Triggers, boolToInt(n.Enabled),
+		timestamp(n.UpdatedAt), n.ID)
+	if err != nil {
+		return err
+	}
+	rows, _ := res.RowsAffected()
+	if rows == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// DeleteNotification removes a notification.
+func (s *Store) DeleteNotification(ctx context.Context, id string) error {
+	res, err := s.db.Conn().ExecContext(ctx, `DELETE FROM notifications WHERE id = ?`, id)
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+func (s *Store) queryNotifications(ctx context.Context, q string, args ...any) ([]Notification, error) {
+	rows, err := s.db.Conn().QueryContext(ctx, q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	var out []Notification
+	for rows.Next() {
+		n, err := scanNotification(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, *n)
+	}
+	return out, rows.Err()
+}
+
+func scanNotification(r rowScanner) (*Notification, error) {
+	var n Notification
+	var enabled int
+	var createdStr, updatedStr string
+	if err := r.Scan(&n.ID, &n.Name, &n.URL, &n.Tags, &n.Triggers, &enabled, &createdStr, &updatedStr); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
+	n.Enabled = enabled != 0
+	var err error
+	if n.CreatedAt, err = parseTime(createdStr); err != nil {
+		return nil, fmt.Errorf("parse created_at: %w", err)
+	}
+	if n.UpdatedAt, err = parseTime(updatedStr); err != nil {
+		return nil, fmt.Errorf("parse updated_at: %w", err)
+	}
+	return &n, nil
+}
