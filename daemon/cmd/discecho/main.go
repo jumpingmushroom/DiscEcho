@@ -86,6 +86,18 @@ func main() {
 		Tools:       toolReg,
 		LibraryRoot: cfg.LibraryPath,
 		WorkRoot:    filepath.Join(cfg.DataPath, "work"),
+		URLsForTrigger: func(ctx context.Context, trigger string) []string {
+			ns, err := store.ListNotificationsForTrigger(ctx, trigger)
+			if err != nil {
+				slog.Warn("notifications lookup", "trigger", trigger, "err", err)
+				return nil
+			}
+			urls := make([]string, 0, len(ns))
+			for _, n := range ns {
+				urls = append(urls, n.URL)
+			}
+			return urls
+		},
 	}))
 
 	// Orchestrator drives jobs through the pipeline.

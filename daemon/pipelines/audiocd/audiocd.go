@@ -20,12 +20,13 @@ import (
 
 // Deps bundles the handler's dependencies for mock injection.
 type Deps struct {
-	TOC          identify.TOCReader
-	MB           identify.MusicBrainzClient
-	Tools        *tools.Registry
-	LibraryRoot  string
-	WorkRoot     string
-	LibraryProbe func(string) error // defaults to pipelines.ProbeWritable
+	TOC            identify.TOCReader
+	MB             identify.MusicBrainzClient
+	Tools          *tools.Registry
+	LibraryRoot    string
+	WorkRoot       string
+	LibraryProbe   func(string) error                                 // defaults to pipelines.ProbeWritable
+	URLsForTrigger func(ctx context.Context, trigger string) []string // returns Apprise URLs; nil → no notifications
 }
 
 // Handler implements pipelines.Handler for audio CDs.
@@ -150,12 +151,18 @@ func (h *Handler) Run(ctx context.Context, drv *state.Drive, disc *state.Disc, p
 	}
 	sink.OnStepDone(state.StepMove, map[string]any{"paths": moved})
 
-	// notify (best-effort)
+	// notify (best-effort). Apprise is invoked once per call with all
+	// URLs that subscribe to the "done" trigger; URL resolution is
+	// injected via Deps so handlers stay free of store coupling.
 	sink.OnStepStart(state.StepNotify)
 	if apprise, ok := h.deps.Tools.Get("apprise"); ok {
+		var urls []string
+		if h.deps.URLsForTrigger != nil {
+			urls = h.deps.URLsForTrigger(ctx, "done")
+		}
 		title := fmt.Sprintf("DiscEcho: %s", disc.Title)
 		body := fmt.Sprintf("Ripped to %s", h.deps.LibraryRoot)
-		argv := tools.BuildAppriseArgs(title, body, "", nil)
+		argv := tools.BuildAppriseArgs(title, body, "", urls)
 		_ = apprise.Run(ctx, argv, nil, "", newStepSink(sink, state.StepNotify))
 	}
 	sink.OnStepDone(state.StepNotify, nil)
