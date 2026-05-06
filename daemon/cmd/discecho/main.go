@@ -1,11 +1,51 @@
 package main
 
 import (
-	"fmt"
+	"context"
+	"errors"
+	"log/slog"
+	"net/http"
 	"os"
+	"os/signal"
+	"syscall"
+	"time"
+
+	"github.com/jumpingmushroom/DiscEcho/daemon/api"
 )
 
 func main() {
-	fmt.Fprintln(os.Stderr, "discecho: not yet implemented")
-	os.Exit(0)
+	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
+	slog.SetDefault(logger)
+
+	addr := os.Getenv("DISCECHO_ADDR")
+	if addr == "" {
+		addr = ":8088"
+	}
+
+	// Static handler is nil for now; embed wires it in Task 16.
+	var static http.Handler
+	router := api.NewRouter(static)
+	server := api.NewServer(addr, router)
+
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	errCh := make(chan error, 1)
+	go func() { errCh <- server.ListenAndServe() }()
+
+	select {
+	case err := <-errCh:
+		if err != nil && !errors.Is(err, http.ErrServerClosed) {
+			slog.Error("server failed", "err", err)
+			os.Exit(1)
+		}
+	case <-ctx.Done():
+		slog.Info("shutdown requested")
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if err := server.Shutdown(shutdownCtx); err != nil {
+			slog.Error("graceful shutdown failed", "err", err)
+			os.Exit(1)
+		}
+	}
 }
