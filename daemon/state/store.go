@@ -1060,3 +1060,46 @@ func scanNotification(r rowScanner) (*Notification, error) {
 	}
 	return &n, nil
 }
+
+// ---- SETTINGS -------------------------------------------------------------
+
+// GetSetting returns the value for key. ErrNotFound if missing.
+func (s *Store) GetSetting(ctx context.Context, key string) (string, error) {
+	row := s.db.Conn().QueryRowContext(ctx,
+		`SELECT value FROM settings WHERE key = ?`, key)
+	var v string
+	if err := row.Scan(&v); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return "", ErrNotFound
+		}
+		return "", err
+	}
+	return v, nil
+}
+
+// GetAllSettings returns every key-value pair as a map.
+func (s *Store) GetAllSettings(ctx context.Context) (map[string]string, error) {
+	rows, err := s.db.Conn().QueryContext(ctx, `SELECT key, value FROM settings`)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	out := map[string]string{}
+	for rows.Next() {
+		var k, v string
+		if err := rows.Scan(&k, &v); err != nil {
+			return nil, err
+		}
+		out[k] = v
+	}
+	return out, rows.Err()
+}
+
+// SetSetting upserts (key, value).
+func (s *Store) SetSetting(ctx context.Context, key, value string) error {
+	_, err := s.db.Conn().ExecContext(ctx, `
+		INSERT INTO settings (key, value, updated_at) VALUES (?, ?, ?)
+		ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
+		key, value, timestamp(time.Now()))
+	return err
+}
