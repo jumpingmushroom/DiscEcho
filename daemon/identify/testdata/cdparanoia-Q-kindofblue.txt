@@ -1,0 +1,42 @@
+cdparanoia III release 10.2 (September 11, 2008)
+
+
+Using cdda library version: 10.2
+Using paranoia library version: 10.2
+Checking /dev/cdrom for cdrom...
+        Testing /dev/cdrom for SCSI/MMC interface
+                SG_IO device: /dev/sr0
+
+
+CDROM model sensed sensed: HL-DT-ST DVDRAM GH24NSC0 1.02
+
+
+Checking for SCSI emulation...
+        Drive is ATAPI (using SG_IO host adaptor)
+
+
+Checking for MMC style command set...
+        Drive is MMC style
+        DMA scatter/gather table entries: 1
+        table entry size: 122880 bytes
+        maximum theoretical transfer: 52 sectors
+        Setting default read size to 27 sectors (63504 bytes).
+
+
+Verifying CDDA command set...
+        Expected command set reads OK.
+
+
+Attempting to set cdrom to full speed...
+        drive returned OK.
+
+Table of contents (audio tracks only):
+track        length               begin        copy pre ch
+===========================================================
+  1.    14955 [03:19.30]      150 [00:02.00]    no   no  2
+  2.    21915 [04:52.15]    15105 [03:21.30]    no   no  2
+  3.    25245 [05:36.45]    37020 [08:13.45]    no   no  2
+  4.    14550 [03:14.00]    62265 [13:50.15]    no   no  2
+  5.    44190 [09:49.15]    76815 [17:04.15]    no   no  2
+
+TOTAL  120855 [26:51.30]    (audio only)
