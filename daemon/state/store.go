@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -37,6 +38,28 @@ func parseTime(s string) (time.Time, error) {
 		return time.Time{}, nil
 	}
 	return time.Parse(time.RFC3339Nano, s)
+}
+
+// parseTimePtr returns nil for "", otherwise a pointer to the parsed
+// time. Used for nullable timestamp columns where the wire JSON expects
+// `null` rather than the zero time.
+func parseTimePtr(s string) (*time.Time, error) {
+	if s == "" {
+		return nil, nil
+	}
+	t, err := time.Parse(time.RFC3339Nano, s)
+	if err != nil {
+		return nil, err
+	}
+	return &t, nil
+}
+
+// timestampPtr returns "" for nil, otherwise the formatted timestamp.
+func timestampPtr(t *time.Time) string {
+	if t == nil {
+		return ""
+	}
+	return timestamp(*t)
 }
 
 // ---- shared scanners ------------------------------------------------------
@@ -417,4 +440,352 @@ func boolToInt(b bool) int {
 		return 1
 	}
 	return 0
+}
+
+// ---- JOBS -----------------------------------------------------------------
+
+// CreateJob inserts a new job AND eagerly materializes its eight
+// job_steps rows. Steps marked Skipped in j.Steps land as
+// JobStepStateSkipped; the rest start at JobStepStatePending. The whole
+// insert is one tx so callers never observe a half-created job. j.ID
+// and j.CreatedAt fill in if zero.
+func (s *Store) CreateJob(ctx context.Context, j *Job) error {
+	if j.ID == "" {
+		j.ID = NewID()
+	}
+	if j.CreatedAt.IsZero() {
+		j.CreatedAt = time.Now()
+	}
+	if j.State == "" {
+		j.State = JobStateQueued
+	}
+
+	skipSet := map[StepID]bool{}
+	for _, st := range j.Steps {
+		if st.State == JobStepStateSkipped {
+			skipSet[st.Step] = true
+		}
+	}
+
+	tx, err := s.db.Conn().BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO jobs (id, disc_id, drive_id, profile_id, state, active_step,
+		                  progress, speed, eta_seconds, elapsed_seconds,
+		                  started_at, finished_at, error_message, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		j.ID, j.DiscID, nullString(j.DriveID), j.ProfileID,
+		string(j.State), string(j.ActiveStep),
+		j.Progress, j.Speed, j.ETASeconds, j.ElapsedSeconds,
+		timestampPtr(j.StartedAt), timestampPtr(j.FinishedAt),
+		j.ErrorMessage, timestamp(j.CreatedAt),
+	); err != nil {
+		return err
+	}
+
+	stmt, err := tx.PrepareContext(ctx, `
+		INSERT INTO job_steps (job_id, step, state, attempt_count,
+		                       started_at, finished_at, notes_json)
+		VALUES (?, ?, ?, 0, '', '', '{}')`)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = stmt.Close() }()
+
+	steps := make([]JobStep, 0, len(CanonicalSteps()))
+	for _, sid := range CanonicalSteps() {
+		stState := JobStepStatePending
+		if skipSet[sid] {
+			stState = JobStepStateSkipped
+		}
+		if _, err := stmt.ExecContext(ctx, j.ID, string(sid), string(stState)); err != nil {
+			return err
+		}
+		steps = append(steps, JobStep{Step: sid, State: stState})
+	}
+	j.Steps = steps
+
+	return tx.Commit()
+}
+
+// GetJob fetches a job and its steps. Returns ErrNotFound if missing.
+func (s *Store) GetJob(ctx context.Context, id string) (*Job, error) {
+	row := s.db.Conn().QueryRowContext(ctx, `
+		SELECT id, disc_id, COALESCE(drive_id, ''), profile_id, state, active_step,
+		       progress, speed, eta_seconds, elapsed_seconds,
+		       started_at, finished_at, error_message, created_at
+		FROM jobs WHERE id = ?`, id)
+	j, err := scanJob(row)
+	if err != nil {
+		return nil, err
+	}
+	steps, err := s.ListJobSteps(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	j.Steps = steps
+	return j, nil
+}
+
+// JobFilter narrows ListJobs.
+type JobFilter struct {
+	State   JobState // empty = no filter
+	DriveID string   // empty = no filter
+	Limit   int      // 0 → 50, capped at 200
+	Offset  int      // 0 = beginning
+}
+
+// ListJobs returns jobs matching f, ordered by created_at DESC. Steps
+// are NOT loaded; callers wanting steps use GetJob per-id.
+func (s *Store) ListJobs(ctx context.Context, f JobFilter) ([]Job, error) {
+	if f.Limit <= 0 {
+		f.Limit = 50
+	}
+	if f.Limit > 200 {
+		f.Limit = 200
+	}
+
+	q := `SELECT id, disc_id, COALESCE(drive_id, ''), profile_id, state, active_step,
+	             progress, speed, eta_seconds, elapsed_seconds,
+	             started_at, finished_at, error_message, created_at
+	      FROM jobs`
+	var args []any
+	var conds []string
+	if f.State != "" {
+		conds = append(conds, "state = ?")
+		args = append(args, string(f.State))
+	}
+	if f.DriveID != "" {
+		conds = append(conds, "drive_id = ?")
+		args = append(args, f.DriveID)
+	}
+	if len(conds) > 0 {
+		q += " WHERE " + strings.Join(conds, " AND ")
+	}
+	q += " ORDER BY created_at DESC LIMIT ? OFFSET ?"
+	args = append(args, f.Limit, f.Offset)
+
+	rows, err := s.db.Conn().QueryContext(ctx, q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	var out []Job
+	for rows.Next() {
+		j, err := scanJob(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, *j)
+	}
+	return out, rows.Err()
+}
+
+// ListActiveAndRecentJobs returns currently-active jobs plus the N
+// most-recent finished jobs, used for /api/state's first-paint payload.
+// Active = state NOT IN ('done','failed','cancelled').
+func (s *Store) ListActiveAndRecentJobs(ctx context.Context, recentLimit int) ([]Job, error) {
+	if recentLimit < 0 {
+		recentLimit = 0
+	}
+
+	activeRows, err := s.db.Conn().QueryContext(ctx, `
+		SELECT id, disc_id, COALESCE(drive_id, ''), profile_id, state, active_step,
+		       progress, speed, eta_seconds, elapsed_seconds,
+		       started_at, finished_at, error_message, created_at
+		FROM jobs
+		WHERE state NOT IN ('done','failed','cancelled')
+		ORDER BY created_at DESC`)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = activeRows.Close() }()
+	var out []Job
+	for activeRows.Next() {
+		j, err := scanJob(activeRows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, *j)
+	}
+	if err := activeRows.Err(); err != nil {
+		return nil, err
+	}
+
+	if recentLimit > 0 {
+		recentRows, err := s.db.Conn().QueryContext(ctx, `
+			SELECT id, disc_id, COALESCE(drive_id, ''), profile_id, state, active_step,
+			       progress, speed, eta_seconds, elapsed_seconds,
+			       started_at, finished_at, error_message, created_at
+			FROM jobs
+			WHERE state IN ('done','failed','cancelled')
+			ORDER BY COALESCE(NULLIF(finished_at,''), created_at) DESC
+			LIMIT ?`, recentLimit)
+		if err != nil {
+			return nil, err
+		}
+		defer func() { _ = recentRows.Close() }()
+		for recentRows.Next() {
+			j, err := scanJob(recentRows)
+			if err != nil {
+				return nil, err
+			}
+			out = append(out, *j)
+		}
+		if err := recentRows.Err(); err != nil {
+			return nil, err
+		}
+	}
+	return out, nil
+}
+
+// UpdateJobState transitions a job, optionally bumping started_at /
+// finished_at on the relevant transitions. error_message is set on
+// JobStateFailed transitions; pass "" otherwise.
+func (s *Store) UpdateJobState(ctx context.Context, id string, st JobState, errMsg string) error {
+	now := timestamp(time.Now())
+	q := `UPDATE jobs SET state = ?`
+	args := []any{string(st)}
+	switch st {
+	case JobStateRunning:
+		q += `, started_at = COALESCE(NULLIF(started_at, ''), ?)`
+		args = append(args, now)
+	case JobStateDone, JobStateFailed, JobStateCancelled, JobStateInterrupted:
+		q += `, finished_at = ?`
+		args = append(args, now)
+	}
+	if st == JobStateFailed {
+		q += `, error_message = ?`
+		args = append(args, errMsg)
+	}
+	q += ` WHERE id = ?`
+	args = append(args, id)
+	res, err := s.db.Conn().ExecContext(ctx, q, args...)
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// UpdateJobProgress writes the volatile progress fields. Cheap; called
+// by the orchestrator at most once per second per job.
+func (s *Store) UpdateJobProgress(ctx context.Context, id string, activeStep StepID,
+	pct float64, speed string, etaSeconds, elapsedSeconds int) error {
+	res, err := s.db.Conn().ExecContext(ctx, `
+		UPDATE jobs SET active_step = ?, progress = ?, speed = ?,
+		                eta_seconds = ?, elapsed_seconds = ?
+		WHERE id = ?`,
+		string(activeStep), pct, speed, etaSeconds, elapsedSeconds, id)
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// MarkInterruptedJobs flips every job in {queued, identifying, running}
+// to interrupted. Used at daemon startup so crashed-mid-rip jobs are
+// visible in the UI for resolution. Returns the count flipped.
+func (s *Store) MarkInterruptedJobs(ctx context.Context) (int, error) {
+	now := timestamp(time.Now())
+	res, err := s.db.Conn().ExecContext(ctx, `
+		UPDATE jobs
+		SET state = 'interrupted', finished_at = ?
+		WHERE state IN ('queued','identifying','running')`, now)
+	if err != nil {
+		return 0, err
+	}
+	n, _ := res.RowsAffected()
+	return int(n), nil
+}
+
+func scanJob(r rowScanner) (*Job, error) {
+	var j Job
+	var st, activeStep, startedStr, finishedStr, createdStr string
+	if err := r.Scan(
+		&j.ID, &j.DiscID, &j.DriveID, &j.ProfileID, &st, &activeStep,
+		&j.Progress, &j.Speed, &j.ETASeconds, &j.ElapsedSeconds,
+		&startedStr, &finishedStr, &j.ErrorMessage, &createdStr,
+	); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
+	j.State = JobState(st)
+	j.ActiveStep = StepID(activeStep)
+	var err error
+	if j.StartedAt, err = parseTimePtr(startedStr); err != nil {
+		return nil, fmt.Errorf("parse started_at: %w", err)
+	}
+	if j.FinishedAt, err = parseTimePtr(finishedStr); err != nil {
+		return nil, fmt.Errorf("parse finished_at: %w", err)
+	}
+	if j.CreatedAt, err = parseTime(createdStr); err != nil {
+		return nil, fmt.Errorf("parse created_at: %w", err)
+	}
+	return &j, nil
+}
+
+// ---- JOB STEPS (read-side; mutators in next commit) -----------------------
+
+// ListJobSteps returns every job_step row for a job, in insertion order
+// (= canonical step sequence, since CreateJob inserts them that way).
+func (s *Store) ListJobSteps(ctx context.Context, jobID string) ([]JobStep, error) {
+	rows, err := s.db.Conn().QueryContext(ctx, `
+		SELECT step, state, attempt_count, started_at, finished_at, notes_json
+		FROM job_steps WHERE job_id = ?
+		ORDER BY id`, jobID)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	var out []JobStep
+	for rows.Next() {
+		st, err := scanJobStep(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, *st)
+	}
+	return out, rows.Err()
+}
+
+func scanJobStep(r rowScanner) (*JobStep, error) {
+	var st JobStep
+	var step, stateStr, startedStr, finishedStr, notesJSON string
+	if err := r.Scan(&step, &stateStr, &st.AttemptCount, &startedStr, &finishedStr, &notesJSON); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
+	st.Step = StepID(step)
+	st.State = JobStepState(stateStr)
+	var err error
+	if st.StartedAt, err = parseTimePtr(startedStr); err != nil {
+		return nil, fmt.Errorf("parse started_at: %w", err)
+	}
+	if st.FinishedAt, err = parseTimePtr(finishedStr); err != nil {
+		return nil, fmt.Errorf("parse finished_at: %w", err)
+	}
+	if notesJSON != "" && notesJSON != "{}" {
+		var notes map[string]any
+		if err := json.Unmarshal([]byte(notesJSON), &notes); err != nil {
+			return nil, fmt.Errorf("unmarshal notes_json: %w", err)
+		}
+		st.Notes = notes
+	}
+	return &st, nil
 }
