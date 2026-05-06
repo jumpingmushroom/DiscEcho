@@ -12,6 +12,7 @@ import (
 
 	"github.com/jumpingmushroom/DiscEcho/daemon/api"
 	"github.com/jumpingmushroom/DiscEcho/daemon/drive"
+	"github.com/jumpingmushroom/DiscEcho/daemon/embed"
 )
 
 func main() {
@@ -23,8 +24,13 @@ func main() {
 		addr = ":8088"
 	}
 
-	// Static handler is nil for now; embed wires it in Task 16.
-	var static http.Handler
+	// Static handler comes from the embedded SvelteKit build.
+	embedFS, err := embed.FS()
+	if err != nil {
+		slog.Error("embed FS", "err", err)
+		os.Exit(1)
+	}
+	static := api.StaticHandler(embedFS)
 	router := api.NewRouter(static)
 	server := api.NewServer(addr, router)
 

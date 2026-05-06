@@ -1,0 +1,4 @@
+# Real build output is copied here by the build pipeline. We commit only
+# the placeholder so `go build` works on a fresh checkout.
+webui_build/*
+!webui_build/index.html
