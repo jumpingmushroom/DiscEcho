@@ -66,6 +66,25 @@ func unmarshalCandidates(s string) ([]Candidate, error) {
 	return cs, nil
 }
 
+func marshalOptions(opts map[string]any) (string, error) {
+	if opts == nil {
+		opts = map[string]any{}
+	}
+	b, err := json.Marshal(opts)
+	return string(b), err
+}
+
+func unmarshalOptions(s string) (map[string]any, error) {
+	if s == "" {
+		return map[string]any{}, nil
+	}
+	var m map[string]any
+	if err := json.Unmarshal([]byte(s), &m); err != nil {
+		return nil, err
+	}
+	return m, nil
+}
+
 // ---- DRIVES ----------------------------------------------------------------
 
 // GetDrive fetches a drive by ID.
@@ -244,4 +263,158 @@ func scanDisc(r rowScanner) (*Disc, error) {
 	}
 	d.CreatedAt = t
 	return &d, nil
+}
+
+// ---- PROFILES -------------------------------------------------------------
+
+// CreateProfile inserts a new profile. p.ID, p.CreatedAt, p.UpdatedAt
+// are filled in if zero.
+func (s *Store) CreateProfile(ctx context.Context, p *Profile) error {
+	if p.ID == "" {
+		p.ID = NewID()
+	}
+	now := time.Now()
+	if p.CreatedAt.IsZero() {
+		p.CreatedAt = now
+	}
+	if p.UpdatedAt.IsZero() {
+		p.UpdatedAt = now
+	}
+	optsJSON, err := marshalOptions(p.Options)
+	if err != nil {
+		return fmt.Errorf("marshal options: %w", err)
+	}
+	_, err = s.db.Conn().ExecContext(ctx, `
+		INSERT INTO profiles (id, disc_type, name, engine, format, preset,
+		                      options_json, output_path_template, enabled,
+		                      step_count, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		p.ID, string(p.DiscType), p.Name, p.Engine, p.Format, p.Preset,
+		optsJSON, p.OutputPathTemplate, boolToInt(p.Enabled),
+		p.StepCount, timestamp(p.CreatedAt), timestamp(p.UpdatedAt))
+	return err
+}
+
+// GetProfile fetches a profile by ID.
+func (s *Store) GetProfile(ctx context.Context, id string) (*Profile, error) {
+	row := s.db.Conn().QueryRowContext(ctx, `
+		SELECT id, disc_type, name, engine, format, preset,
+		       options_json, output_path_template, enabled,
+		       step_count, created_at, updated_at
+		FROM profiles WHERE id = ?`, id)
+	return scanProfile(row)
+}
+
+// ListProfiles returns all profiles.
+func (s *Store) ListProfiles(ctx context.Context) ([]Profile, error) {
+	return s.queryProfiles(ctx, `
+		SELECT id, disc_type, name, engine, format, preset,
+		       options_json, output_path_template, enabled,
+		       step_count, created_at, updated_at
+		FROM profiles ORDER BY name`)
+}
+
+// ListProfilesByDiscType filters profiles to those matching the given
+// disc type. Used by the orchestrator when picking a default for a
+// freshly identified disc.
+func (s *Store) ListProfilesByDiscType(ctx context.Context, dt DiscType) ([]Profile, error) {
+	return s.queryProfiles(ctx, `
+		SELECT id, disc_type, name, engine, format, preset,
+		       options_json, output_path_template, enabled,
+		       step_count, created_at, updated_at
+		FROM profiles WHERE disc_type = ? ORDER BY name`, string(dt))
+}
+
+// UpdateProfile rewrites every mutable column. The ID and CreatedAt
+// stay; UpdatedAt is refreshed.
+func (s *Store) UpdateProfile(ctx context.Context, p *Profile) error {
+	p.UpdatedAt = time.Now()
+	optsJSON, err := marshalOptions(p.Options)
+	if err != nil {
+		return fmt.Errorf("marshal options: %w", err)
+	}
+	res, err := s.db.Conn().ExecContext(ctx, `
+		UPDATE profiles SET disc_type = ?, name = ?, engine = ?, format = ?,
+		                    preset = ?, options_json = ?, output_path_template = ?,
+		                    enabled = ?, step_count = ?, updated_at = ?
+		WHERE id = ?`,
+		string(p.DiscType), p.Name, p.Engine, p.Format, p.Preset,
+		optsJSON, p.OutputPathTemplate, boolToInt(p.Enabled),
+		p.StepCount, timestamp(p.UpdatedAt), p.ID)
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// DeleteProfile removes a profile. ON DELETE RESTRICT on jobs.profile_id
+// will cause this to error if any job references the profile.
+func (s *Store) DeleteProfile(ctx context.Context, id string) error {
+	res, err := s.db.Conn().ExecContext(ctx, `DELETE FROM profiles WHERE id = ?`, id)
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+func (s *Store) queryProfiles(ctx context.Context, q string, args ...any) ([]Profile, error) {
+	rows, err := s.db.Conn().QueryContext(ctx, q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	var out []Profile
+	for rows.Next() {
+		p, err := scanProfile(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, *p)
+	}
+	return out, rows.Err()
+}
+
+func scanProfile(r rowScanner) (*Profile, error) {
+	var p Profile
+	var dtype, optsJSON, createdStr, updatedStr string
+	var enabled int
+	if err := r.Scan(
+		&p.ID, &dtype, &p.Name, &p.Engine, &p.Format, &p.Preset,
+		&optsJSON, &p.OutputPathTemplate, &enabled,
+		&p.StepCount, &createdStr, &updatedStr,
+	); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
+	p.DiscType = DiscType(dtype)
+	p.Enabled = enabled != 0
+	opts, err := unmarshalOptions(optsJSON)
+	if err != nil {
+		return nil, fmt.Errorf("unmarshal options: %w", err)
+	}
+	p.Options = opts
+	if p.CreatedAt, err = parseTime(createdStr); err != nil {
+		return nil, fmt.Errorf("parse created_at: %w", err)
+	}
+	if p.UpdatedAt, err = parseTime(updatedStr); err != nil {
+		return nil, fmt.Errorf("parse updated_at: %w", err)
+	}
+	return &p, nil
+}
+
+func boolToInt(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
 }
