@@ -864,3 +864,51 @@ func (s *Store) AppendJobStepNotes(ctx context.Context, jobID string, step StepI
 	}
 	return tx.Commit()
 }
+
+// ---- LOG LINES ------------------------------------------------------------
+
+// AppendLogLine inserts one row.
+func (s *Store) AppendLogLine(ctx context.Context, l LogLine) error {
+	_, err := s.db.Conn().ExecContext(ctx, `
+		INSERT INTO log_lines (job_id, t, level, message) VALUES (?, ?, ?, ?)`,
+		l.JobID, timestamp(l.T), string(l.Level), l.Message)
+	return err
+}
+
+// TailLogLines returns the most recent n log lines for a job, oldest
+// first (the same order they'd appear in a follow-the-tail UI). n<=0
+// defaults to 200.
+func (s *Store) TailLogLines(ctx context.Context, jobID string, n int) ([]LogLine, error) {
+	if n <= 0 {
+		n = 200
+	}
+	rows, err := s.db.Conn().QueryContext(ctx, `
+		SELECT job_id, t, level, message FROM log_lines
+		WHERE job_id = ? ORDER BY id DESC LIMIT ?`, jobID, n)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	var reversed []LogLine
+	for rows.Next() {
+		var l LogLine
+		var tStr, level string
+		if err := rows.Scan(&l.JobID, &tStr, &level, &l.Message); err != nil {
+			return nil, err
+		}
+		l.Level = LogLevel(level)
+		t, err := parseTime(tStr)
+		if err != nil {
+			return nil, fmt.Errorf("parse t: %w", err)
+		}
+		l.T = t
+		reversed = append(reversed, l)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	for i, j := 0, len(reversed)-1; i < j; i, j = i+1, j-1 {
+		reversed[i], reversed[j] = reversed[j], reversed[i]
+	}
+	return reversed, nil
+}
