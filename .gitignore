@@ -1,0 +1,31 @@
+# Build output
+daemon/dist/
+daemon/discecho
+webui/.svelte-kit/
+webui/build/
+webui/node_modules/
+
+# Generated
+*.test
+*.out
+coverage.txt
+coverage.html
+
+# Local data + secrets
+data/
+config/
+.env
+.env.local
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+*.swp
+*~
+
+# Docker volumes mounted by compose
+.docker-data/
+
+# Design handoff bundle (reference only, not source)
+DiscEcho-handoff.zip
