@@ -789,3 +789,78 @@ func scanJobStep(r rowScanner) (*JobStep, error) {
 	}
 	return &st, nil
 }
+
+// UpdateJobStepState transitions a step's state. Sets started_at on
+// transitions to running; sets finished_at on transitions to
+// {done, skipped, failed}. Bumps attempt_count on every transition to
+// running (so "running again after failure" reads as a retry).
+func (s *Store) UpdateJobStepState(ctx context.Context, jobID string, step StepID, st JobStepState) error {
+	now := timestamp(time.Now())
+	q := `UPDATE job_steps SET state = ?`
+	args := []any{string(st)}
+	switch st {
+	case JobStepStateRunning:
+		q += `, started_at = COALESCE(NULLIF(started_at, ''), ?), attempt_count = attempt_count + 1`
+		args = append(args, now)
+	case JobStepStateDone, JobStepStateSkipped, JobStepStateFailed:
+		q += `, finished_at = ?`
+		args = append(args, now)
+	}
+	q += ` WHERE job_id = ? AND step = ?`
+	args = append(args, jobID, string(step))
+	res, err := s.db.Conn().ExecContext(ctx, q, args...)
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// AppendJobStepNotes merges the given map into the step's notes_json.
+// Concurrent appenders may race; M1.1's pipeline is single-writer per
+// step so this is acceptable.
+func (s *Store) AppendJobStepNotes(ctx context.Context, jobID string, step StepID, extra map[string]any) error {
+	if len(extra) == 0 {
+		return nil
+	}
+	tx, err := s.db.Conn().BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	var current string
+	row := tx.QueryRowContext(ctx,
+		`SELECT notes_json FROM job_steps WHERE job_id = ? AND step = ?`,
+		jobID, string(step))
+	if err := row.Scan(&current); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrNotFound
+		}
+		return err
+	}
+
+	merged := map[string]any{}
+	if current != "" {
+		if err := json.Unmarshal([]byte(current), &merged); err != nil {
+			return fmt.Errorf("unmarshal notes_json: %w", err)
+		}
+	}
+	for k, v := range extra {
+		merged[k] = v
+	}
+	encoded, err := json.Marshal(merged)
+	if err != nil {
+		return fmt.Errorf("marshal notes_json: %w", err)
+	}
+
+	if _, err := tx.ExecContext(ctx,
+		`UPDATE job_steps SET notes_json = ? WHERE job_id = ? AND step = ?`,
+		string(encoded), jobID, string(step)); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
