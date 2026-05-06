@@ -1,0 +1,22 @@
+Reading TOC...
+Found 5 tracks.
+
+Ripping track 1 of 5 (Track 1) ...
+  Reading: 12.3%, 8.0×, ETA: 0:50
+  Reading: 56.7%, 8.2×, ETA: 0:25
+  Reading: 99.1%, 8.4×, ETA: 0:01
+  Track 1 OK (AccurateRip: 87/200 confidence)
+Ripping track 2 of 5 (Track 2) ...
+  Reading: 30.0%, 8.5×, ETA: 0:35
+  Reading: 78.9%, 8.7×, ETA: 0:10
+  Track 2 OK (AccurateRip: 92/200 confidence)
+Ripping track 3 of 5 (Track 3) ...
+  Reading: 45.0%, 9.0×, ETA: 0:30
+  Track 3 OK (AccurateRip: 81/200 confidence)
+Ripping track 4 of 5 (Track 4) ...
+  Reading: 60.0%, 8.8×, ETA: 0:15
+  Track 4 OK (AccurateRip: 79/200 confidence)
+Ripping track 5 of 5 (Track 5) ...
+  Reading: 99.0%, 9.1×, ETA: 0:01
+  Track 5 OK (AccurateRip: 75/200 confidence)
+All tracks ripped.

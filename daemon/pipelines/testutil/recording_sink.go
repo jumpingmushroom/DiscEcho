@@ -1,0 +1,101 @@
+// Package testutil exposes the RecordingSink used by handler and
+// orchestrator tests. It implements pipelines.EventSink by appending
+// every call into a slice for later assertions.
+package testutil
+
+import (
+	"fmt"
+	"sync"
+
+	"github.com/jumpingmushroom/DiscEcho/daemon/state"
+)
+
+// EventKind discriminates between the recorded event types.
+type EventKind string
+
+const (
+	EventStart    EventKind = "step.start"
+	EventProgress EventKind = "step.progress"
+	EventLog      EventKind = "log"
+	EventDone     EventKind = "step.done"
+	EventFailed   EventKind = "step.failed"
+)
+
+// RecordedEvent is one captured Sink call.
+type RecordedEvent struct {
+	Kind       EventKind
+	Step       state.StepID
+	Pct        float64
+	Speed      string
+	ETASeconds int
+	Level      state.LogLevel
+	Message    string
+	Notes      map[string]any
+	Err        error
+}
+
+// RecordingSink implements pipelines.EventSink and records every call.
+type RecordingSink struct {
+	mu     sync.Mutex
+	Events []RecordedEvent
+}
+
+// NewRecordingSink returns an empty sink.
+func NewRecordingSink() *RecordingSink {
+	return &RecordingSink{}
+}
+
+func (r *RecordingSink) append(e RecordedEvent) {
+	r.mu.Lock()
+	r.Events = append(r.Events, e)
+	r.mu.Unlock()
+}
+
+// OnStepStart records a step.start event.
+func (r *RecordingSink) OnStepStart(s state.StepID) {
+	r.append(RecordedEvent{Kind: EventStart, Step: s})
+}
+
+// OnProgress records a step.progress event.
+func (r *RecordingSink) OnProgress(s state.StepID, pct float64, speed string, eta int) {
+	r.append(RecordedEvent{Kind: EventProgress, Step: s, Pct: pct, Speed: speed, ETASeconds: eta})
+}
+
+// OnLog records a log event. The format string and args are formatted
+// via fmt.Sprintf so callers can assert on the rendered Message.
+func (r *RecordingSink) OnLog(level state.LogLevel, format string, args ...any) {
+	r.append(RecordedEvent{Kind: EventLog, Level: level, Message: fmt.Sprintf(format, args...)})
+}
+
+// OnStepDone records a step.done event with optional notes.
+func (r *RecordingSink) OnStepDone(s state.StepID, notes map[string]any) {
+	r.append(RecordedEvent{Kind: EventDone, Step: s, Notes: notes})
+}
+
+// OnStepFailed records a step.failed event.
+func (r *RecordingSink) OnStepFailed(s state.StepID, err error) {
+	r.append(RecordedEvent{Kind: EventFailed, Step: s, Err: err})
+}
+
+// Snapshot returns a copy of Events for thread-safe inspection.
+func (r *RecordingSink) Snapshot() []RecordedEvent {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	out := make([]RecordedEvent, len(r.Events))
+	copy(out, r.Events)
+	return out
+}
+
+// StepSequence returns the ordered list of step IDs the sink saw start.
+// Useful for asserting "detect → identify → rip → ..." order.
+func (r *RecordingSink) StepSequence() []state.StepID {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	var out []state.StepID
+	for _, e := range r.Events {
+		if e.Kind == EventStart {
+			out = append(out, e.Step)
+		}
+	}
+	return out
+}

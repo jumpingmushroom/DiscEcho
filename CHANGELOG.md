@@ -23,6 +23,46 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - GitHub Actions release: container build and push to GHCR on `v*` tags.
 - PR template enforcing conventional-commit prefixes and verification
   checklist.
+- **M1.1 daemon-side audio CD pipeline (backend only).**
+  - `state` package: SQLite (modernc.org/sqlite, pure-Go, WAL) + 8-table
+    schema (drives, discs, profiles, jobs, job_steps, log_lines,
+    notifications, settings) with hand-rolled migration runner; typed
+    Store CRUD; in-process Broadcaster with slow-subscriber drop.
+  - `identify` package: TOC reader via `cdparanoia -Q`; MusicBrainz
+    disc-ID hashing (verified against the official algorithm);
+    MusicBrainz REST client with 1 req/sec rate limit; disc-type
+    classifier via `cd-info`.
+  - `tools` package: Tool/Sink/Registry interfaces; Whipper subprocess
+    wrapper with stdout progress parser; Apprise CLI wrapper (failures
+    are warned, never fail the job); Eject wrapper; MockTool for tests.
+  - `pipelines` package: Handler interface, Registry, output templating
+    (Go templates with path-traversal sanitization), atomic move with
+    cross-filesystem fallback, write probe, RecordingSink for tests.
+  - `pipelines/audiocd`: Handler implementation that ties it all
+    together — Identify (TOC + MB lookup) → Plan (8-step with
+    transcode+compress skipped) → Run (whipper rip → atomic move →
+    Apprise → eject).
+  - `jobs` package: PersistentSink (bridges pipeline events to SQLite +
+    Broadcaster, with 1Hz progress coalescing); Orchestrator with
+    per-drive serialization, ctx cancellation, and crash recovery
+    (interrupted state on startup).
+  - `api` package: bearer-token middleware (auto-generated to
+    `${DISCECHO_DATA}/token` on first start); REST endpoints for
+    `/api/state`, `/api/drives`, `/api/jobs`, `/api/discs/:id/start`,
+    `/api/profiles`, `/api/settings`; SSE stream at `/api/events` with
+    `state.snapshot` bootstrap and 9 event types.
+  - `settings` package: env loader, token bootstrap, profile + Apprise
+    URL seeding from `${DISCECHO_APPRISE_URLS}`.
+  - `drive.InitialScan`: enumerates `/dev/sr*` on startup and upserts
+    drives.
+  - `discflow` (in main): wires udev events → classifier → handler.Identify
+    → store + broadcaster.
+  - Runtime image now includes `whipper`, `cdparanoia`, `libcdio-utils`
+    (image grows from 156 MB to ~291 MB).
+  - `shared/wire.ts`: TypeScript types mirroring the JSON wire format
+    for the M1.2 mobile UI to consume.
+- Go module bumped to 1.25 (transitive requirement of
+  `modernc.org/sqlite`); Dockerfile and CI workflow aligned.
 
 ### Changed
 

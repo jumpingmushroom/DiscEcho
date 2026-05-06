@@ -1,0 +1,7 @@
+Reading TOC...
+Found 5 tracks.
+
+Ripping track 1 of 5 (Track 1) ...
+  Reading: 12.0%, 8.0×, ETA: 0:50
+ERROR: Read failure at sector 12345 (CRC mismatch).
+Aborting rip.

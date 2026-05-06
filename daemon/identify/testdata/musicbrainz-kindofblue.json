@@ -1,0 +1,20 @@
+{
+  "id": "abc123-disc-id",
+  "releases": [
+    {
+      "id": "kb-1959",
+      "title": "Kind of Blue",
+      "date": "1959-08-17",
+      "score": 94,
+      "artist-credit": [{"artist": {"name": "Miles Davis"}}]
+    },
+    {
+      "id": "kb-1997",
+      "title": "Kind of Blue",
+      "date": "1997-09-23",
+      "score": 81,
+      "disambiguation": "1997 remaster",
+      "artist-credit": [{"artist": {"name": "Miles Davis"}}]
+    }
+  ]
+}

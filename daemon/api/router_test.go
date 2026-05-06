@@ -9,7 +9,7 @@ import (
 )
 
 func TestRouterRoutes(t *testing.T) {
-	r := api.NewRouter(nil)
+	r := api.NewRouter(&api.Handlers{}, nil)
 	srv := httptest.NewServer(r)
 	defer srv.Close()
 
@@ -26,7 +26,7 @@ func TestRouterRoutes(t *testing.T) {
 }
 
 func TestRouterUnknownReturns404(t *testing.T) {
-	r := api.NewRouter(nil)
+	r := api.NewRouter(&api.Handlers{}, nil)
 	srv := httptest.NewServer(r)
 	defer srv.Close()
 
