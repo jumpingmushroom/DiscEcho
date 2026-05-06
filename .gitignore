@@ -29,3 +29,7 @@ config/
 
 # Design handoff bundle (reference only, not source)
 DiscEcho-handoff.zip
+
+# AI-specific planning artifacts live outside the repo
+docs/superpowers/
+
