@@ -189,6 +189,29 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
   - No daemon changes; no wire-type changes. The orchestrator's
     per-drive worker model from M1.1 already supports this; M3.2
     just surfaces it.
+- **M4.1 desktop shell + dashboard.**
+  - `+layout.svelte` mounts a desktop top-nav (`TopNav.svelte`) visible
+    only at the `lg:` breakpoint (1024px) and up. Brand mark on the
+    left, four section links centred (`Dashboard / History / Profiles
+    / System`), `LiveDot` on the right. Active section detected via
+    `$page.url.pathname`.
+  - `+page.svelte` becomes a viewport-driven dispatcher that picks
+    `MobileDashboard` (verbatim move of the M3.2 content) below `lg:`
+    and the new `DesktopDashboard` above. Mobile dashboard behaviour
+    unchanged.
+  - `DesktopDashboard` composes a hero band of compact `DriveHeroCard`
+    components (CSS grid auto-fit, 1-3 drives), a `QueueTable` (real
+    `<table>` with type/title/drv/step/pct/ETA columns), and a sticky
+    `JobDetailPanel` with `PipelineStepperHorizontal` + 12-line log
+    tail.
+  - New `selectedJobID` writable in the store. Default `null`;
+    `DesktopDashboard` falls back to the first running job when nothing
+    is explicitly selected. Click queue row or hero drive card to set.
+  - `/profiles` and `/system` get placeholder pages so the new top-nav
+    links land somewhere instead of 404'ing. Their content stays
+    mobile-style on desktop until M4.2 polishes them desktop-native.
+  - No daemon changes; no wire-type changes. M4.2 ships keyboard
+    shortcuts, ⌘K palette, and desktop-native History/Profiles/System.
 
 ### Changed
 

@@ -9,6 +9,7 @@ import {
   logs,
   liveStatus,
   pendingDiscID,
+  selectedJobID,
   bootstrap,
   handleSSEEvent,
   startDisc,
@@ -442,5 +443,22 @@ describe('manualIdentify', () => {
     await manualIdentify('disc-1', 'X');
     const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
     expect(body.media_type).toBe('both');
+  });
+});
+
+describe('selectedJobID', () => {
+  beforeEach(() => {
+    selectedJobID.set(null);
+  });
+
+  it('defaults to null', () => {
+    expect(get(selectedJobID)).toBeNull();
+  });
+
+  it('can be set and cleared', () => {
+    selectedJobID.set('job-1');
+    expect(get(selectedJobID)).toBe('job-1');
+    selectedJobID.set(null);
+    expect(get(selectedJobID)).toBeNull();
   });
 });
