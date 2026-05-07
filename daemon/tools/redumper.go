@@ -13,11 +13,20 @@ import (
 	"sync"
 )
 
-// Redumper wraps the redumper binary. Used by the PSX and PS2
+// Redumper wraps the redumper binary. Used by the PSX, PS2, and Xbox
 // pipelines for the rip step. Output is .bin/.cue (CD media) or .iso
-// (DVD media); the caller passes the media mode at Rip time.
+// (DVD/Xbox media); the caller passes the media mode at Rip time.
 type Redumper struct {
 	bin string
+}
+
+// RedumperOutputExt returns the primary output file extension for the
+// given redumper mode: ".cue" for cd, ".iso" for dvd and xbox.
+func RedumperOutputExt(mode string) string {
+	if mode == "cd" {
+		return ".cue"
+	}
+	return ".iso"
 }
 
 // NewRedumper returns a Redumper. Empty bin defaults to "redumper".
@@ -34,18 +43,20 @@ func NewRedumper(bin string) *Redumper {
 func (r *Redumper) Name() string { return "redumper" }
 
 // Rip dumps the disc to outDir using the given base name. mode is
-// "cd" or "dvd"; chooses the right redumper subcommand and output
-// extension.
+// "cd", "dvd", or "xbox"; chooses the right redumper subcommand and
+// output extension.
 //
-//	cd  → redumper cd  --drive <devPath> --image-path <outDir>/<name>
-//	      → produces <name>.bin + <name>.cue
-//	dvd → redumper dvd --drive <devPath> --image-path <outDir>/<name>
-//	      → produces <name>.iso
+//	cd   → redumper cd   --drive <devPath> --image-path <outDir>/<name>
+//	       → produces <name>.bin + <name>.cue
+//	dvd  → redumper dvd  --drive <devPath> --image-path <outDir>/<name>
+//	       → produces <name>.iso
+//	xbox → redumper xbox --drive <devPath> --image-path <outDir>/<name>
+//	       → produces <name>.iso  (XGD security sectors handled by redumper)
 //
 // Streams progress to sink via ParseRedumperProgress.
 func (r *Redumper) Rip(ctx context.Context, devPath, outDir, name, mode string, sink Sink) error {
-	if mode != "cd" && mode != "dvd" {
-		return fmt.Errorf("redumper: unknown mode %q (want cd|dvd)", mode)
+	if mode != "cd" && mode != "dvd" && mode != "xbox" {
+		return fmt.Errorf("redumper: unknown mode %q (want cd|dvd|xbox)", mode)
 	}
 	imagePath := filepath.Join(outDir, name)
 	args := []string{mode, "--drive", devPath, "--image-path", imagePath}
