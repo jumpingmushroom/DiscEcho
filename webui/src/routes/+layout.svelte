@@ -2,7 +2,10 @@
   import '../app.css';
   import { onMount, onDestroy } from 'svelte';
   import { bootstrap, connect } from '$lib/store';
+  import { initPWA } from '$lib/pwa';
   import TopNav from '$lib/components/desktop/TopNav.svelte';
+  import UpdateToast from '$lib/components/UpdateToast.svelte';
+  import IOSInstallHint from '$lib/components/IOSInstallHint.svelte';
 
   let disconnect: (() => void) | null = null;
 
@@ -13,6 +16,7 @@
       console.error('bootstrap failed', e);
     }
     disconnect = connect();
+    initPWA();
   });
 
   onDestroy(() => {
@@ -22,6 +26,8 @@
 
 <TopNav />
 <slot />
+<UpdateToast />
+<IOSInstallHint />
 
 <style>
   :global(body) {
