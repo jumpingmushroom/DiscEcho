@@ -8,6 +8,7 @@
   export let drive: Drive;
   export let disc: Disc | undefined = undefined;
   export let job: Job | undefined = undefined;
+  export let queuedCount: number = 0;
 
   const dispatch = createEventDispatcher<{ click: void }>();
 </script>
@@ -30,11 +31,21 @@
         <div class="mt-2 text-[12px] text-text-3">Idle</div>
       {/if}
     </div>
-    <div
-      class="text-[10px] font-medium uppercase tracking-[0.14em]"
-      style="color: {drive.state === 'idle' ? 'var(--text-3)' : 'var(--accent)'}"
-    >
-      {drive.state}
+    <div class="flex flex-col items-end gap-1">
+      <div
+        class="text-[10px] font-medium uppercase tracking-[0.14em]"
+        style="color: {drive.state === 'idle' ? 'var(--text-3)' : 'var(--accent)'}"
+      >
+        {drive.state}
+      </div>
+      {#if queuedCount > 0}
+        <span
+          class="rounded px-1 py-0.5 font-mono text-[10px] tracking-[0.14em]"
+          style="background: var(--surface-2); color: var(--text-3)"
+        >
+          +{queuedCount} queued
+        </span>
+      {/if}
     </div>
   </div>
 
