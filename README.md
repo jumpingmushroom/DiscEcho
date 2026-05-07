@@ -86,6 +86,34 @@ If a UHD disc is inserted and `KEYDB.cfg` is missing, the job fails
 fast at the identify step with a clear error before any disc read.
 Regular BDMV (Blu-ray) discs do not need this file.
 
+### PSX / PS2 setup
+
+DiscEcho's PlayStation 1 (PSX) and PlayStation 2 (PS2) pipelines use
+[redumper](https://github.com/superg/redumper) for ripping and
+[chdman](https://github.com/mamedev/mame) (from MAME tools) for CHD
+compression. They match each disc against [Redump](http://redump.org/)
+for identification.
+
+Drop your Redump dat files at:
+
+```
+${DISCECHO_DATA}/redump/psx.dat
+${DISCECHO_DATA}/redump/ps2.dat
+```
+
+Sourced from <http://redump.org/datfile/psx/> and
+<http://redump.org/datfile/ps2/>. Refresh manually as Redump adds new
+dumps. **DiscEcho does not auto-download or redistribute these
+files.**
+
+If a dat is missing, that disc-type's auto-identification falls back
+to manual search via the new-disc sheet. The daemon still starts; only
+game-disc auto-ID is affected.
+
+Disc detection is automatic: when the classifier sees a disc with
+`/SYSTEM.CNF` it parses the `BOOT[2]=` line to distinguish PSX from
+PS2 and routes to the right handler.
+
 ## Dev setup
 
 You need:

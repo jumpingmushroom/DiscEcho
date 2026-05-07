@@ -212,6 +212,42 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
     mobile-style on desktop until M4.2 polishes them desktop-native.
   - No daemon changes; no wire-type changes. M4.2 ships keyboard
     shortcuts, ⌘K palette, and desktop-native History/Profiles/System.
+- **M5.1 daemon-side PSX + PS2 game-disc pipelines.**
+  - `pipelines/psx` handler: identifies via SYSTEM.CNF boot code →
+    Redump dat lookup, rips with redumper (`cd` mode) producing
+    `.bin/.cue`, MD5-verifies against the dat entry (warns on
+    mismatch but doesn't abort), compresses to CHD with chdman,
+    atomic-moves to library. Output template
+    `{{.Title}} ({{.Region}})/{{.Title}} ({{.Region}}).chd`.
+  - `pipelines/ps2` handler: same shape but redumper `dvd` mode
+    producing `.iso`; chdman auto-picks `createdvd` from the
+    extension.
+  - `tools/redumper.go`: thin wrapper with `Rip(devPath, outDir,
+    name, mode, sink)` and a pure progress-line parser
+    (`ParseRedumperProgress`).
+  - `tools/chdman.go`: thin wrapper with `CreateCHD(input, output,
+    sink)` that auto-picks `createcd` (.cue) vs `createdvd` (.iso).
+  - `identify/redump.go`: Redump dat-file XML loader with
+    boot-code + MD5 indexes.
+  - `identify/redumpprobe.go`: SYSTEM.CNF reader (via `isoinfo -x`)
+    with PSX/PS2 discrimination via the `BOOT` vs `BOOT2` prefix.
+    Normalises PS2's 5-digit boot code (`SCES_50051`) to the dotted
+    form (`SCES_500.51`) so it matches Redump dat-file keys.
+  - Classifier extended with a fourth probe — when fs listing shows
+    `/SYSTEM.CNF`, the classifier reads it and routes to PSX or PS2.
+    Falls back to DATA when SYSTEM.CNF is unreadable (conservative,
+    same posture as M3.1's `bd_info`-fails-default-to-BDMV).
+  - Two new seeded profiles: `PSX-CHD` (PSX) and `PS2-CHD` (PS2),
+    both with engine `redumper+chdman` and the CHD output template.
+  - `state.Candidate` gains an optional `region` field; wire type
+    mirrored. `pipelines.OutputFields` gains `Region` for templates.
+  - New env vars: `DISCECHO_REDUMPER_BIN` (default `redumper`),
+    `DISCECHO_CHDMAN_BIN` (default `chdman`), `DISCECHO_REDUMP_DIR`
+    (default `${DISCECHO_DATA}/redump`).
+  - Runtime image gains `mame-tools` (chdman, ~2 MB) and a
+    pre-built static `redumper` binary from the GitHub releases
+    page (~3 MB, `b720` build, `linux-x64.zip`). No build-from-source.
+  - README documents the user-supplied Redump dat-file workflow.
 
 ### Changed
 
