@@ -1,7 +1,18 @@
 import { writable } from 'svelte/store';
 import { apiGet, apiPost } from './api';
 import { connectSSE, type LiveStatus } from './sse';
-import type { Drive, Disc, Job, Profile, LogLevel, SnapshotPayload } from './wire';
+import type {
+  Drive,
+  Disc,
+  Job,
+  Profile,
+  LogLevel,
+  SnapshotPayload,
+  HistoryRow as HRow,
+  HistoryResponse,
+  DiscType,
+  Candidate,
+} from './wire';
 
 export interface LogLine {
   job_id: string;
@@ -201,4 +212,93 @@ export async function cancelJob(jobID: string): Promise<void> {
 
 export async function ejectDrive(driveID: string): Promise<void> {
   await apiPost<void>(`/api/drives/${driveID}/eject`);
+}
+
+// ----- History --------------------------------------------------------------
+
+export const history = writable<HRow[]>([]);
+export const historyTotal = writable<number>(0);
+export const historyLoading = writable<boolean>(false);
+export const historyError = writable<string | null>(null);
+export const historyFilter = writable<DiscType | ''>('');
+
+const HISTORY_PAGE_SIZE = 50;
+
+/**
+ * fetchHistoryPage replaces (offset=0) or appends (offset>0) into the
+ * history store. Tracks loading/error state. Returns the count of rows
+ * appended/replaced so callers can detect "no more pages".
+ *
+ * On HTTP error: historyError is set with a short message; previous
+ * rows stay so retry doesn't blank the screen.
+ */
+export async function fetchHistoryPage(filter: DiscType | '', offset: number): Promise<number> {
+  historyLoading.set(true);
+  historyError.set(null);
+  try {
+    const params = new URLSearchParams();
+    if (filter) params.set('type', filter);
+    params.set('limit', String(HISTORY_PAGE_SIZE));
+    params.set('offset', String(offset));
+    const url = `/api/history?${params.toString()}`;
+
+    const res = await fetch(url, { method: 'GET' });
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      throw new Error(`HTTP ${res.status}${body ? ': ' + body : ''}`);
+    }
+    const payload = (await res.json()) as HistoryResponse;
+    const rows = payload.rows ?? [];
+
+    if (offset === 0) {
+      history.set(rows);
+    } else {
+      history.update((cur) => [...cur, ...rows]);
+    }
+    historyTotal.set(payload.total);
+    return rows.length;
+  } catch (e) {
+    historyError.set((e as Error).message);
+    return 0;
+  } finally {
+    historyLoading.set(false);
+  }
+}
+
+// ----- Manual identify ------------------------------------------------------
+
+/**
+ * manualIdentify hits POST /api/discs/:id/identify with a search query
+ * and updates the disc in the discs store with the refreshed candidates.
+ * Returns the new candidates list.
+ */
+export async function manualIdentify(
+  discID: string,
+  query: string,
+  mediaType: 'movie' | 'tv' | 'both' = 'both',
+): Promise<Candidate[]> {
+  const body = { query, media_type: mediaType };
+  const res = await fetch(`/api/discs/${discID}/identify`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const txt = await res.text().catch(() => '');
+    throw new Error(`HTTP ${res.status}${txt ? ': ' + txt : ''}`);
+  }
+  const payload = (await res.json()) as {
+    disc: { id: string; candidates: Candidate[] } & Record<string, unknown>;
+    candidates: Candidate[];
+  };
+  const cands = payload.candidates ?? [];
+
+  // Update the disc in the global store with the refreshed candidates.
+  discs.update((m) => {
+    const existing = m[discID];
+    if (!existing) return m;
+    return { ...m, [discID]: { ...existing, candidates: cands } };
+  });
+
+  return cands;
 }
