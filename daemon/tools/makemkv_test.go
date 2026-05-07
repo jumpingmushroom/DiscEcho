@@ -3,6 +3,7 @@ package tools_test
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"os"
 	"strings"
 	"testing"
@@ -19,8 +20,8 @@ type captureSink struct {
 func (c *captureSink) Progress(pct float64, _ string, _ int) {
 	c.progress = append(c.progress, pct)
 }
-func (c *captureSink) Log(_ state.LogLevel, format string, _ ...any) {
-	c.logs = append(c.logs, format)
+func (c *captureSink) Log(_ state.LogLevel, format string, args ...any) {
+	c.logs = append(c.logs, fmt.Sprintf(format, args...))
 }
 
 func TestMakeMKVParseInfo_BDMV(t *testing.T) {

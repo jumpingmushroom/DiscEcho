@@ -195,12 +195,11 @@ func ParseMakeMKVProgressStream(r io.Reader, sink Sink) {
 		case strings.HasPrefix(line, "PRGC:"):
 			label := unquoteMakeMKVLast(strings.TrimPrefix(line, "PRGC:"))
 			if label != "" {
-				// Pass the label as the format string (no args) so
-				// recording sinks that capture only the format see
-				// the operation label. Any literal '%' in a label is
-				// rendered verbatim by callers via fmt — acceptable
-				// because MakeMKV labels are fixed English strings.
-				sink.Log(state.LogLevelInfo, label)
+				// Pass the label as a %s argument, not as the format
+				// string. Production sinks call fmt.Sprintf on the
+				// format, so a literal '%' in a future MakeMKV label
+				// would render as %!<verb>(MISSING) and corrupt logs.
+				sink.Log(state.LogLevelInfo, "%s", label)
 			}
 		}
 	}
