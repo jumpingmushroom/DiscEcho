@@ -104,20 +104,36 @@ cuesheet, moved to library. Drive 1 only.
 
 **Goal:** desktop view brought to feature parity with the mock.
 
-**Deliverables:**
+**Status:** Shipped as **M4.1** (PR #8). Originally planned to be split
+into M4.1 (shell + dashboard) and M4.2 (keyboard shortcuts, ⌘K palette,
+desktop-native sub-sections); M4.2 was dropped on 2026-05-07 — see
+"Dropped from M4" below.
 
-- Desktop top-nav, sections (`dashboard`, `history`, `profiles`, `system`).
-- Desktop dashboard hero drive + queue table + right-side job-detail
-  panel + horizontal pipeline stepper.
-- Keyboard shortcuts (`g d / g h / g p / g s`, `esc`).
-- `⌘K` quick-jump (cosmetic only initially: search across drives, jobs,
-  history titles).
-- SSE reconnection + diff reconciliation on reconnect.
+**Deliverables (shipped in M4.1):**
 
-**Acceptance:**
+- Desktop top-nav, four sections (`dashboard`, `history`, `profiles`,
+  `system`).
+- Desktop dashboard hero drive band + queue table + right-side
+  job-detail panel + horizontal pipeline stepper.
+- SSE live updates (already worked via `state.snapshot` reconcile on
+  reconnect from M1.2 — no extra hardening needed).
 
-- Open desktop URL, see live updates without page reload.
-- Click a queue row → right-side panel updates without flicker.
+**Dropped from M4:**
+
+- **Keyboard shortcuts** (`g d / g h / g p / g s`, `esc`) — not needed
+  for mobile-first usage.
+- **⌘K quick-jump palette** — same reason; keyboard-driven.
+- **Desktop-native `/history`** — current mobile-style layout works on
+  desktop. Polish only, no functional gap. Skipped.
+- **Desktop-native `/profiles`** — naturally absorbed by M5's profile
+  editor (built desktop-aware from day one).
+- **Desktop-native `/system`** — naturally absorbed by M6's system
+  settings UI.
+
+**Acceptance (met by M4.1):**
+
+- Open desktop URL, see live updates without page reload. ✓
+- Click a queue row → right-side panel updates without flicker. ✓
 
 ## M5 — Profile editor + game discs
 
