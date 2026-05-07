@@ -69,6 +69,16 @@ var engineSchemas = map[string]EngineSchema{
 		Options:   map[string]OptionSchema{},
 		StepCount: 7,
 	},
+	"redumper": {
+		Formats:   []string{"ISO"},
+		Options:   map[string]OptionSchema{},
+		StepCount: 5,
+	},
+	"dd": {
+		Formats:   []string{"ISO"},
+		Options:   map[string]OptionSchema{},
+		StepCount: 5,
+	},
 }
 
 // ValidationError is one field-level issue with a submitted profile.

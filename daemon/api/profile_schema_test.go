@@ -121,3 +121,63 @@ func TestValidateProfile_AcceptsFloat64ForInt(t *testing.T) {
 		}
 	}
 }
+
+func TestValidateProfile_RedumperEngine(t *testing.T) {
+	p := &state.Profile{
+		DiscType:           state.DiscTypeXBOX,
+		Name:               "X",
+		Engine:             "redumper",
+		Format:             "ISO",
+		Options:            map[string]any{},
+		OutputPathTemplate: "{{.Title}}.iso",
+		StepCount:          5,
+	}
+	if errs := api.ValidateProfile(p); len(errs) != 0 {
+		t.Fatalf("expected valid; got %v", errs)
+	}
+}
+
+func TestValidateProfile_RedumperRejectsBadFormat(t *testing.T) {
+	p := &state.Profile{
+		DiscType:           state.DiscTypeXBOX,
+		Name:               "X",
+		Engine:             "redumper",
+		Format:             "MKV",
+		Options:            map[string]any{},
+		OutputPathTemplate: "{{.Title}}.mkv",
+		StepCount:          5,
+	}
+	if errs := api.ValidateProfile(p); len(errs) == 0 {
+		t.Fatal("expected validation errors")
+	}
+}
+
+func TestValidateProfile_DDEngine(t *testing.T) {
+	p := &state.Profile{
+		DiscType:           state.DiscTypeData,
+		Name:               "D",
+		Engine:             "dd",
+		Format:             "ISO",
+		Options:            map[string]any{},
+		OutputPathTemplate: "{{.Title}}.iso",
+		StepCount:          5,
+	}
+	if errs := api.ValidateProfile(p); len(errs) != 0 {
+		t.Fatalf("expected valid; got %v", errs)
+	}
+}
+
+func TestValidateProfile_DDRejectsOptions(t *testing.T) {
+	p := &state.Profile{
+		DiscType:           state.DiscTypeData,
+		Name:               "D",
+		Engine:             "dd",
+		Format:             "ISO",
+		Options:            map[string]any{"foo": "bar"},
+		OutputPathTemplate: "{{.Title}}.iso",
+		StepCount:          5,
+	}
+	if errs := api.ValidateProfile(p); len(errs) == 0 {
+		t.Fatal("expected validation errors for unknown option")
+	}
+}
