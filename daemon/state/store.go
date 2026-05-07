@@ -251,6 +251,26 @@ func (s *Store) ListDiscsForDrive(ctx context.Context, driveID string) ([]Disc, 
 	return out, rows.Err()
 }
 
+// UpdateDiscCandidates replaces the candidates JSON for an existing disc.
+// Used by the identify endpoint when the user supplies a manual TMDB
+// query and we want to persist the new candidate list.
+func (s *Store) UpdateDiscCandidates(ctx context.Context, id string, cands []Candidate) error {
+	body, err := marshalCandidates(cands)
+	if err != nil {
+		return fmt.Errorf("marshal candidates: %w", err)
+	}
+	res, err := s.db.Conn().ExecContext(ctx,
+		`UPDATE discs SET candidates_json = ? WHERE id = ?`, body, id)
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
 // nullString returns a sql.NullString that's NULL on the empty string,
 // used for nullable FK columns. SQLite ON DELETE SET NULL needs real
 // NULLs to work; an empty-string value would never match.

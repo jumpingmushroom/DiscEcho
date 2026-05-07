@@ -17,5 +17,6 @@ type Handlers struct {
 	Orchestrator *jobs.Orchestrator
 	Pipelines    *pipelines.Registry
 	Classifier   identify.Classifier
+	TMDB         identify.TMDBClient
 	Token        string
 }
