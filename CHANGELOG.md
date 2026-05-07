@@ -174,6 +174,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
     `makemkvcon` links against. Image-size trim is a future task.
   - README documents the MakeMKV beta-key refresh cadence and
     where to drop `KEYDB.cfg` for UHD.
+- **M3.2 mobile multi-drive UI polish.**
+  - `JobRow` shows a `drive_id` chip after the title, so with two
+    drives running concurrently you can tell which row belongs to
+    which drive.
+  - Jobs in `queued` state render a `QUEUED` badge instead of the
+    misleading `0%` placeholder. ETA hidden in this state.
+  - `DriveCard` gains a `+N queued` pill (next to the state label)
+    when more than one job targets the same drive.
+  - Dashboard hero-band caption decomposes when both rip and queue
+    counts are non-zero — e.g. `1 rip · 2 queued` — instead of a
+    plain `3 jobs` that flattens the multi-drive picture.
+  - Active-queue list stably sorts running jobs above queued ones.
+  - No daemon changes; no wire-type changes. The orchestrator's
+    per-drive worker model from M1.1 already supports this; M3.2
+    just surfaces it.
 
 ### Changed
 
