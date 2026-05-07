@@ -120,7 +120,9 @@ type Candidate struct {
 	Artist     string `json:"artist,omitempty"`
 	Year       int    `json:"year,omitempty"`
 	Confidence int    `json:"confidence"`
-	MBID       string `json:"mbid"`
+	MBID       string `json:"mbid,omitempty"`
+	TMDBID     int    `json:"tmdb_id,omitempty"`
+	MediaType  string `json:"media_type,omitempty"` // 'movie' | 'tv' | '' (audio CD)
 }
 
 // Disc is a row of the `discs` table.
