@@ -1,0 +1,22 @@
+<?xml version="1.0"?>
+<datafile>
+  <header>
+    <name>Sony - PlayStation</name>
+    <description>Sony - PlayStation - Redump.org sample</description>
+    <version>2026-05-01</version>
+    <author>redump.org</author>
+  </header>
+  <game name="Final Fantasy VII (USA) (Disc 1)">
+    <description>Final Fantasy VII (USA) (Disc 1)</description>
+    <rom name="Final Fantasy VII (USA) (Disc 1) [SCUS_004.34].bin" size="747018144" crc="aaaaaaaa" md5="d41d8cd98f00b204e9800998ecf8427e" sha1="da39a3ee5e6b4b0d3255bfef95601890afd80709"/>
+    <rom name="Final Fantasy VII (USA) (Disc 1) [SCUS_004.34].cue" size="84" crc="bbbbbbbb" md5="cccccccccccccccccccccccccccccccc" sha1="dddddddddddddddddddddddddddddddddddddddd"/>
+  </game>
+  <game name="Metal Gear Solid (USA) (Disc 1)">
+    <description>Metal Gear Solid (USA) (Disc 1)</description>
+    <rom name="Metal Gear Solid (USA) (Disc 1) [SLUS_005.94].bin" size="649984080" crc="11111111" md5="11111111111111111111111111111111" sha1="2222222222222222222222222222222222222222"/>
+  </game>
+  <game name="Final Fantasy IX (Europe) (Disc 1)">
+    <description>Final Fantasy IX (Europe) (Disc 1)</description>
+    <rom name="Final Fantasy IX (Europe) (Disc 1) [SLES_028.42].bin" size="744448320" crc="33333333" md5="33333333333333333333333333333333" sha1="4444444444444444444444444444444444444444"/>
+  </game>
+</datafile>
