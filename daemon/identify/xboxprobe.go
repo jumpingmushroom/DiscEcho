@@ -18,23 +18,15 @@ type XboxInfo struct {
 	Region  string // "USA", "Japan", "ROW", "World", or "" if no flags set
 }
 
-// ProbeXbox reads <mountPoint>/default.xbe and parses the XBE header
-// + certificate for title ID and allowed-region bitfield.
+// ProbeXBE parses an XBE binary blob. The xbox pipeline uses this with
+// `isoinfo -x /default.xbe` to identify a disc without mounting it.
 //
 // XBE layout we care about:
 //   - magic "XBEH" at offset 0
 //   - base address (uint32 LE) at 0x104
 //   - certificate offset (uint32 LE, in XBE virtual address space) at 0x118
 //   - inside the certificate: title ID at +0x8, regions at +0xC8
-func ProbeXbox(mountPoint string) (*XboxInfo, error) {
-	path := filepath.Join(mountPoint, "default.xbe")
-	data, err := os.ReadFile(path)
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return nil, ErrNotXbox
-		}
-		return nil, fmt.Errorf("read default.xbe: %w", err)
-	}
+func ProbeXBE(data []byte) (*XboxInfo, error) {
 	if len(data) < 0x180 || !bytes.HasPrefix(data, []byte("XBEH")) {
 		return nil, ErrNotXbox
 	}
@@ -53,6 +45,20 @@ func ProbeXbox(mountPoint string) (*XboxInfo, error) {
 		TitleID: titleID,
 		Region:  xboxRegionString(regions),
 	}, nil
+}
+
+// ProbeXbox reads <mountPoint>/default.xbe and parses the XBE header
+// + certificate for title ID and allowed-region bitfield.
+func ProbeXbox(mountPoint string) (*XboxInfo, error) {
+	path := filepath.Join(mountPoint, "default.xbe")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, ErrNotXbox
+		}
+		return nil, fmt.Errorf("read default.xbe: %w", err)
+	}
+	return ProbeXBE(data)
 }
 
 func xboxRegionString(flags uint32) string {

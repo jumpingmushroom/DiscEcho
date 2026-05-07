@@ -74,3 +74,38 @@ func TestProbeXbox_BadMagic(t *testing.T) {
 		t.Fatalf("expected ErrNotXbox, got %v", err)
 	}
 }
+
+// TestProbeXBE_Bytes exercises the bytes-only parser used by the xbox pipeline
+// via the isoinfo prober path.
+func TestProbeXBE_Bytes(t *testing.T) {
+	dir := t.TempDir()
+	path := writeXBE(t, dir, 0x10000, 0x10180, 0x4D530002, 0x01) // USA
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	info, err := ProbeXBE(data)
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
+	if info.TitleID != 0x4D530002 {
+		t.Fatalf("title id: got %#x", info.TitleID)
+	}
+	if info.Region != "USA" {
+		t.Fatalf("region: got %q", info.Region)
+	}
+}
+
+func TestProbeXBE_BadMagic(t *testing.T) {
+	_, err := ProbeXBE([]byte("nope"))
+	if !errors.Is(err, ErrNotXbox) {
+		t.Fatalf("expected ErrNotXbox, got %v", err)
+	}
+}
+
+func TestProbeXBE_TooShort(t *testing.T) {
+	_, err := ProbeXBE([]byte("XBEH"))
+	if !errors.Is(err, ErrNotXbox) {
+		t.Fatalf("expected ErrNotXbox, got %v", err)
+	}
+}
