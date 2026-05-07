@@ -39,7 +39,7 @@ func LoadRedumpDB(path string) (*RedumpDB, error) {
 	if err != nil {
 		return nil, fmt.Errorf("open redump dat: %w", err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	type romXML struct {
 		Name string `xml:"name,attr"`

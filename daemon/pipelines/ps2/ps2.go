@@ -233,7 +233,7 @@ func md5File(path string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	h := md5.New()
 	if _, err := io.Copy(h, f); err != nil {
 		return "", err
