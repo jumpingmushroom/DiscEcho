@@ -1,0 +1,17 @@
+redumper v2024.06.16 build_0
+* drive path: /dev/sr0
+* image path prefix: /tmp/disc
+* dump start
+LBA: 0/333000
+LBA: 16500/333000
+Speed: 8.2x
+LBA: 33000/333000
+Speed: 8.4x
+LBA: 165000/333000
+Speed: 8.5x
+LBA: 333000/333000
+* dump end
+* checksum:
+  CRC32: aabbccdd
+  MD5  : d41d8cd98f00b204e9800998ecf8427e
+  SHA1 : da39a3ee5e6b4b0d3255bfef95601890afd80709

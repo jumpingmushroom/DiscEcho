@@ -37,6 +37,7 @@ export interface Candidate {
   title: string;
   artist?: string;
   year?: number;
+  region?: string;
   confidence: number;
   mbid?: string;
   tmdb_id?: number;

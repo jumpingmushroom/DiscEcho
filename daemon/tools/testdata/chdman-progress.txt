@@ -1,0 +1,8 @@
+chdman - MAME Compressed Hunks of Data (CHD) manager 0.272
+Output CHD:   /tmp/disc.chd
+Input file:   /tmp/disc.cue
+Compressing, 0.0% complete... (ratio=100.0%)
+Compressing, 12.5% complete... (ratio=68.0%)
+Compressing, 50.0% complete... (ratio=64.5%)
+Compressing, 100.0% complete... (ratio=63.2%)
+Compression complete ... final ratio = 63.2%

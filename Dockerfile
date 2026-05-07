@@ -79,6 +79,7 @@ RUN echo "deb http://deb.debian.org/debian bookworm main contrib" \
         handbrake-cli libdvd-pkg genisoimage \
         libbluray-bdj libbluray2 libbluray-bin \
         libssl3 libexpat1 libavcodec59 \
+        mame-tools \
  && DEBIAN_FRONTEND=noninteractive dpkg-reconfigure libdvd-pkg \
  && rm -rf /var/lib/apt/lists/* \
  && pip install --no-cache-dir apprise
@@ -87,6 +88,18 @@ RUN echo "deb http://deb.debian.org/debian bookworm main contrib" \
 COPY --from=makemkv-build /usr/bin/makemkvcon /usr/bin/makemkvcon
 COPY --from=makemkv-build /lib/libmakemkv.so.1 /lib/libmakemkv.so.1
 COPY --from=makemkv-build /lib/libdriveio.so.0 /lib/libdriveio.so.0
+
+# redumper — pre-built static Linux binary released on GitHub.
+# Pinned via REDUMPER_VERSION build arg.
+ARG REDUMPER_VERSION=b720
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends curl unzip ca-certificates \
+ && curl -fsSLo /tmp/redumper.zip \
+        "https://github.com/superg/redumper/releases/download/${REDUMPER_VERSION}/redumper-${REDUMPER_VERSION}-linux-x64.zip" \
+ && unzip /tmp/redumper.zip -d /tmp/redumper \
+ && install -m 0755 /tmp/redumper/redumper-${REDUMPER_VERSION}-linux-x64/bin/redumper /usr/local/bin/redumper \
+ && apt-get purge -y --auto-remove curl unzip \
+ && rm -rf /var/lib/apt/lists/* /tmp/redumper /tmp/redumper.zip
 
 WORKDIR /app
 COPY --from=daemon-build /out/discecho /app/discecho
