@@ -31,3 +31,33 @@ export function relativeTime(iso: string, now: Date = new Date()): string {
   if (diffSec < 86400) return `${Math.floor(diffSec / 3600)}h ago`;
   return t.toLocaleString();
 }
+
+/**
+ * dayGroupLabel returns a human-friendly day-group key:
+ *   Today / Yesterday / "N days ago" (2..6) / "N weeks ago" (1..4) /
+ *   absolute date past 30 days. Used by the History screen to bucket rows.
+ *
+ * Comparison is by calendar day, not 24-hour windows, so a midnight
+ * boundary correctly bumps "Today" → "Yesterday".
+ */
+export function dayGroupLabel(iso: string, now: Date = new Date()): string {
+  if (!iso) return '';
+  const t = new Date(iso);
+  if (Number.isNaN(t.getTime())) return '';
+
+  const startOfDay = (d: Date): Date => new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  const days = Math.floor((startOfDay(now).getTime() - startOfDay(t).getTime()) / 86400000);
+
+  if (days <= 0) return 'Today';
+  if (days === 1) return 'Yesterday';
+  if (days < 7) return `${days} days ago`;
+  if (days < 30) {
+    const weeks = Math.floor(days / 7);
+    return weeks === 1 ? '1 week ago' : `${weeks} weeks ago`;
+  }
+  return t.toLocaleDateString(undefined, {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+  });
+}

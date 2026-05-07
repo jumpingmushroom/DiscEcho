@@ -108,6 +108,27 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
     `DISCECHO_HANDBRAKE_BIN`, `DISCECHO_ISOINFO_BIN`.
   - Runtime image now includes `handbrake-cli`, `libdvd-pkg` (CSS
     bypass), and `genisoimage` (`isoinfo`).
+- **M2.2 mobile UI for DVD pipeline + history.**
+  - `/history` page replaces the M1.2 stub: day-grouped list
+    (Today / Yesterday / N days ago / N weeks ago / absolute date past
+    30 days), disc-type filter chips (All / Audio CD / DVD), infinite
+    scroll via IntersectionObserver, paginated by
+    `GET /api/history?limit=50`.
+  - DiscIdSheet candidate-driven profile binding: each candidate
+    carries `media_type`; clicking a candidate auto-binds the matching
+    profile (`movie` → DVD-Movie, `tv` → DVD-Series, audio → CD-FLAC).
+    Each TMDB candidate row shows a `FILM` / `TV` badge.
+  - "Search manually" wired to `POST /api/discs/:id/identify`: inline
+    text input replaces the candidate list while searching; success
+    refreshes the list, empty result shows "No matches found", HTTP
+    error shows the status.
+  - DiscIdSheet now reads its disc reactively from the global `discs`
+    store, so manual-identify updates flow through without remounting.
+  - New components: `HistoryRow.svelte`, `FilterChips.svelte`.
+  - Store additions: `history`, `historyTotal`, `historyLoading`,
+    `historyError`, `historyFilter` writables; `fetchHistoryPage` and
+    `manualIdentify` imperatives.
+  - `lib/time.ts` gains `dayGroupLabel` for the history grouping.
 
 ### Changed
 
