@@ -24,6 +24,7 @@ type OutputFields struct {
 	Show          string // DVD-Series episodes
 	Season        int    // DVD-Series episodes
 	EpisodeNumber int    // DVD-Series episodes (1-based after filtering)
+	Region        string
 }
 
 // RenderOutputPath applies a Go template to fields and sanitizes the
@@ -62,6 +63,7 @@ func (f OutputFields) asMap() map[string]any {
 		"Show":          sanitizeFieldValue(f.Show),
 		"Season":        f.Season,
 		"EpisodeNumber": f.EpisodeNumber,
+		"Region":        sanitizeFieldValue(f.Region),
 	}
 }
 

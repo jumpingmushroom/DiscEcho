@@ -119,6 +119,7 @@ type Candidate struct {
 	Title      string `json:"title"`
 	Artist     string `json:"artist,omitempty"`
 	Year       int    `json:"year,omitempty"`
+	Region     string `json:"region,omitempty"` // game-disc region (USA / Europe / Japan / ...)
 	Confidence int    `json:"confidence"`
 	MBID       string `json:"mbid,omitempty"`
 	TMDBID     int    `json:"tmdb_id,omitempty"`
