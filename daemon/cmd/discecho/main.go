@@ -22,6 +22,7 @@ import (
 	"github.com/jumpingmushroom/DiscEcho/daemon/jobs"
 	"github.com/jumpingmushroom/DiscEcho/daemon/pipelines"
 	"github.com/jumpingmushroom/DiscEcho/daemon/pipelines/audiocd"
+	"github.com/jumpingmushroom/DiscEcho/daemon/pipelines/dvdvideo"
 	"github.com/jumpingmushroom/DiscEcho/daemon/settings"
 	"github.com/jumpingmushroom/DiscEcho/daemon/state"
 	"github.com/jumpingmushroom/DiscEcho/daemon/tools"
@@ -100,6 +101,37 @@ func main() {
 		},
 	}))
 
+	// DVD-Video pipeline
+	tmdbClient := identify.NewTMDBClient(identify.TMDBConfig{
+		APIKey:   cfg.TMDBKey,
+		Language: cfg.TMDBLang,
+	})
+	dvdProber := identify.NewDVDProber(identify.DVDProberConfig{IsoInfoBin: cfg.IsoInfoBin})
+	handBrake := tools.NewHandBrake(cfg.HandBrakeBin)
+	toolReg.Register(handBrake)
+
+	pipeReg.Register(dvdvideo.New(dvdvideo.Deps{
+		Prober:           dvdProber,
+		TMDB:             tmdbClient,
+		HandBrakeScanner: handBrake,
+		Tools:            toolReg,
+		LibraryRoot:      cfg.LibraryPath,
+		WorkRoot:         filepath.Join(cfg.DataPath, "work"),
+		SubsLang:         cfg.SubsLang,
+		URLsForTrigger: func(ctx context.Context, trigger string) []string {
+			ns, err := store.ListNotificationsForTrigger(ctx, trigger)
+			if err != nil {
+				slog.Warn("notifications lookup", "trigger", trigger, "err", err)
+				return nil
+			}
+			urls := make([]string, 0, len(ns))
+			for _, n := range ns {
+				urls = append(urls, n.URL)
+			}
+			return urls
+		},
+	}))
+
 	// Orchestrator drives jobs through the pipeline.
 	orch := jobs.NewOrchestrator(jobs.OrchestratorConfig{
 		Store:       store,
@@ -115,6 +147,7 @@ func main() {
 		Orchestrator: orch,
 		Pipelines:    pipeReg,
 		Classifier:   classifier,
+		TMDB:         tmdbClient,
 		Token:        cfg.Token,
 	}
 
