@@ -248,6 +248,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
     pre-built static `redumper` binary from the GitHub releases
     page (~3 MB, `b720` build, `linux-x64.zip`). No build-from-source.
   - README documents the user-supplied Redump dat-file workflow.
+- **M5.2 profile editor + API mutations.**
+  - Daemon: `POST/PUT/DELETE /api/profiles` with engine-aware
+    schema validation (whipper/MakeMKV/MakeMKV+HandBrake/HandBrake/
+    redumper+chdman) and `text/template`-checked output paths.
+    422 responses use a flat `{field: msg}` body. Foreign-key
+    references from active jobs return 409.
+  - Daemon broadcasts `profile.changed` SSE events on every
+    create/update/delete (payload `{profile}` for upsert,
+    `{profile_id, deleted: true}` for delete).
+  - WebUI desktop `/profiles`: two-column editor (list + form)
+    with engine-locked editing in edit mode, format restricted
+    to the engine's schema, options grid driven by the schema,
+    two-step delete, and inline 422 field errors.
+  - WebUI mobile `/profiles`: read-only list grouped by disc
+    type with an "edit on desktop" hint, replacing the M4.1
+    placeholder.
+  - New store imperatives: `createProfile`, `updateProfile`,
+    `deleteProfile`. New `selectedProfileID` writable.
+  - New `lib/api.ts` helper `parseValidationErrors(e)` and
+    `apiPut<T>` mirroring `apiPost`.
 
 ### Changed
 
