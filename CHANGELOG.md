@@ -334,6 +334,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
     under `${DISCECHO_DATA}/redump/<system>/`.
   - **Drops VCD from the disc-type matrix** (dead format; falls
     through to DATA pipeline as ISO).
+- **M6.2 PWA install.**
+  - Manifest, service worker (app-shell-only precache via Workbox),
+    and update toast.
+  - Mobile install via Chrome's URL-bar prompt; iOS Safari users see
+    a one-time "Share then Add to Home Screen" hint banner,
+    dismissible via a `localStorage` flag.
+  - Update flow: when a new version is available, a "Reload" toast
+    appears in the bottom-right; clicking it activates the new SW.
+    Background `registration.update()` runs every 60 minutes so
+    phone-pinned PWAs pick up updates without manual reloads.
+  - Default icon set in `static/icons/` (existing — replace the PNGs
+    to rebrand). Apple meta tags added to `app.html` for iOS
+    add-to-home-screen support.
+  - `theme-color` updated to the accent green (`#00d68f`) so the
+    Android Chrome status bar tints correctly when launched as a PWA.
+  - Service worker disabled in `pnpm dev` to keep hot-reload working;
+    test the PWA via `pnpm preview` or against the deployed daemon.
+  - No web push (notifications continue to flow through Apprise
+    server-side per M0/M1 stack decisions).
 
 ### Changed
 - Redump dat-files must now live under per-system subdirectories
