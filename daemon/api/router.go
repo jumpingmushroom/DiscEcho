@@ -47,6 +47,8 @@ func NewRouter(h *Handlers, static http.Handler) http.Handler {
 			authed.Get("/profiles", h.ListProfiles)
 			authed.Get("/profiles/{id}", h.GetProfile)
 
+			authed.Get("/history", h.ListHistory)
+
 			authed.Get("/settings", h.GetSettings)
 		})
 	})
