@@ -54,7 +54,7 @@ func seedProfile(t *testing.T, h *api.Handlers) *state.Profile {
 	t.Helper()
 	p := &state.Profile{
 		DiscType: state.DiscTypeAudioCD, Name: "default",
-		Engine: "whipper", Format: "flac", Preset: "best",
+		Engine: "whipper", Format: "FLAC", Preset: "best",
 		OutputPathTemplate: "{{.Title}}", Enabled: true, StepCount: 6,
 	}
 	if err := h.Store.CreateProfile(context.Background(), p); err != nil {

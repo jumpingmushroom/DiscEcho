@@ -46,6 +46,9 @@ func NewRouter(h *Handlers, static http.Handler) http.Handler {
 
 			authed.Get("/profiles", h.ListProfiles)
 			authed.Get("/profiles/{id}", h.GetProfile)
+			authed.Post("/profiles", h.CreateProfile)
+			authed.Put("/profiles/{id}", h.UpdateProfile)
+			authed.Delete("/profiles/{id}", h.DeleteProfile)
 
 			authed.Get("/history", h.ListHistory)
 
