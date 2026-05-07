@@ -5,8 +5,8 @@ optical drives, classifies inserted discs, runs per-disc-type rip →
 transcode → tag → move pipelines, and exposes a mobile-first web UI for
 live status and history.
 
-> Status: **M0** — skeleton + CI + container only. The first end-to-end
-> pipeline (audio CD) lands in M1. See [`ROADMAP.md`](./ROADMAP.md).
+> Status: **M1** — audio CD pipeline shipping (M1.1 daemon, M1.2 mobile
+> UI). See [`ROADMAP.md`](./ROADMAP.md).
 
 ## Quick start
 
@@ -19,7 +19,20 @@ docker compose up -d --build
 curl http://localhost:8088/api/health   # → {"ok":true}
 ```
 
-Open `http://localhost:8088/` for the placeholder UI.
+Open `http://localhost:8088/` on your phone (or laptop in mobile
+viewport) for the dashboard.
+
+### Auth
+
+By default the daemon generates a bearer token on first start and writes
+it to `${DISCECHO_DATA}/token`. The mobile UI does **not** send this
+token, so for production deployment put DiscEcho behind a reverse proxy
+that handles auth (Tailscale Funnel, Caddy basic auth, etc.) and set
+`DISCECHO_AUTH_DISABLED=true` in your `.env` to skip the daemon-side
+token entirely.
+
+For `curl`-only automation, leave the env unset and pass the token from
+`${DISCECHO_DATA}/token` as `Authorization: Bearer <token>`.
 
 ## Dev setup
 

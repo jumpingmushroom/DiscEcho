@@ -61,7 +61,7 @@ func Load(getenv func(string) string, store *state.Store, version string) (*Sett
 		s.AutoConfirmSeconds = 8
 	}
 
-	tok, err := resolveToken(getenv("DISCECHO_TOKEN"), s.DataPath)
+	tok, err := resolveToken(getenv("DISCECHO_TOKEN"), s.DataPath, getenv("DISCECHO_AUTH_DISABLED"))
 	if err != nil {
 		return nil, err
 	}
@@ -77,7 +77,10 @@ func Load(getenv func(string) string, store *state.Store, version string) (*Sett
 	return s, nil
 }
 
-func resolveToken(envVal, dataPath string) (string, error) {
+func resolveToken(envVal, dataPath, disabled string) (string, error) {
+	if disabled == "true" || disabled == "1" || disabled == "yes" {
+		return "", nil // explicitly disabled — middleware passthrough
+	}
 	if envVal != "" {
 		return envVal, nil
 	}

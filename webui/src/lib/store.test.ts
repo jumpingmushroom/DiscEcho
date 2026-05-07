@@ -1,0 +1,244 @@
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { get } from 'svelte/store';
+import {
+  drives,
+  jobs,
+  profiles,
+  settings,
+  discs,
+  logs,
+  liveStatus,
+  pendingDiscID,
+  bootstrap,
+  handleSSEEvent,
+  startDisc,
+  cancelJob,
+} from './store';
+import type { Drive, Job, Disc, Profile } from './wire';
+
+const seedDrive: Drive = {
+  id: 'd1',
+  model: 'X',
+  bus: 'USB · sr0',
+  dev_path: '/dev/sr0',
+  state: 'idle',
+  last_seen_at: '2026-05-07T12:00:00Z',
+};
+const seedProfile: Profile = {
+  id: 'p1',
+  disc_type: 'AUDIO_CD',
+  name: 'CD-FLAC',
+  engine: 'whipper',
+  format: 'FLAC',
+  preset: 'AccurateRip',
+  options: {},
+  output_path_template: '{{.Title}}',
+  enabled: true,
+  step_count: 6,
+  created_at: '2026-05-07T12:00:00Z',
+  updated_at: '2026-05-07T12:00:00Z',
+};
+const seedDisc: Disc = {
+  id: 'disc-1',
+  drive_id: 'd1',
+  type: 'AUDIO_CD',
+  candidates: [{ source: 'MusicBrainz', title: 'X', confidence: 90, mbid: 'mb-1' }],
+  created_at: '2026-05-07T12:00:00Z',
+};
+const seedJob: Job = {
+  id: 'job-1',
+  disc_id: 'disc-1',
+  drive_id: 'd1',
+  profile_id: 'p1',
+  state: 'queued',
+  progress: 0,
+  created_at: '2026-05-07T12:00:00Z',
+};
+
+function reset() {
+  drives.set([]);
+  jobs.set([]);
+  profiles.set([]);
+  settings.set({});
+  discs.set({});
+  logs.set({});
+  liveStatus.set('connecting');
+  pendingDiscID.set(null);
+}
+
+describe('bootstrap', () => {
+  let fetchSpy: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    reset();
+    fetchSpy = vi.fn();
+    vi.stubGlobal('fetch', fetchSpy);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('hydrates stores from /api/state', async () => {
+    fetchSpy.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        drives: [seedDrive],
+        jobs: [seedJob],
+        profiles: [seedProfile],
+        settings: { library_path: '/srv/media' },
+      }),
+    });
+
+    await bootstrap();
+    expect(get(drives)).toHaveLength(1);
+    expect(get(drives)[0].id).toBe('d1');
+    expect(get(jobs)).toHaveLength(1);
+    expect(get(profiles)).toHaveLength(1);
+    expect(get(settings)).toEqual({ library_path: '/srv/media' });
+  });
+});
+
+describe('handleSSEEvent', () => {
+  beforeEach(reset);
+
+  it('state.snapshot replaces all stores', () => {
+    drives.set([{ ...seedDrive, id: 'old' }]);
+    handleSSEEvent('state.snapshot', {
+      drives: [seedDrive],
+      jobs: [],
+      profiles: [],
+      settings: {},
+    });
+    expect(get(drives)).toEqual([seedDrive]);
+  });
+
+  it('drive.changed upserts by id', () => {
+    drives.set([seedDrive]);
+    handleSSEEvent('drive.changed', { drive: { ...seedDrive, state: 'ripping' } });
+    expect(get(drives)[0].state).toBe('ripping');
+    expect(get(drives)).toHaveLength(1);
+  });
+
+  it('disc.detected stores disc and sets pendingDiscID', () => {
+    handleSSEEvent('disc.detected', { disc: seedDisc });
+    expect(get(discs)['disc-1']).toEqual(seedDisc);
+    expect(get(pendingDiscID)).toBe('disc-1');
+  });
+
+  it('disc.identified replaces disc with full candidates', () => {
+    discs.set({ 'disc-1': { ...seedDisc, candidates: [] } });
+    pendingDiscID.set('disc-1');
+    handleSSEEvent('disc.identified', { disc: seedDisc, candidates: seedDisc.candidates });
+    expect(get(discs)['disc-1'].candidates).toHaveLength(1);
+  });
+
+  it('job.created prepends and clears pendingDiscID for matching disc', () => {
+    pendingDiscID.set('disc-1');
+    handleSSEEvent('job.created', { job: seedJob });
+    expect(get(jobs)).toEqual([seedJob]);
+    expect(get(pendingDiscID)).toBeNull();
+  });
+
+  it('job.progress merges by id without losing other fields', () => {
+    jobs.set([{ ...seedJob, state: 'running' }]);
+    handleSSEEvent('job.progress', {
+      job_id: 'job-1',
+      step: 'rip',
+      pct: 42.5,
+      speed: '8×',
+      eta_seconds: 30,
+    });
+    const j = get(jobs)[0];
+    expect(j.progress).toBe(42.5);
+    expect(j.speed).toBe('8×');
+    expect(j.eta_seconds).toBe(30);
+    expect(j.state).toBe('running');
+  });
+
+  it('job.step updates active_step + step state', () => {
+    jobs.set([
+      {
+        ...seedJob,
+        state: 'running',
+        steps: [{ step: 'rip', state: 'pending', attempt_count: 0 }],
+      },
+    ]);
+    handleSSEEvent('job.step', { job_id: 'job-1', step: 'rip', state: 'running' });
+    const j = get(jobs)[0];
+    expect(j.active_step).toBe('rip');
+    expect(j.steps?.[0].state).toBe('running');
+  });
+
+  it('job.log ring-buffers up to 50 lines per job', () => {
+    for (let i = 0; i < 60; i++) {
+      handleSSEEvent('job.log', {
+        job_id: 'job-1',
+        t: '2026-05-07T12:00:00.000Z',
+        level: 'info',
+        message: `line ${i}`,
+      });
+    }
+    const buf = get(logs)['job-1'];
+    expect(buf).toHaveLength(50);
+    expect(buf[0].message).toBe('line 10');
+    expect(buf[49].message).toBe('line 59');
+  });
+
+  it('job.done sets state=done', () => {
+    jobs.set([{ ...seedJob, state: 'running' }]);
+    handleSSEEvent('job.done', { job_id: 'job-1' });
+    expect(get(jobs)[0].state).toBe('done');
+  });
+
+  it('job.failed sets state and error_message', () => {
+    jobs.set([{ ...seedJob, state: 'running' }]);
+    handleSSEEvent('job.failed', { job_id: 'job-1', error: 'whipper exit 1' });
+    expect(get(jobs)[0].state).toBe('failed');
+    expect(get(jobs)[0].error_message).toBe('whipper exit 1');
+  });
+
+  it('job.failed with state=cancelled sets cancelled', () => {
+    jobs.set([{ ...seedJob, state: 'running' }]);
+    handleSSEEvent('job.failed', { job_id: 'job-1', state: 'cancelled' });
+    expect(get(jobs)[0].state).toBe('cancelled');
+  });
+});
+
+describe('imperatives', () => {
+  let fetchSpy: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    reset();
+    fetchSpy = vi.fn();
+    vi.stubGlobal('fetch', fetchSpy);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('startDisc POSTs and returns the new job', async () => {
+    fetchSpy.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => seedJob,
+    });
+    const got = await startDisc('disc-1', 'p1', 0);
+    expect(got).toEqual(seedJob);
+    expect(fetchSpy).toHaveBeenCalledWith(
+      '/api/discs/disc-1/start',
+      expect.objectContaining({ method: 'POST' }),
+    );
+  });
+
+  it('cancelJob POSTs', async () => {
+    fetchSpy.mockResolvedValueOnce({ ok: true, status: 204 });
+    await cancelJob('job-1');
+    expect(fetchSpy).toHaveBeenCalledWith(
+      '/api/jobs/job-1/cancel',
+      expect.objectContaining({ method: 'POST' }),
+    );
+  });
+});

@@ -1,34 +1,98 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { goto } from '$app/navigation';
+  import { drives, jobs, discs, pendingDiscID, liveStatus } from '$lib/store';
+  import AppBar from '$lib/components/AppBar.svelte';
+  import TabBar from '$lib/components/TabBar.svelte';
+  import LiveDot from '$lib/components/LiveDot.svelte';
+  import DriveCard from '$lib/components/DriveCard.svelte';
+  import JobRow from '$lib/components/JobRow.svelte';
+  import DiscIdSheet from '$lib/components/DiscIdSheet.svelte';
+  import type { Drive } from '$lib/wire';
 
-  type BuildInfo = { version: string; commit: string; build_date: string };
+  $: activeJobs = $jobs.filter(
+    (j) => !['done', 'failed', 'cancelled', 'interrupted'].includes(j.state),
+  );
+  $: activeCount = $drives.filter((d) => d.state !== 'idle').length;
+  $: pendingDisc = $pendingDiscID ? $discs[$pendingDiscID] : null;
 
-  let info: BuildInfo | null = null;
-  let error: string | null = null;
-
-  onMount(async () => {
-    try {
-      const res = await fetch('/api/version');
-      if (!res.ok) throw new Error(`http ${res.status}`);
-      info = await res.json();
-    } catch (e) {
-      error = (e as Error).message;
+  function onDriveClick(drive: Drive): void {
+    if (drive.state === 'identifying' && drive.current_disc_id) {
+      pendingDiscID.set(drive.current_disc_id);
+      return;
     }
-  });
+    if (drive.state === 'ripping') {
+      const j = activeJobs.find((j) => j.drive_id === drive.id);
+      if (j) goto(`/jobs/${j.id}`);
+    }
+  }
 </script>
 
-<main class="min-h-screen flex items-center justify-center p-8">
-  <div class="text-center space-y-3">
-    <h1 class="text-4xl font-bold tracking-tight">DiscEcho</h1>
-    <p class="text-text-2 text-sm">M0 placeholder &mdash; the real UI lands at M1.</p>
-    {#if info}
-      <p class="font-mono text-xs text-text-3">
-        {info.version} · {info.commit} · {info.build_date}
-      </p>
-    {:else if error}
-      <p class="font-mono text-xs text-error">api unreachable: {error}</p>
+<div class="min-h-screen pb-24">
+  <AppBar title="Drives" subtitle="{activeCount} active">
+    <div slot="right" class="flex items-center gap-2">
+      <LiveDot label={$liveStatus === 'live' ? 'LIVE' : 'WAIT'} />
+    </div>
+  </AppBar>
+
+  <!-- Hero band — placeholder until M2 ships history metrics -->
+  <div class="mb-4 px-5">
+    <div class="rounded-2xl border border-border bg-surface-1 p-4">
+      <div class="flex items-baseline justify-between">
+        <div>
+          <div class="text-[11px] font-medium uppercase tracking-[0.14em] text-text-3">
+            Currently ripping
+          </div>
+          <div class="mt-1 text-[28px] font-bold leading-none text-text">
+            {activeJobs.length}
+            <span class="ml-2 text-[14px] font-medium text-text-3">jobs</span>
+          </div>
+        </div>
+        <div class="text-right">
+          <div class="text-[11px] text-text-3">today</div>
+          <div class="font-mono text-[15px] font-semibold text-text">—</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Drives -->
+  <div class="space-y-3 px-5">
+    <div class="pt-2 text-[11px] font-medium uppercase tracking-[0.14em] text-text-3">
+      Optical drives
+    </div>
+    {#each $drives as d (d.id)}
+      <DriveCard
+        drive={d}
+        disc={d.current_disc_id ? $discs[d.current_disc_id] : undefined}
+        job={activeJobs.find((j) => j.drive_id === d.id)}
+        on:click={() => onDriveClick(d)}
+      />
     {:else}
-      <p class="font-mono text-xs text-text-3">loading…</p>
+      <div class="rounded-2xl border border-dashed border-border p-4 text-center text-text-3">
+        No drives detected.
+      </div>
+    {/each}
+  </div>
+
+  <!-- Active queue -->
+  <div class="mt-6 space-y-3 px-5">
+    <div class="text-[11px] font-medium uppercase tracking-[0.14em] text-text-3">Active queue</div>
+    {#if activeJobs.length === 0}
+      <div class="rounded-2xl border border-dashed border-border p-4 text-center text-text-3">
+        No active jobs.
+      </div>
+    {:else}
+      <div class="overflow-hidden rounded-2xl border border-border bg-surface-1">
+        {#each activeJobs as j (j.id)}
+          <JobRow job={j} on:click={() => goto(`/jobs/${j.id}`)} />
+        {/each}
+      </div>
     {/if}
   </div>
-</main>
+</div>
+
+{#if pendingDisc}
+  <DiscIdSheet disc={pendingDisc} />
+{/if}
+
+<TabBar active="dashboard" />

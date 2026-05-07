@@ -288,3 +288,23 @@ func TestLoad_NotificationsSeeded_EmptyURLs_NoOp(t *testing.T) {
 		t.Errorf("got %d notifications, want 0", len(notifs))
 	}
 }
+
+func TestResolveToken_DisabledReturnsEmpty(t *testing.T) {
+	store := openStore(t)
+	dataDir := t.TempDir()
+	env := envFn(map[string]string{
+		"DISCECHO_DATA":          dataDir,
+		"DISCECHO_AUTH_DISABLED": "true",
+	})
+
+	cfg, err := settings.Load(env, store, "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Token != "" {
+		t.Errorf("token should be empty when auth disabled, got %q", cfg.Token)
+	}
+	if _, err := os.Stat(filepath.Join(dataDir, "token")); err == nil {
+		t.Errorf("token file should not be created when auth disabled")
+	}
+}
