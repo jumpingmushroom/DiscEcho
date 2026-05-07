@@ -1,0 +1,13 @@
+Using libbluray version 1.3.4
+Volume Identifier   : MOVIE_NAME
+Org ID              : 0x010001be
+Disc ID             : 0123456789ABCDEF...
+Profile             : Profile 5
+First Play supported: yes
+Top Menu supported  : yes
+HDMV titles         : 1
+BD-J titles         : 0
+UNSUPPORTED titles  : 0
+AACS encrypted      : yes
+AACS MKB version    : 71
+BD+ encrypted       : no
