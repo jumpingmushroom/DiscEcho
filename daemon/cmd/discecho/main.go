@@ -23,10 +23,14 @@ import (
 	"github.com/jumpingmushroom/DiscEcho/daemon/pipelines"
 	"github.com/jumpingmushroom/DiscEcho/daemon/pipelines/audiocd"
 	"github.com/jumpingmushroom/DiscEcho/daemon/pipelines/bdmv"
+	"github.com/jumpingmushroom/DiscEcho/daemon/pipelines/data"
+	"github.com/jumpingmushroom/DiscEcho/daemon/pipelines/dreamcast"
 	"github.com/jumpingmushroom/DiscEcho/daemon/pipelines/dvdvideo"
 	"github.com/jumpingmushroom/DiscEcho/daemon/pipelines/ps2"
 	"github.com/jumpingmushroom/DiscEcho/daemon/pipelines/psx"
+	"github.com/jumpingmushroom/DiscEcho/daemon/pipelines/saturn"
 	"github.com/jumpingmushroom/DiscEcho/daemon/pipelines/uhd"
+	"github.com/jumpingmushroom/DiscEcho/daemon/pipelines/xbox"
 	"github.com/jumpingmushroom/DiscEcho/daemon/settings"
 	"github.com/jumpingmushroom/DiscEcho/daemon/state"
 	"github.com/jumpingmushroom/DiscEcho/daemon/tools"
@@ -187,22 +191,17 @@ func main() {
 	redumperTool := tools.NewRedumper(cfg.RedumperBin)
 	chdmanTool := tools.NewCHDMan(cfg.CHDManBin)
 
-	psxDB, err := identify.LoadRedumpDB(filepath.Join(cfg.RedumpDataDir, "psx.dat"))
+	redumpDB, err := identify.LoadRedumpDir(cfg.RedumpDataDir)
 	if err != nil {
-		slog.Warn("redump psx.dat not loaded", "err", err)
-		psxDB = nil
-	}
-	ps2DB, err := identify.LoadRedumpDB(filepath.Join(cfg.RedumpDataDir, "ps2.dat"))
-	if err != nil {
-		slog.Warn("redump ps2.dat not loaded", "err", err)
-		ps2DB = nil
+		slog.Warn("redump dir not loaded", "dir", cfg.RedumpDataDir, "err", err)
+		redumpDB = nil
 	}
 
 	pipeReg.Register(psx.New(psx.Deps{
 		Redumper:       redumperTool,
 		CHDMan:         chdmanTool,
 		SystemCNF:      sysCNFProber,
-		RedumpDB:       psxDB,
+		RedumpDB:       redumpDB,
 		Tools:          toolReg,
 		LibraryRoot:    cfg.LibraryPath,
 		WorkRoot:       filepath.Join(cfg.DataPath, "work"),
@@ -212,7 +211,43 @@ func main() {
 		Redumper:       redumperTool,
 		CHDMan:         chdmanTool,
 		SystemCNF:      sysCNFProber,
-		RedumpDB:       ps2DB,
+		RedumpDB:       redumpDB,
+		Tools:          toolReg,
+		LibraryRoot:    cfg.LibraryPath,
+		WorkRoot:       filepath.Join(cfg.DataPath, "work"),
+		URLsForTrigger: urlsForTrigger,
+	}))
+	pipeReg.Register(saturn.New(saturn.Deps{
+		Redumper:       redumperTool,
+		CHDMan:         chdmanTool,
+		SaturnProber:   identify.NewDevSaturnProber(),
+		RedumpDB:       redumpDB,
+		Tools:          toolReg,
+		LibraryRoot:    cfg.LibraryPath,
+		WorkRoot:       filepath.Join(cfg.DataPath, "work"),
+		URLsForTrigger: urlsForTrigger,
+	}))
+	pipeReg.Register(dreamcast.New(dreamcast.Deps{
+		Redumper:       redumperTool,
+		CHDMan:         chdmanTool,
+		RedumpDB:       redumpDB,
+		Tools:          toolReg,
+		LibraryRoot:    cfg.LibraryPath,
+		WorkRoot:       filepath.Join(cfg.DataPath, "work"),
+		URLsForTrigger: urlsForTrigger,
+	}))
+	pipeReg.Register(xbox.New(xbox.Deps{
+		Redumper:       redumperTool,
+		XboxProber:     &xbox.IsoinfoXboxProber{Bin: cfg.IsoInfoBin},
+		RedumpDB:       redumpDB,
+		Tools:          toolReg,
+		LibraryRoot:    cfg.LibraryPath,
+		WorkRoot:       filepath.Join(cfg.DataPath, "work"),
+		URLsForTrigger: urlsForTrigger,
+	}))
+	pipeReg.Register(data.New(data.Deps{
+		DD:             &tools.DD{Bin: cfg.DDBin},
+		LabelProber:    &data.IsoinfoLabelProber{Bin: cfg.IsoInfoBin},
 		Tools:          toolReg,
 		LibraryRoot:    cfg.LibraryPath,
 		WorkRoot:       filepath.Join(cfg.DataPath, "work"),

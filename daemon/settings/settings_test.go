@@ -617,3 +617,95 @@ func TestNewMakeMKVEnvVars_Defaults(t *testing.T) {
 		t.Errorf("MakeMKVBetaKey should be empty by default, got %q", cfg.MakeMKVBetaKey)
 	}
 }
+
+func TestSeedSaturnProfile_CreatesAndIsIdempotent(t *testing.T) {
+	store := openStore(t)
+	dataDir := t.TempDir()
+	env := envFn(map[string]string{
+		"DISCECHO_DATA":          dataDir,
+		"DISCECHO_AUTH_DISABLED": "true",
+	})
+	if _, err := settings.Load(env, store, "test"); err != nil {
+		t.Fatalf("first Load: %v", err)
+	}
+	if _, err := settings.Load(env, store, "test"); err != nil {
+		t.Fatalf("second Load: %v", err)
+	}
+	ctx := context.Background()
+	got, err := store.ListProfilesByDiscType(ctx, state.DiscTypeSAT)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].Name != "Saturn-CHD" {
+		t.Fatalf("expected exactly one Saturn-CHD; got %d: %#v", len(got), got)
+	}
+}
+
+func TestSeedDCProfile_CreatesAndIsIdempotent(t *testing.T) {
+	store := openStore(t)
+	dataDir := t.TempDir()
+	env := envFn(map[string]string{
+		"DISCECHO_DATA":          dataDir,
+		"DISCECHO_AUTH_DISABLED": "true",
+	})
+	if _, err := settings.Load(env, store, "test"); err != nil {
+		t.Fatalf("first Load: %v", err)
+	}
+	if _, err := settings.Load(env, store, "test"); err != nil {
+		t.Fatalf("second Load: %v", err)
+	}
+	ctx := context.Background()
+	got, err := store.ListProfilesByDiscType(ctx, state.DiscTypeDC)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].Name != "DC-CHD" {
+		t.Fatalf("expected exactly one DC-CHD; got %d: %#v", len(got), got)
+	}
+}
+
+func TestSeedXboxProfile_CreatesAndIsIdempotent(t *testing.T) {
+	store := openStore(t)
+	dataDir := t.TempDir()
+	env := envFn(map[string]string{
+		"DISCECHO_DATA":          dataDir,
+		"DISCECHO_AUTH_DISABLED": "true",
+	})
+	if _, err := settings.Load(env, store, "test"); err != nil {
+		t.Fatalf("first Load: %v", err)
+	}
+	if _, err := settings.Load(env, store, "test"); err != nil {
+		t.Fatalf("second Load: %v", err)
+	}
+	ctx := context.Background()
+	got, err := store.ListProfilesByDiscType(ctx, state.DiscTypeXBOX)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].Name != "XBOX-ISO" {
+		t.Fatalf("expected exactly one XBOX-ISO; got %d: %#v", len(got), got)
+	}
+}
+
+func TestSeedDataProfile_CreatesAndIsIdempotent(t *testing.T) {
+	store := openStore(t)
+	dataDir := t.TempDir()
+	env := envFn(map[string]string{
+		"DISCECHO_DATA":          dataDir,
+		"DISCECHO_AUTH_DISABLED": "true",
+	})
+	if _, err := settings.Load(env, store, "test"); err != nil {
+		t.Fatalf("first Load: %v", err)
+	}
+	if _, err := settings.Load(env, store, "test"); err != nil {
+		t.Fatalf("second Load: %v", err)
+	}
+	ctx := context.Background()
+	got, err := store.ListProfilesByDiscType(ctx, state.DiscTypeData)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].Name != "Data-ISO" {
+		t.Fatalf("expected exactly one Data-ISO; got %d: %#v", len(got), got)
+	}
+}

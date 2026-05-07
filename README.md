@@ -86,33 +86,63 @@ If a UHD disc is inserted and `KEYDB.cfg` is missing, the job fails
 fast at the identify step with a clear error before any disc read.
 Regular BDMV (Blu-ray) discs do not need this file.
 
-### PSX / PS2 setup
+### Game-disc setup (PSX / PS2 / Saturn / Dreamcast / Xbox)
 
-DiscEcho's PlayStation 1 (PSX) and PlayStation 2 (PS2) pipelines use
+DiscEcho's game-disc pipelines use
 [redumper](https://github.com/superg/redumper) for ripping and
 [chdman](https://github.com/mamedev/mame) (from MAME tools) for CHD
-compression. They match each disc against [Redump](http://redump.org/)
-for identification.
+compression where applicable. They match each disc against
+[Redump](http://redump.org/) for identification.
 
-Drop your Redump dat files at:
+Drop Redump dat files under per-system subdirectories of
+`${DISCECHO_DATA}/redump/`:
 
 ```
-${DISCECHO_DATA}/redump/psx.dat
-${DISCECHO_DATA}/redump/ps2.dat
+${DISCECHO_DATA}/redump/psx/Sony - PlayStation - Datfile (*.dat)
+${DISCECHO_DATA}/redump/ps2/Sony - PlayStation 2 - Datfile (*.dat)
+${DISCECHO_DATA}/redump/saturn/Sega - Saturn - Datfile (*.dat)
+${DISCECHO_DATA}/redump/dreamcast/Sega - Dreamcast - Datfile (*.dat)
+${DISCECHO_DATA}/redump/xbox/Microsoft - Xbox - Datfile (*.dat)
 ```
 
-Sourced from <http://redump.org/datfile/psx/> and
-<http://redump.org/datfile/ps2/>. Refresh manually as Redump adds new
-dumps. **DiscEcho does not auto-download or redistribute these
-files.**
+Sourced from <http://redump.org/downloads/>. Refresh manually as
+Redump adds new dumps. **DiscEcho does not auto-download or
+redistribute these files.**
+
+The daemon walks `${DISCECHO_DATA}/redump/<system>/*.dat` at startup
+and merges every dat-file into one in-memory index. Subdirectories
+are optional — a Saturn user without a Dreamcast dat just doesn't
+get DC matches. **NOTE:** dat files placed directly under
+`${DISCECHO_DATA}/redump/` (without a subdirectory) are no longer
+loaded; move them into the right per-system subfolder.
 
 If a dat is missing, that disc-type's auto-identification falls back
-to manual search via the new-disc sheet. The daemon still starts; only
-game-disc auto-ID is affected.
+to a placeholder title via the new-disc sheet (Dreamcast is
+post-rip-identified by MD5; the others fall back to manual search).
+The daemon still starts; only auto-ID is affected.
 
-Disc detection is automatic: when the classifier sees a disc with
-`/SYSTEM.CNF` it parses the `BOOT[2]=` line to distinguish PSX from
-PS2 and routes to the right handler.
+Disc detection is automatic:
+
+- PSX/PS2: classifier reads `/SYSTEM.CNF` and parses the `BOOT[2]=`
+  line to distinguish them.
+- Saturn: raw sector 0 magic `SEGA SEGASATURN` + product number
+  from IP.BIN.
+- Dreamcast: multi-session TOC heuristic (two sessions with session
+  2 starting at LBA ≥ 45000); identification is post-rip via
+  MD5 against the DC dat.
+- Xbox: `/default.xbe` at the disc root + XBE certificate title ID.
+  Original Xbox only — Xbox 360 (XGD2/3) requires Kreon-flashed
+  drive firmware and is out of scope.
+
+### Raw-data discs
+
+Anything the classifier doesn't recognise (data CDs, data DVDs,
+unrecognised game discs) routes to the `Data` pipeline: a straight
+`dd` rip to ISO with `conv=noerror,sync` (bad sectors are zero-filled
+rather than aborting). The disc filesystem's volume label becomes
+the title; falls back to `data-disc-YYYYMMDD-HHMMSS` when no label
+is present. SHA-256 of the produced ISO and total byte count are
+stored on the disc record for verification later.
 
 ## Dev setup
 

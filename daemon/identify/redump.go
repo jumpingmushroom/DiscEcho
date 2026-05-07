@@ -2,8 +2,10 @@ package identify
 
 import (
 	"encoding/xml"
+	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -182,6 +184,76 @@ func isRegion(s string) bool {
 	return false
 }
 
+// LoadRedumpDir walks rootDir for per-system subdirectories and loads
+// every *.dat inside them into a single in-memory DB. Subdirectory
+// names are conventionally {psx, ps2, saturn, dreamcast, xbox} but
+// this loader doesn't enforce — any *.dat under any subdir is loaded.
+//
+// A missing rootDir is non-fatal: a user without any dat-files just
+// gets an empty DB and no Redump matches.
+func LoadRedumpDir(rootDir string) (*RedumpDB, error) {
+	db := &RedumpDB{
+		byBootCode: make(map[string]RedumpEntry),
+		byMD5:      make(map[string]RedumpEntry),
+	}
+	entries, err := os.ReadDir(rootDir)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return db, nil
+		}
+		return nil, fmt.Errorf("read redump dir: %w", err)
+	}
+	for _, sub := range entries {
+		if !sub.IsDir() {
+			continue
+		}
+		matches, err := filepath.Glob(filepath.Join(rootDir, sub.Name(), "*.dat"))
+		if err != nil {
+			return nil, fmt.Errorf("glob %s: %w", sub.Name(), err)
+		}
+		for _, m := range matches {
+			if err := db.mergeDat(m); err != nil {
+				return nil, fmt.Errorf("load %s: %w", m, err)
+			}
+		}
+	}
+	return db, nil
+}
+
+// mergeDat parses a single Redump XML dat-file and adds its entries
+// into the receiver's indexes. Existing keys are kept (first-wins).
+func (db *RedumpDB) mergeDat(path string) error {
+	loaded, err := LoadRedumpDB(path)
+	if err != nil {
+		return err
+	}
+	for k, v := range loaded.byBootCode {
+		if _, exists := db.byBootCode[k]; !exists {
+			db.byBootCode[k] = v
+		}
+	}
+	for k, v := range loaded.byMD5 {
+		if _, exists := db.byMD5[k]; !exists {
+			db.byMD5[k] = v
+		}
+	}
+	return nil
+}
+
+// LookupByXboxTitleID returns the entry for an Xbox title ID. The dat
+// loader stores the bracket code verbatim via parseBootCodeFromROMName;
+// this method hex-encodes the uint32 to produce the matching key.
+func (db *RedumpDB) LookupByXboxTitleID(titleID uint32) *RedumpEntry {
+	if db == nil {
+		return nil
+	}
+	key := fmt.Sprintf("%08X", titleID)
+	if e, ok := db.byBootCode[key]; ok {
+		return &e
+	}
+	return nil
+}
+
 func parseRedumpYear(s string) (int, bool) {
 	if len(s) != 4 {
 		return 0, false
@@ -196,17 +268,28 @@ func parseRedumpYear(s string) (int, bool) {
 	return n, true
 }
 
-var bootCodeRE = regexp.MustCompile(`\[([A-Z]{4}_\d{3}\.\d{2})\]`)
+// bootCodeRE matches any bracketed identifier in a Redump ROM name.
+// Covers the three conventions used across systems:
+//   - PSX/PS2 underscore-dot format:  [SCUS_004.34]
+//   - Saturn/PSX hyphen format:       [SCUS-94163], [MK-81088]
+//   - Xbox hex title ID:              [4D530002]
+var bootCodeRE = regexp.MustCompile(`\[([A-Z0-9][A-Z0-9\-_.]+)\]`)
 
 // parseBootCodeFromROMName extracts a Redump boot code from a filename
-// like "Final Fantasy VII (USA) (Disc 1) [SCUS_004.34].bin".
+// like "Final Fantasy VII (USA) (Disc 1) [SCUS_004.34].bin". Returns
+// the last bracketed identifier before the extension; earlier brackets
+// typically hold disc-number or region info, not the product code.
 //
-// Returns "" if no `[CCCC_NNN.NN]` bracketed code is present (some
-// older Redump entries lack one — those discs go via manualIdentify).
+// Returns "" if no bracketed code is present (some older Redump entries
+// lack one — those discs go via manualIdentify).
 func parseBootCodeFromROMName(name string) string {
-	m := bootCodeRE.FindStringSubmatch(name)
-	if len(m) < 2 {
+	// Strip extension so we don't accidentally match inside it.
+	base := strings.TrimSuffix(name, filepath.Ext(name))
+	matches := bootCodeRE.FindAllStringSubmatch(base, -1)
+	if len(matches) == 0 {
 		return ""
 	}
-	return m[1]
+	// The product/boot code is always the last bracket group in Redump
+	// naming conventions; earlier groups are disc-number, region, etc.
+	return matches[len(matches)-1][1]
 }

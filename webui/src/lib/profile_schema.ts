@@ -54,6 +54,16 @@ export const ENGINES: Record<string, EngineSpec> = {
     options: {},
     stepCount: 7,
   },
+  redumper: {
+    formats: ['ISO'],
+    options: {},
+    stepCount: 5,
+  },
+  dd: {
+    formats: ['ISO'],
+    options: {},
+    stepCount: 5,
+  },
 };
 
 export const DISC_TYPES: ReadonlyArray<string> = [
@@ -63,6 +73,9 @@ export const DISC_TYPES: ReadonlyArray<string> = [
   'UHD',
   'PSX',
   'PS2',
+  'SAT',
+  'DC',
+  'XBOX',
   'DATA',
 ];
 

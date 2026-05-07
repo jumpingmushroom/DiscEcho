@@ -43,6 +43,7 @@ type Settings struct {
 	RedumperBin          string
 	CHDManBin            string
 	RedumpDataDir        string
+	DDBin                string
 }
 
 // Load reads env vars, generates a token if needed, seeds default
@@ -74,6 +75,7 @@ func Load(getenv func(string) string, store *state.Store, version string) (*Sett
 		RedumperBin:          firstNonEmpty(getenv("DISCECHO_REDUMPER_BIN"), "redumper"),
 		CHDManBin:            firstNonEmpty(getenv("DISCECHO_CHDMAN_BIN"), "chdman"),
 		RedumpDataDir:        firstNonEmpty(getenv("DISCECHO_REDUMP_DIR"), filepath.Join(firstNonEmpty(getenv("DISCECHO_DATA"), "/var/lib/discecho"), "redump")),
+		DDBin:                firstNonEmpty(getenv("DISCECHO_DD_BIN"), "dd"),
 	}
 
 	if v := getenv("DISCECHO_AUTO_CONFIRM_SECONDS"); v != "" {
@@ -115,6 +117,18 @@ func Load(getenv func(string) string, store *state.Store, version string) (*Sett
 	}
 	if err := seedPS2Profile(ctx, store); err != nil {
 		return nil, fmt.Errorf("seed PS2 profile: %w", err)
+	}
+	if err := seedSaturnProfile(ctx, store); err != nil {
+		return nil, fmt.Errorf("seed Saturn profile: %w", err)
+	}
+	if err := seedDCProfile(ctx, store); err != nil {
+		return nil, fmt.Errorf("seed DC profile: %w", err)
+	}
+	if err := seedXboxProfile(ctx, store); err != nil {
+		return nil, fmt.Errorf("seed Xbox profile: %w", err)
+	}
+	if err := seedDataProfile(ctx, store); err != nil {
+		return nil, fmt.Errorf("seed Data profile: %w", err)
 	}
 	if err := seedNotifications(ctx, store, getenv("DISCECHO_APPRISE_URLS")); err != nil {
 		return nil, fmt.Errorf("seed notifications: %w", err)
@@ -158,6 +172,10 @@ const (
 	uhdProfileName       = "UHD-Remux"
 	psxProfileName       = "PSX-CHD"
 	ps2ProfileName       = "PS2-CHD"
+	saturnProfileName    = "Saturn-CHD"
+	dcProfileName        = "DC-CHD"
+	xboxProfileName      = "XBOX-ISO"
+	dataProfileName      = "Data-ISO"
 )
 
 func seedDVDProfiles(ctx context.Context, store *state.Store) error {
@@ -380,6 +398,110 @@ func seedPS2Profile(ctx context.Context, store *state.Store) error {
 		OutputPathTemplate: `{{.Title}} ({{.Region}})/{{.Title}} ({{.Region}}).chd`,
 		Enabled:            true,
 		StepCount:          7,
+		CreatedAt:          now,
+		UpdatedAt:          now,
+	})
+}
+
+func seedSaturnProfile(ctx context.Context, store *state.Store) error {
+	existing, err := store.ListProfilesByDiscType(ctx, state.DiscTypeSAT)
+	if err != nil {
+		return err
+	}
+	for _, p := range existing {
+		if p.Name == saturnProfileName {
+			return nil
+		}
+	}
+	now := time.Now()
+	return store.CreateProfile(ctx, &state.Profile{
+		DiscType:           state.DiscTypeSAT,
+		Name:               saturnProfileName,
+		Engine:             "redumper+chdman",
+		Format:             "CHD",
+		Preset:             "default",
+		Options:            map[string]any{},
+		OutputPathTemplate: `{{.Title}} ({{.Region}})/{{.Title}} ({{.Region}}).chd`,
+		Enabled:            true,
+		StepCount:          6,
+		CreatedAt:          now,
+		UpdatedAt:          now,
+	})
+}
+
+func seedDCProfile(ctx context.Context, store *state.Store) error {
+	existing, err := store.ListProfilesByDiscType(ctx, state.DiscTypeDC)
+	if err != nil {
+		return err
+	}
+	for _, p := range existing {
+		if p.Name == dcProfileName {
+			return nil
+		}
+	}
+	now := time.Now()
+	return store.CreateProfile(ctx, &state.Profile{
+		DiscType:           state.DiscTypeDC,
+		Name:               dcProfileName,
+		Engine:             "redumper+chdman",
+		Format:             "CHD",
+		Preset:             "default",
+		Options:            map[string]any{},
+		OutputPathTemplate: `{{.Title}} ({{.Region}})/{{.Title}} ({{.Region}}).chd`,
+		Enabled:            true,
+		StepCount:          6,
+		CreatedAt:          now,
+		UpdatedAt:          now,
+	})
+}
+
+func seedXboxProfile(ctx context.Context, store *state.Store) error {
+	existing, err := store.ListProfilesByDiscType(ctx, state.DiscTypeXBOX)
+	if err != nil {
+		return err
+	}
+	for _, p := range existing {
+		if p.Name == xboxProfileName {
+			return nil
+		}
+	}
+	now := time.Now()
+	return store.CreateProfile(ctx, &state.Profile{
+		DiscType:           state.DiscTypeXBOX,
+		Name:               xboxProfileName,
+		Engine:             "redumper",
+		Format:             "ISO",
+		Preset:             "default",
+		Options:            map[string]any{},
+		OutputPathTemplate: `{{.Title}} ({{.Region}})/{{.Title}} ({{.Region}}).iso`,
+		Enabled:            true,
+		StepCount:          5,
+		CreatedAt:          now,
+		UpdatedAt:          now,
+	})
+}
+
+func seedDataProfile(ctx context.Context, store *state.Store) error {
+	existing, err := store.ListProfilesByDiscType(ctx, state.DiscTypeData)
+	if err != nil {
+		return err
+	}
+	for _, p := range existing {
+		if p.Name == dataProfileName {
+			return nil
+		}
+	}
+	now := time.Now()
+	return store.CreateProfile(ctx, &state.Profile{
+		DiscType:           state.DiscTypeData,
+		Name:               dataProfileName,
+		Engine:             "dd",
+		Format:             "ISO",
+		Preset:             "default",
+		Options:            map[string]any{},
+		OutputPathTemplate: `{{.Title}}/{{.Title}}.iso`,
+		Enabled:            true,
+		StepCount:          5,
 		CreatedAt:          now,
 		UpdatedAt:          now,
 	})
