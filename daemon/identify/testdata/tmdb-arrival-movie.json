@@ -1,0 +1,20 @@
+{
+  "page": 1,
+  "results": [
+    {
+      "id": 329865,
+      "title": "Arrival",
+      "release_date": "2016-11-11",
+      "popularity": 38.5,
+      "vote_average": 7.5
+    },
+    {
+      "id": 12345,
+      "title": "Arrival",
+      "release_date": "1996-05-31",
+      "popularity": 8.2,
+      "vote_average": 6.0
+    }
+  ],
+  "total_results": 2
+}
