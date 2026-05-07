@@ -31,6 +31,11 @@ type Settings struct {
 	CDParanoiaBin        string
 	MusicBrainzBaseURL   string
 	MusicBrainzUserAgent string
+	TMDBKey              string
+	TMDBLang             string
+	SubsLang             string
+	HandBrakeBin         string
+	IsoInfoBin           string
 }
 
 // Load reads env vars, generates a token if needed, seeds default
@@ -50,6 +55,11 @@ func Load(getenv func(string) string, store *state.Store, version string) (*Sett
 		CDParanoiaBin:        firstNonEmpty(getenv("DISCECHO_CDPARANOIA_BIN"), "cdparanoia"),
 		MusicBrainzBaseURL:   firstNonEmpty(getenv("DISCECHO_MB_BASE_URL"), "https://musicbrainz.org"),
 		MusicBrainzUserAgent: fmt.Sprintf("DiscEcho/%s ( https://github.com/jumpingmushroom/DiscEcho )", version),
+		TMDBKey:              getenv("DISCECHO_TMDB_KEY"),
+		TMDBLang:             firstNonEmpty(getenv("DISCECHO_TMDB_LANG"), "en-US"),
+		SubsLang:             firstNonEmpty(getenv("DISCECHO_SUBS_LANG"), "eng"),
+		HandBrakeBin:         firstNonEmpty(getenv("DISCECHO_HANDBRAKE_BIN"), "HandBrakeCLI"),
+		IsoInfoBin:           firstNonEmpty(getenv("DISCECHO_ISOINFO_BIN"), "isoinfo"),
 	}
 
 	if v := getenv("DISCECHO_AUTO_CONFIRM_SECONDS"); v != "" {
@@ -70,6 +80,9 @@ func Load(getenv func(string) string, store *state.Store, version string) (*Sett
 	ctx := context.Background()
 	if err := seedProfile(ctx, store); err != nil {
 		return nil, fmt.Errorf("seed profile: %w", err)
+	}
+	if err := seedDVDProfiles(ctx, store); err != nil {
+		return nil, fmt.Errorf("seed DVD profiles: %w", err)
 	}
 	if err := seedNotifications(ctx, store, getenv("DISCECHO_APPRISE_URLS")); err != nil {
 		return nil, fmt.Errorf("seed notifications: %w", err)
@@ -105,7 +118,64 @@ func resolveToken(envVal, dataPath, disabled string) (string, error) {
 	return tok, nil
 }
 
-const cdFlacProfileName = "CD-FLAC"
+const (
+	cdFlacProfileName    = "CD-FLAC"
+	dvdMovieProfileName  = "DVD-Movie"
+	dvdSeriesProfileName = "DVD-Series"
+)
+
+func seedDVDProfiles(ctx context.Context, store *state.Store) error {
+	existing, err := store.ListProfilesByDiscType(ctx, state.DiscTypeDVD)
+	if err != nil {
+		return err
+	}
+	have := map[string]bool{}
+	for _, p := range existing {
+		have[p.Name] = true
+	}
+
+	now := time.Now()
+	if !have[dvdMovieProfileName] {
+		p := &state.Profile{
+			DiscType:           state.DiscTypeDVD,
+			Name:               dvdMovieProfileName,
+			Engine:             "HandBrake",
+			Format:             "MP4",
+			Preset:             "x264 RF 20",
+			Options:            map[string]any{},
+			OutputPathTemplate: `{{.Title}} ({{.Year}})/{{.Title}} ({{.Year}}).mp4`,
+			Enabled:            true,
+			StepCount:          7,
+			CreatedAt:          now,
+			UpdatedAt:          now,
+		}
+		if err := store.CreateProfile(ctx, p); err != nil {
+			return err
+		}
+	}
+	if !have[dvdSeriesProfileName] {
+		p := &state.Profile{
+			DiscType: state.DiscTypeDVD,
+			Name:     dvdSeriesProfileName,
+			Engine:   "HandBrake",
+			Format:   "MKV",
+			Preset:   "x264 RF 20 per-title",
+			Options: map[string]any{
+				"min_title_seconds": 300,
+				"season":            1,
+			},
+			OutputPathTemplate: `{{.Show}}/Season {{printf "%02d" .Season}}/{{.Show}} - S{{printf "%02d" .Season}}E{{printf "%02d" .EpisodeNumber}}.mkv`,
+			Enabled:            true,
+			StepCount:          7,
+			CreatedAt:          now,
+			UpdatedAt:          now,
+		}
+		if err := store.CreateProfile(ctx, p); err != nil {
+			return err
+		}
+	}
+	return nil
+}
 
 func seedProfile(ctx context.Context, store *state.Store) error {
 	existing, err := store.ListProfilesByDiscType(ctx, state.DiscTypeAudioCD)
