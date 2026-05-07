@@ -15,12 +15,15 @@ import (
 // Add fields here as new disc types need them; templates that reference
 // missing fields render as the empty string (text/template default).
 type OutputFields struct {
-	Artist      string
-	Album       string
-	Year        int
-	TrackNumber int
-	Title       string
-	DiscNumber  int
+	Artist        string
+	Album         string
+	Year          int
+	TrackNumber   int
+	Title         string
+	DiscNumber    int
+	Show          string // DVD-Series episodes
+	Season        int    // DVD-Series episodes
+	EpisodeNumber int    // DVD-Series episodes (1-based after filtering)
 }
 
 // RenderOutputPath applies a Go template to fields and sanitizes the
