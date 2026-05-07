@@ -47,6 +47,45 @@ If the key is unset, identification returns empty candidates and the UI
 prompts for manual title entry — the daemon still starts and other
 pipelines (audio CD) work normally.
 
+### BDMV / UHD setup
+
+DiscEcho's Blu-ray (BDMV) and Ultra HD Blu-ray pipelines decrypt and
+demux discs with [MakeMKV](https://www.makemkv.com/). Audio CD and DVD
+work without any of the setup below; the rest is opt-in.
+
+**MakeMKV beta key (BDMV + UHD).** MakeMKV needs a registration key.
+While the project is in beta the author posts a public key that
+refreshes roughly monthly:
+
+- Forum thread: <https://forum.makemkv.com/forum/viewtopic.php?t=1053>
+
+Set the env var on the daemon:
+
+```env
+DISCECHO_MAKEMKV_BETA_KEY=T-<rest-of-key>
+```
+
+DiscEcho writes `${DISCECHO_DATA}/MakeMKV/settings.conf` on each start.
+Refresh the env var (and restart the container) when the public key
+rotates. Symptom of an expired key: BDMV/UHD jobs fail at the rip step
+with "registration key expired" in the logs. If the env var is unset
+the daemon still starts; only BDMV/UHD jobs will fail.
+
+**AACS2 keys (UHD only).** UHD-Blu-ray discs are encrypted with AACS2.
+MakeMKV needs a `KEYDB.cfg` to decrypt. **DiscEcho does not ship
+`KEYDB.cfg` and does not link to sources for it.** Sourcing one is
+your responsibility and may be restricted in your jurisdiction.
+
+Drop your `KEYDB.cfg` at:
+
+```
+${DISCECHO_DATA}/MakeMKV/KEYDB.cfg
+```
+
+If a UHD disc is inserted and `KEYDB.cfg` is missing, the job fails
+fast at the identify step with a clear error before any disc read.
+Regular BDMV (Blu-ray) discs do not need this file.
+
 ## Dev setup
 
 You need:

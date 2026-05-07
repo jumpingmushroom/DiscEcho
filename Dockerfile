@@ -50,9 +50,31 @@ RUN echo "deb http://deb.debian.org/debian bookworm main contrib" \
  && apt-get install -y --no-install-recommends \
         ca-certificates eject cdparanoia libcdio-utils whipper \
         handbrake-cli libdvd-pkg genisoimage \
+        libbluray-bdj libbluray2 libbluray-bin \
  && DEBIAN_FRONTEND=noninteractive dpkg-reconfigure libdvd-pkg \
  && rm -rf /var/lib/apt/lists/* \
  && pip install --no-cache-dir apprise
+
+# MakeMKV — built from source. Used by the BDMV + UHD pipelines (M3.1).
+# Build deps installed, MakeMKV compiled + installed, build deps purged.
+ARG MAKEMKV_VERSION=1.17.5
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends \
+        build-essential pkg-config libc6-dev libssl-dev libexpat1-dev \
+        libavcodec-dev libgl1-mesa-dev qtbase5-dev zlib1g-dev curl \
+ && curl -fsSL "https://www.makemkv.com/download/makemkv-oss-${MAKEMKV_VERSION}.tar.gz" \
+        | tar xz -C /tmp \
+ && curl -fsSL "https://www.makemkv.com/download/makemkv-bin-${MAKEMKV_VERSION}.tar.gz" \
+        | tar xz -C /tmp \
+ && cd "/tmp/makemkv-oss-${MAKEMKV_VERSION}" \
+        && ./configure --disable-gui && make -j"$(nproc)" && make install \
+ && cd "/tmp/makemkv-bin-${MAKEMKV_VERSION}" \
+        && mkdir -p tmp && echo accepted > tmp/eula_accepted \
+        && make install \
+ && apt-get purge -y --auto-remove \
+        build-essential pkg-config libssl-dev libexpat1-dev libavcodec-dev \
+        libgl1-mesa-dev qtbase5-dev zlib1g-dev curl \
+ && rm -rf /var/lib/apt/lists/* /tmp/makemkv-*
 
 WORKDIR /app
 COPY --from=daemon-build /out/discecho /app/discecho
