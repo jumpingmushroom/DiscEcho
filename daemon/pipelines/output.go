@@ -53,12 +53,15 @@ func RenderOutputPath(tmpl string, fields OutputFields) (string, error) {
 // folded to "_" while traversal segments (".", "..") are dropped.
 func (f OutputFields) asMap() map[string]any {
 	return map[string]any{
-		"Artist":      sanitizeFieldValue(f.Artist),
-		"Album":       sanitizeFieldValue(f.Album),
-		"Year":        f.Year,
-		"TrackNumber": f.TrackNumber,
-		"Title":       sanitizeFieldValue(f.Title),
-		"DiscNumber":  f.DiscNumber,
+		"Artist":        sanitizeFieldValue(f.Artist),
+		"Album":         sanitizeFieldValue(f.Album),
+		"Year":          f.Year,
+		"TrackNumber":   f.TrackNumber,
+		"Title":         sanitizeFieldValue(f.Title),
+		"DiscNumber":    f.DiscNumber,
+		"Show":          sanitizeFieldValue(f.Show),
+		"Season":        f.Season,
+		"EpisodeNumber": f.EpisodeNumber,
 	}
 }
 
