@@ -63,6 +63,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
     for the M1.2 mobile UI to consume.
 - Go module bumped to 1.25 (transitive requirement of
   `modernc.org/sqlite`); Dockerfile and CI workflow aligned.
+- **M1.2 mobile UI (audio CD pipeline).**
+  - SvelteKit 2 mobile-first PWA: dashboard, full-screen job detail with
+    vertical pipeline stepper, new-disc bottom sheet with 8s
+    auto-confirm.
+  - Stub pages for History (M2) and Settings (M6); tab bar always
+    visible.
+  - Global Svelte store hydrating from `GET /api/state` and merging
+    SSE deltas (`drive.changed`, `disc.detected/identified`, `job.*`,
+    `state.snapshot` reconnect). Per-job log ring buffer capped at 50
+    lines.
+  - vitest + @testing-library/svelte unit tests for the store, fetch
+    helpers, SSE wrapper, time helpers, and the disc-id sheet's
+    countdown logic.
+  - PWA manifest + 192/512 icons (offline shell + push deferred to M6).
+  - Daemon: new `DISCECHO_AUTH_DISABLED=true` env to skip the bearer
+    token bootstrap, intended for use behind a reverse proxy.
 
 ### Changed
 

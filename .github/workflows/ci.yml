@@ -65,6 +65,8 @@ jobs:
         run: pnpm check
       - name: build
         run: pnpm build
+      - name: tests
+        run: pnpm test
 
   docker:
     name: docker build
