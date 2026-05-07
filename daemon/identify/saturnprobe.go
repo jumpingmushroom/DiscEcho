@@ -2,6 +2,7 @@ package identify
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -31,6 +32,18 @@ func ProbeSaturn(devPath string) (*SaturnInfo, error) {
 	}
 	defer func() { _ = f.Close() }()
 	return ProbeSaturnReader(f)
+}
+
+// DevSaturnProber implements SaturnProber by opening the device path
+// and delegating to ProbeSaturnReader.
+type DevSaturnProber struct{}
+
+// NewDevSaturnProber returns a DevSaturnProber ready for use.
+func NewDevSaturnProber() *DevSaturnProber { return &DevSaturnProber{} }
+
+// Probe reads Saturn IP.BIN from devPath.
+func (*DevSaturnProber) Probe(_ context.Context, devPath string) (*SaturnInfo, error) {
+	return ProbeSaturn(devPath)
 }
 
 // ProbeSaturnReader is the testable core of ProbeSaturn — separated so
