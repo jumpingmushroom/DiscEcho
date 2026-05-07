@@ -21,16 +21,18 @@ type Classifier interface {
 	Classify(ctx context.Context, devPath string) (state.DiscType, error)
 }
 
-// ClassifierConfig configures NewClassifier. FSProber and BDProber are
-// optional dependencies — when nil, the classifier defaults to using
-// NewFSProber / NewBDProber with default binaries.
+// ClassifierConfig configures NewClassifier. FSProber, BDProber, and
+// SystemCNFProber are optional dependencies — when nil, the classifier
+// defaults to using NewFSProber / NewBDProber / NewSystemCNFProber with
+// default binaries.
 type ClassifierConfig struct {
-	CDInfoBin string   // default "cd-info"
-	FSProber  FSProber // default NewFSProber({}) — distinguishes DVD/BDMV/DATA
-	BDProber  BDProber // default NewBDProber({}) — distinguishes BDMV vs UHD
+	CDInfoBin       string          // default "cd-info"
+	FSProber        FSProber        // default NewFSProber({}) — distinguishes DVD/BDMV/DATA
+	BDProber        BDProber        // default NewBDProber({}) — distinguishes BDMV vs UHD
+	SystemCNFProber SystemCNFProber // default NewSystemCNFProber("") — distinguishes PSX vs PS2
 }
 
-// NewClassifier returns a Classifier that runs the three-step probe.
+// NewClassifier returns a Classifier that runs the multi-probe pipeline.
 func NewClassifier(c ClassifierConfig) Classifier {
 	if c.CDInfoBin == "" {
 		c.CDInfoBin = "cd-info"
@@ -41,10 +43,14 @@ func NewClassifier(c ClassifierConfig) Classifier {
 	if c.BDProber == nil {
 		c.BDProber = NewBDProber(BDProberConfig{})
 	}
+	if c.SystemCNFProber == nil {
+		c.SystemCNFProber = NewSystemCNFProber("")
+	}
 	return &multiProbeClassifier{
 		cdInfoBin: c.CDInfoBin,
 		fs:        c.FSProber,
 		bd:        c.BDProber,
+		sysCNF:    c.SystemCNFProber,
 	}
 }
 
@@ -52,6 +58,7 @@ type multiProbeClassifier struct {
 	cdInfoBin string
 	fs        FSProber
 	bd        BDProber
+	sysCNF    SystemCNFProber
 }
 
 func (c *multiProbeClassifier) Classify(ctx context.Context, devPath string) (state.DiscType, error) {
@@ -64,7 +71,7 @@ func (c *multiProbeClassifier) Classify(ctx context.Context, devPath string) (st
 	if err != nil {
 		return "", err
 	}
-	return RefineDiscType(ctx, base, c.fs, c.bd, devPath), nil
+	return RefineDiscType(ctx, base, c.fs, c.bd, c.sysCNF, devPath), nil
 }
 
 // ClassifyFromCDInfo parses cd-info stdout/stderr and returns the
@@ -87,22 +94,24 @@ func ClassifyFromCDInfo(s string) (state.DiscType, error) {
 	return state.DiscTypeData, nil
 }
 
-// RefineDiscType upgrades a cd-info-level disc type using the
-// filesystem listing and (for Blu-ray) bd_info. AUDIO_CD short-circuits
-// — no fs probe is run since audio CDs have no ISO9660 filesystem.
+// RefineDiscType upgrades a cd-info-level disc type using filesystem
+// listing, bd_info (Blu-ray AACS2 detection), and SYSTEM.CNF (PSX/PS2
+// discrimination). AUDIO_CD short-circuits.
 //
 // Decision tree:
 //   - AUDIO_CD → AUDIO_CD (passthrough)
-//   - DATA + /VIDEO_TS present → DVD
-//   - DATA + /BDMV/index.bdmv present:
-//     bd_info reports AACS2 → UHD
-//     bd_info fails or no AACS2 → BDMV
+//   - DATA + /VIDEO_TS → DVD
+//   - DATA + /BDMV/index.bdmv:
+//     bd_info AACS2 → UHD
+//     else          → BDMV
+//   - DATA + /SYSTEM.CNF:
+//     SYSTEM.CNF readable + IsPS2 → PS2
+//     SYSTEM.CNF readable + !IsPS2 → PSX
+//     SYSTEM.CNF unreadable → DATA
 //   - else → DATA
 //
-// Probes that error are logged and treated as a negative result; we
-// never propagate probe errors as classification failures (the disc
-// might still be a usable DATA disc).
-func RefineDiscType(ctx context.Context, base state.DiscType, fs FSProber, bd BDProber, devPath string) state.DiscType {
+// Probes that error are logged and treated as a negative result.
+func RefineDiscType(ctx context.Context, base state.DiscType, fs FSProber, bd BDProber, sysCNF SystemCNFProber, devPath string) state.DiscType {
 	if base == state.DiscTypeAudioCD {
 		return state.DiscTypeAudioCD
 	}
@@ -130,6 +139,24 @@ func RefineDiscType(ctx context.Context, base state.DiscType, fs FSProber, bd BD
 			return state.DiscTypeUHD
 		}
 		return state.DiscTypeBDMV
+	}
+	if hasPath(files, "/SYSTEM.CNF") {
+		if sysCNF == nil {
+			slog.Warn("classify: SYSTEM.CNF present but no prober; treating as DATA", "dev", devPath)
+			return state.DiscTypeData
+		}
+		info, err := sysCNF.Probe(ctx, devPath)
+		if err != nil {
+			slog.Warn("classify: system.cnf probe failed; treating as DATA", "dev", devPath, "err", err)
+			return state.DiscTypeData
+		}
+		if info == nil {
+			return state.DiscTypeData
+		}
+		if info.IsPS2 {
+			return state.DiscTypePS2
+		}
+		return state.DiscTypePSX
 	}
 	return state.DiscTypeData
 }
