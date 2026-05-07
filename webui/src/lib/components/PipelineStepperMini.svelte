@@ -1,0 +1,40 @@
+<script lang="ts">
+  import type { Job, StepID } from '$lib/wire';
+  export let job: Job;
+
+  const STEPS: StepID[] = [
+    'detect',
+    'identify',
+    'rip',
+    'transcode',
+    'compress',
+    'move',
+    'notify',
+    'eject',
+  ];
+
+  function statusFor(step: StepID): 'done' | 'active' | 'pending' | 'skipped' {
+    const stp = job.steps?.find((s) => s.step === step);
+    if (stp?.state === 'skipped') return 'skipped';
+    if (stp?.state === 'done') return 'done';
+    if (job.active_step === step) return 'active';
+    if (stp?.state === 'failed') return 'done';
+    return 'pending';
+  }
+</script>
+
+<div class="flex items-center gap-[3px]">
+  {#each STEPS as step}
+    {@const status = statusFor(step)}
+    <span
+      class="rounded-full transition-colors"
+      style="
+        width: {status === 'active' ? '14px' : '6px'};
+        height: 6px;
+        background: {status === 'done' || status === 'active' ? 'var(--accent)' : '#2a2a30'};
+        opacity: {status === 'pending' || status === 'skipped' ? 0.5 : 1};
+        box-shadow: {status === 'active' ? '0 0 0 3px var(--accent-soft)' : 'none'};
+      "
+    ></span>
+  {/each}
+</div>
