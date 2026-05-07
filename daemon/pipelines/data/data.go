@@ -73,11 +73,11 @@ func (p *IsoinfoLabelProber) Probe(ctx context.Context, devPath string) (string,
 
 // Deps bundles the handler's dependencies.
 type Deps struct {
-	DD          DDCopier
-	LabelProber LabelProber
-	Tools       *tools.Registry // looked up: apprise, eject
-	LibraryRoot string
-	WorkRoot    string
+	DD             DDCopier
+	LabelProber    LabelProber
+	Tools          *tools.Registry // looked up: apprise, eject
+	LibraryRoot    string
+	WorkRoot       string
 	LibraryProbe   func(string) error
 	URLsForTrigger func(ctx context.Context, trigger string) []string
 	// Now is called to produce the fallback timestamp title. Defaults to time.Now.
