@@ -24,6 +24,8 @@ import (
 	"github.com/jumpingmushroom/DiscEcho/daemon/pipelines/audiocd"
 	"github.com/jumpingmushroom/DiscEcho/daemon/pipelines/bdmv"
 	"github.com/jumpingmushroom/DiscEcho/daemon/pipelines/dvdvideo"
+	"github.com/jumpingmushroom/DiscEcho/daemon/pipelines/ps2"
+	"github.com/jumpingmushroom/DiscEcho/daemon/pipelines/psx"
 	"github.com/jumpingmushroom/DiscEcho/daemon/pipelines/uhd"
 	"github.com/jumpingmushroom/DiscEcho/daemon/settings"
 	"github.com/jumpingmushroom/DiscEcho/daemon/state"
@@ -79,10 +81,12 @@ func main() {
 		UserAgent:   cfg.MusicBrainzUserAgent,
 		MinInterval: time.Second,
 	})
+	sysCNFProber := identify.NewSystemCNFProber(cfg.IsoInfoBin)
 	classifier := identify.NewClassifier(identify.ClassifierConfig{
-		CDInfoBin: cfg.CDInfoBin,
-		FSProber:  identify.NewFSProber(identify.FSProberConfig{IsoInfoBin: cfg.IsoInfoBin}),
-		BDProber:  identify.NewBDProber(identify.BDProberConfig{BDInfoBin: cfg.BDInfoBin}),
+		CDInfoBin:       cfg.CDInfoBin,
+		FSProber:        identify.NewFSProber(identify.FSProberConfig{IsoInfoBin: cfg.IsoInfoBin}),
+		BDProber:        identify.NewBDProber(identify.BDProberConfig{BDInfoBin: cfg.BDInfoBin}),
+		SystemCNFProber: sysCNFProber,
 	})
 
 	// Pipelines: register the audio-CD handler.
@@ -176,6 +180,42 @@ func main() {
 		WorkRoot:       filepath.Join(cfg.DataPath, "work"),
 		SubsLang:       cfg.SubsLang,
 		AACS2KeyDB:     filepath.Join(cfg.MakeMKVDataDir, "KEYDB.cfg"),
+		URLsForTrigger: urlsForTrigger,
+	}))
+
+	// PSX + PS2 pipelines (M5.1).
+	redumperTool := tools.NewRedumper(cfg.RedumperBin)
+	chdmanTool := tools.NewCHDMan(cfg.CHDManBin)
+
+	psxDB, err := identify.LoadRedumpDB(filepath.Join(cfg.RedumpDataDir, "psx.dat"))
+	if err != nil {
+		slog.Warn("redump psx.dat not loaded", "err", err)
+		psxDB = nil
+	}
+	ps2DB, err := identify.LoadRedumpDB(filepath.Join(cfg.RedumpDataDir, "ps2.dat"))
+	if err != nil {
+		slog.Warn("redump ps2.dat not loaded", "err", err)
+		ps2DB = nil
+	}
+
+	pipeReg.Register(psx.New(psx.Deps{
+		Redumper:       redumperTool,
+		CHDMan:         chdmanTool,
+		SystemCNF:      sysCNFProber,
+		RedumpDB:       psxDB,
+		Tools:          toolReg,
+		LibraryRoot:    cfg.LibraryPath,
+		WorkRoot:       filepath.Join(cfg.DataPath, "work"),
+		URLsForTrigger: urlsForTrigger,
+	}))
+	pipeReg.Register(ps2.New(ps2.Deps{
+		Redumper:       redumperTool,
+		CHDMan:         chdmanTool,
+		SystemCNF:      sysCNFProber,
+		RedumpDB:       ps2DB,
+		Tools:          toolReg,
+		LibraryRoot:    cfg.LibraryPath,
+		WorkRoot:       filepath.Join(cfg.DataPath, "work"),
 		URLsForTrigger: urlsForTrigger,
 	}))
 
