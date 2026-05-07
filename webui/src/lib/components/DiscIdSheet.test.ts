@@ -267,3 +267,110 @@ describe('DiscIdSheet — candidate-driven profile binding (M2.2)', () => {
     expect(body.profile_id).toBe('p-cd');
   });
 });
+
+describe('DiscIdSheet — manual search (M2.2)', () => {
+  let fetchSpy: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    profiles.set([cdProfile]);
+    pendingDiscID.set('disc-1');
+    discs.set({ 'disc-1': disc });
+    fetchSpy = vi.fn();
+    vi.stubGlobal('fetch', fetchSpy);
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+  });
+
+  it('Search manually replaces candidate list with input', async () => {
+    const { getByText, getByPlaceholderText, queryByText } = render(DiscIdSheet, { disc });
+    await fireEvent.click(getByText('Search manually'));
+    expect(getByPlaceholderText(/title/i)).toBeInTheDocument();
+    expect(queryByText('Use top match · Start rip')).toBeNull();
+  });
+
+  it('disables Search button when query is empty', async () => {
+    const { getByText } = render(DiscIdSheet, { disc });
+    await fireEvent.click(getByText('Search manually'));
+    const searchBtn = getByText(/Search TMDB/);
+    expect((searchBtn as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it('submitting non-empty query calls manualIdentify and closes panel on success', async () => {
+    const newCands = [
+      {
+        source: 'TMDB',
+        title: 'Found',
+        year: 2020,
+        confidence: 80,
+        tmdb_id: 99,
+        media_type: 'movie' as const,
+      },
+    ];
+    fetchSpy.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        disc: { ...disc, candidates: newCands },
+        candidates: newCands,
+      }),
+    });
+
+    const { getByText, getByPlaceholderText, queryByText } = render(DiscIdSheet, { disc });
+    await fireEvent.click(getByText('Search manually'));
+    await fireEvent.input(getByPlaceholderText(/title/i), { target: { value: 'Found' } });
+    await fireEvent.click(getByText(/Search TMDB/));
+
+    await vi.runAllTimersAsync();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(queryByText(/Search TMDB/)).toBeNull();
+
+    expect(fetchSpy).toHaveBeenCalledWith(
+      '/api/discs/disc-1/identify',
+      expect.objectContaining({ method: 'POST' }),
+    );
+  });
+
+  it('shows "No matches found" when search returns empty list', async () => {
+    fetchSpy.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        disc: { ...disc, candidates: [] },
+        candidates: [],
+      }),
+    });
+
+    const { getByText, getByPlaceholderText } = render(DiscIdSheet, { disc });
+    await fireEvent.click(getByText('Search manually'));
+    await fireEvent.input(getByPlaceholderText(/title/i), { target: { value: 'Obscure' } });
+    await fireEvent.click(getByText(/Search TMDB/));
+
+    await vi.runAllTimersAsync();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(getByText(/No matches found/i)).toBeInTheDocument();
+  });
+
+  it('shows error message when search fails', async () => {
+    fetchSpy.mockResolvedValueOnce({
+      ok: false,
+      status: 502,
+      text: async () => 'tmdb down',
+    });
+
+    const { getByText, getByPlaceholderText, container } = render(DiscIdSheet, { disc });
+    await fireEvent.click(getByText('Search manually'));
+    await fireEvent.input(getByPlaceholderText(/title/i), { target: { value: 'X' } });
+    await fireEvent.click(getByText(/Search TMDB/));
+
+    await vi.runAllTimersAsync();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(container.textContent).toMatch(/502/);
+  });
+});
