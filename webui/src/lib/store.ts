@@ -8,7 +8,7 @@ import type {
   Profile,
   LogLevel,
   SnapshotPayload,
-  HistoryRow as HRow,
+  HistoryRow,
   HistoryResponse,
   DiscType,
   Candidate,
@@ -216,7 +216,7 @@ export async function ejectDrive(driveID: string): Promise<void> {
 
 // ----- History --------------------------------------------------------------
 
-export const history = writable<HRow[]>([]);
+export const history = writable<HistoryRow[]>([]);
 export const historyTotal = writable<number>(0);
 export const historyLoading = writable<boolean>(false);
 export const historyError = writable<string | null>(null);
@@ -240,14 +240,8 @@ export async function fetchHistoryPage(filter: DiscType | '', offset: number): P
     if (filter) params.set('type', filter);
     params.set('limit', String(HISTORY_PAGE_SIZE));
     params.set('offset', String(offset));
-    const url = `/api/history?${params.toString()}`;
 
-    const res = await fetch(url, { method: 'GET' });
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      throw new Error(`HTTP ${res.status}${body ? ': ' + body : ''}`);
-    }
-    const payload = (await res.json()) as HistoryResponse;
+    const payload = await apiGet<HistoryResponse>(`/api/history?${params.toString()}`);
     const rows = payload.rows ?? [];
 
     if (offset === 0) {
@@ -270,30 +264,20 @@ export async function fetchHistoryPage(filter: DiscType | '', offset: number): P
 /**
  * manualIdentify hits POST /api/discs/:id/identify with a search query
  * and updates the disc in the discs store with the refreshed candidates.
- * Returns the new candidates list.
+ * Throws on HTTP error so the caller (the disc-id sheet) can render the
+ * failure inline; contrast fetchHistoryPage which swallows.
  */
 export async function manualIdentify(
   discID: string,
   query: string,
   mediaType: 'movie' | 'tv' | 'both' = 'both',
 ): Promise<Candidate[]> {
-  const body = { query, media_type: mediaType };
-  const res = await fetch(`/api/discs/${discID}/identify`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
-  if (!res.ok) {
-    const txt = await res.text().catch(() => '');
-    throw new Error(`HTTP ${res.status}${txt ? ': ' + txt : ''}`);
-  }
-  const payload = (await res.json()) as {
-    disc: { id: string; candidates: Candidate[] } & Record<string, unknown>;
-    candidates: Candidate[];
-  };
+  const payload = await apiPost<{ disc: Disc; candidates: Candidate[] }>(
+    `/api/discs/${discID}/identify`,
+    { query, media_type: mediaType },
+  );
   const cands = payload.candidates ?? [];
 
-  // Update the disc in the global store with the refreshed candidates.
   discs.update((m) => {
     const existing = m[discID];
     if (!existing) return m;
