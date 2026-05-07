@@ -34,6 +34,19 @@ token entirely.
 For `curl`-only automation, leave the env unset and pass the token from
 `${DISCECHO_DATA}/token` as `Authorization: Bearer <token>`.
 
+### TMDB
+
+DVD identification queries TMDB (https://www.themoviedb.org/). To enable
+auto-identification:
+
+1. Create a free TMDB account → settings → API → request a v3 key
+2. Set `DISCECHO_TMDB_KEY=<your-key>` in your `.env`
+3. Optional: `DISCECHO_TMDB_LANG=en-US` (or any TMDB-supported locale)
+
+If the key is unset, identification returns empty candidates and the UI
+prompts for manual title entry — the daemon still starts and other
+pipelines (audio CD) work normally.
+
 ## Dev setup
 
 You need:
