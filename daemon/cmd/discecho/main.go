@@ -22,7 +22,9 @@ import (
 	"github.com/jumpingmushroom/DiscEcho/daemon/jobs"
 	"github.com/jumpingmushroom/DiscEcho/daemon/pipelines"
 	"github.com/jumpingmushroom/DiscEcho/daemon/pipelines/audiocd"
+	"github.com/jumpingmushroom/DiscEcho/daemon/pipelines/bdmv"
 	"github.com/jumpingmushroom/DiscEcho/daemon/pipelines/dvdvideo"
+	"github.com/jumpingmushroom/DiscEcho/daemon/pipelines/uhd"
 	"github.com/jumpingmushroom/DiscEcho/daemon/settings"
 	"github.com/jumpingmushroom/DiscEcho/daemon/state"
 	"github.com/jumpingmushroom/DiscEcho/daemon/tools"
@@ -77,7 +79,11 @@ func main() {
 		UserAgent:   cfg.MusicBrainzUserAgent,
 		MinInterval: time.Second,
 	})
-	classifier := identify.NewClassifier(identify.ClassifierConfig{CDInfoBin: cfg.CDInfoBin})
+	classifier := identify.NewClassifier(identify.ClassifierConfig{
+		CDInfoBin: cfg.CDInfoBin,
+		FSProber:  identify.NewFSProber(identify.FSProberConfig{IsoInfoBin: cfg.IsoInfoBin}),
+		BDProber:  identify.NewBDProber(identify.BDProberConfig{BDInfoBin: cfg.BDInfoBin}),
+	})
 
 	// Pipelines: register the audio-CD handler.
 	pipeReg := pipelines.NewRegistry()
@@ -130,6 +136,47 @@ func main() {
 			}
 			return urls
 		},
+	}))
+
+	// BDMV + UHD pipelines (M3.1).
+	makeMKV := tools.NewMakeMKV(cfg.MakeMKVBin, cfg.MakeMKVDataDir)
+
+	urlsForTrigger := func(ctx context.Context, trigger string) []string {
+		ns, err := store.ListNotificationsForTrigger(ctx, trigger)
+		if err != nil {
+			slog.Warn("notifications lookup", "trigger", trigger, "err", err)
+			return nil
+		}
+		urls := make([]string, 0, len(ns))
+		for _, n := range ns {
+			urls = append(urls, n.URL)
+		}
+		return urls
+	}
+
+	pipeReg.Register(bdmv.New(bdmv.Deps{
+		Prober:         dvdProber, // re-used for volume-label reading
+		TMDB:           tmdbClient,
+		MakeMKVScanner: makeMKV,
+		MakeMKVRipper:  makeMKV,
+		Tools:          toolReg,
+		LibraryRoot:    cfg.LibraryPath,
+		WorkRoot:       filepath.Join(cfg.DataPath, "work"),
+		SubsLang:       cfg.SubsLang,
+		URLsForTrigger: urlsForTrigger,
+	}))
+
+	pipeReg.Register(uhd.New(uhd.Deps{
+		Prober:         dvdProber,
+		TMDB:           tmdbClient,
+		MakeMKVScanner: makeMKV,
+		MakeMKVRipper:  makeMKV,
+		Tools:          toolReg,
+		LibraryRoot:    cfg.LibraryPath,
+		WorkRoot:       filepath.Join(cfg.DataPath, "work"),
+		SubsLang:       cfg.SubsLang,
+		AACS2KeyDB:     filepath.Join(cfg.MakeMKVDataDir, "KEYDB.cfg"),
+		URLsForTrigger: urlsForTrigger,
 	}))
 
 	// Orchestrator drives jobs through the pipeline.
