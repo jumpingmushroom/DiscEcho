@@ -42,8 +42,11 @@ FROM python:3.12-slim-bookworm AS runtime
 # libcdio-utils provide the lower-level rippers and cd-info that
 # identify/classify use. handbrake-cli + libdvd-pkg + genisoimage
 # provide DVD ripping (HandBrake, libdvdcss CSS bypass, isoinfo for
-# volume-label probe).
-RUN apt-get update \
+# volume-label probe). libdvd-pkg lives in Debian's `contrib` archive,
+# which the python:slim base doesn't enable by default.
+RUN echo "deb http://deb.debian.org/debian bookworm main contrib" \
+        > /etc/apt/sources.list.d/contrib.list \
+ && apt-get update \
  && apt-get install -y --no-install-recommends \
         ca-certificates eject cdparanoia libcdio-utils whipper \
         handbrake-cli libdvd-pkg genisoimage \
