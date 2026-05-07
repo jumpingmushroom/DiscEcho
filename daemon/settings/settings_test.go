@@ -502,6 +502,97 @@ func TestMakeMKVBetaKey_NotSet_NoFileWritten(t *testing.T) {
 	}
 }
 
+func TestSeedPSXProfile(t *testing.T) {
+	store := openStore(t)
+	dataDir := t.TempDir()
+	env := envFn(map[string]string{
+		"DISCECHO_DATA":          dataDir,
+		"DISCECHO_AUTH_DISABLED": "true",
+	})
+	if _, err := settings.Load(env, store, "test"); err != nil {
+		t.Fatal(err)
+	}
+	ps, err := store.ListProfilesByDiscType(context.Background(), state.DiscTypePSX)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ps) != 1 || ps[0].Name != "PSX-CHD" {
+		t.Errorf("PSX profiles = %+v, want [PSX-CHD]", ps)
+	}
+	p := ps[0]
+	if p.Engine != "redumper+chdman" {
+		t.Errorf("PSX engine = %q", p.Engine)
+	}
+	if p.Format != "CHD" {
+		t.Errorf("PSX format = %q", p.Format)
+	}
+	if p.StepCount != 7 {
+		t.Errorf("PSX step_count = %d, want 7", p.StepCount)
+	}
+}
+
+func TestSeedPS2Profile(t *testing.T) {
+	store := openStore(t)
+	dataDir := t.TempDir()
+	env := envFn(map[string]string{
+		"DISCECHO_DATA":          dataDir,
+		"DISCECHO_AUTH_DISABLED": "true",
+	})
+	if _, err := settings.Load(env, store, "test"); err != nil {
+		t.Fatal(err)
+	}
+	ps, _ := store.ListProfilesByDiscType(context.Background(), state.DiscTypePS2)
+	if len(ps) != 1 || ps[0].Name != "PS2-CHD" {
+		t.Errorf("PS2 profiles = %+v, want [PS2-CHD]", ps)
+	}
+}
+
+func TestSeedGameProfiles_Idempotent(t *testing.T) {
+	store := openStore(t)
+	dataDir := t.TempDir()
+	env := envFn(map[string]string{
+		"DISCECHO_DATA":          dataDir,
+		"DISCECHO_AUTH_DISABLED": "true",
+	})
+	if _, err := settings.Load(env, store, "test"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := settings.Load(env, store, "test"); err != nil {
+		t.Fatal(err)
+	}
+	psx, _ := store.ListProfilesByDiscType(context.Background(), state.DiscTypePSX)
+	ps2, _ := store.ListProfilesByDiscType(context.Background(), state.DiscTypePS2)
+	if len(psx) != 1 {
+		t.Errorf("PSX after 2 loads = %d, want 1", len(psx))
+	}
+	if len(ps2) != 1 {
+		t.Errorf("PS2 after 2 loads = %d, want 1", len(ps2))
+	}
+}
+
+func TestRedumperEnvVars_Defaults(t *testing.T) {
+	store := openStore(t)
+	dataDir := t.TempDir()
+	env := envFn(map[string]string{
+		"DISCECHO_DATA":          dataDir,
+		"DISCECHO_AUTH_DISABLED": "true",
+	})
+	cfg, err := settings.Load(env, store, "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.RedumperBin != "redumper" {
+		t.Errorf("RedumperBin = %q", cfg.RedumperBin)
+	}
+	if cfg.CHDManBin != "chdman" {
+		t.Errorf("CHDManBin = %q", cfg.CHDManBin)
+	}
+	want := filepath.Join(dataDir, "redump")
+	if cfg.RedumpDataDir != want {
+		t.Errorf("RedumpDataDir = %q, want %q", cfg.RedumpDataDir, want)
+	}
+}
+
 func TestNewMakeMKVEnvVars_Defaults(t *testing.T) {
 	store := openStore(t)
 	dataDir := t.TempDir()

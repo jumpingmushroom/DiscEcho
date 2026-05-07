@@ -40,6 +40,9 @@ type Settings struct {
 	MakeMKVDataDir       string
 	MakeMKVBetaKey       string
 	BDInfoBin            string
+	RedumperBin          string
+	CHDManBin            string
+	RedumpDataDir        string
 }
 
 // Load reads env vars, generates a token if needed, seeds default
@@ -68,6 +71,9 @@ func Load(getenv func(string) string, store *state.Store, version string) (*Sett
 		MakeMKVDataDir:       firstNonEmpty(getenv("DISCECHO_MAKEMKV_DATA"), filepath.Join(firstNonEmpty(getenv("DISCECHO_DATA"), "/var/lib/discecho"), "MakeMKV")),
 		MakeMKVBetaKey:       getenv("DISCECHO_MAKEMKV_BETA_KEY"),
 		BDInfoBin:            firstNonEmpty(getenv("DISCECHO_BDINFO_BIN"), "bd_info"),
+		RedumperBin:          firstNonEmpty(getenv("DISCECHO_REDUMPER_BIN"), "redumper"),
+		CHDManBin:            firstNonEmpty(getenv("DISCECHO_CHDMAN_BIN"), "chdman"),
+		RedumpDataDir:        firstNonEmpty(getenv("DISCECHO_REDUMP_DIR"), filepath.Join(firstNonEmpty(getenv("DISCECHO_DATA"), "/var/lib/discecho"), "redump")),
 	}
 
 	if v := getenv("DISCECHO_AUTO_CONFIRM_SECONDS"); v != "" {
@@ -103,6 +109,12 @@ func Load(getenv func(string) string, store *state.Store, version string) (*Sett
 	}
 	if err := seedUHDProfile(ctx, store); err != nil {
 		return nil, fmt.Errorf("seed UHD profile: %w", err)
+	}
+	if err := seedPSXProfile(ctx, store); err != nil {
+		return nil, fmt.Errorf("seed PSX profile: %w", err)
+	}
+	if err := seedPS2Profile(ctx, store); err != nil {
+		return nil, fmt.Errorf("seed PS2 profile: %w", err)
 	}
 	if err := seedNotifications(ctx, store, getenv("DISCECHO_APPRISE_URLS")); err != nil {
 		return nil, fmt.Errorf("seed notifications: %w", err)
@@ -144,6 +156,8 @@ const (
 	dvdSeriesProfileName = "DVD-Series"
 	bdProfileName        = "BD-1080p"
 	uhdProfileName       = "UHD-Remux"
+	psxProfileName       = "PSX-CHD"
+	ps2ProfileName       = "PS2-CHD"
 )
 
 func seedDVDProfiles(ctx context.Context, store *state.Store) error {
@@ -314,6 +328,58 @@ func seedUHDProfile(ctx context.Context, store *state.Store) error {
 		OutputPathTemplate: `{{.Title}} ({{.Year}})/{{.Title}} ({{.Year}}) [UHD].mkv`,
 		Enabled:            true,
 		StepCount:          6,
+		CreatedAt:          now,
+		UpdatedAt:          now,
+	})
+}
+
+func seedPSXProfile(ctx context.Context, store *state.Store) error {
+	existing, err := store.ListProfilesByDiscType(ctx, state.DiscTypePSX)
+	if err != nil {
+		return err
+	}
+	for _, p := range existing {
+		if p.Name == psxProfileName {
+			return nil
+		}
+	}
+	now := time.Now()
+	return store.CreateProfile(ctx, &state.Profile{
+		DiscType:           state.DiscTypePSX,
+		Name:               psxProfileName,
+		Engine:             "redumper+chdman",
+		Format:             "CHD",
+		Preset:             "default",
+		Options:            map[string]any{},
+		OutputPathTemplate: `{{.Title}} ({{.Region}})/{{.Title}} ({{.Region}}).chd`,
+		Enabled:            true,
+		StepCount:          7,
+		CreatedAt:          now,
+		UpdatedAt:          now,
+	})
+}
+
+func seedPS2Profile(ctx context.Context, store *state.Store) error {
+	existing, err := store.ListProfilesByDiscType(ctx, state.DiscTypePS2)
+	if err != nil {
+		return err
+	}
+	for _, p := range existing {
+		if p.Name == ps2ProfileName {
+			return nil
+		}
+	}
+	now := time.Now()
+	return store.CreateProfile(ctx, &state.Profile{
+		DiscType:           state.DiscTypePS2,
+		Name:               ps2ProfileName,
+		Engine:             "redumper+chdman",
+		Format:             "CHD",
+		Preset:             "default",
+		Options:            map[string]any{},
+		OutputPathTemplate: `{{.Title}} ({{.Region}})/{{.Title}} ({{.Region}}).chd`,
+		Enabled:            true,
+		StepCount:          7,
 		CreatedAt:          now,
 		UpdatedAt:          now,
 	})
