@@ -164,8 +164,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
     `DISCECHO_MAKEMKV_BETA_KEY` (optional public beta key — daemon
     writes `~/.MakeMKV/settings.conf` on start), `DISCECHO_BDINFO_BIN`
     (default `bd_info`).
-  - Runtime image now includes `libbluray-bin` (~3 MB) and
-    `makemkvcon` built from source (~120 MB after build-dep purge).
+  - Runtime image now includes `libbluray-bin` (Debian package
+    that ships `bd_info`) and `makemkvcon` built from source. MakeMKV
+    is compiled in a separate build stage and only its binary +
+    shared libs (`libmakemkv.so.1`, `libdriveio.so.0`) are copied
+    into the runtime image; build deps (qtbase5-dev, mesa-dev, etc.)
+    don't ship. Runtime grew from ~291 MB (M2.1) to ~1 GB (M3.1)
+    — the bulk is `libavcodec59` + transitive media-codec deps that
+    `makemkvcon` links against. Image-size trim is a future task.
   - README documents the MakeMKV beta-key refresh cadence and
     where to drop `KEYDB.cfg` for UHD.
 

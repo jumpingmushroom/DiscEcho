@@ -35,33 +35,20 @@ RUN CGO_ENABLED=0 go build \
     -o /out/discecho ./cmd/discecho
 
 ###############################################################################
-# Stage 3 — runtime: python slim + apprise + the daemon binary
+# Stage 3 — build MakeMKV from source
+#
+# MakeMKV has no apt package and depends on heavy build-time toolchains
+# (qtbase5-dev, libgl1-mesa-dev) that we don't want shipped in the
+# runtime image. We compile it in this isolated stage and the runtime
+# stage copies only the resulting binary + shared libs.
 ###############################################################################
-FROM python:3.12-slim-bookworm AS runtime
-# whipper is not on PyPI, so install it from Debian apt. cdparanoia +
-# libcdio-utils provide the lower-level rippers and cd-info that
-# identify/classify use. handbrake-cli + libdvd-pkg + genisoimage
-# provide DVD ripping (HandBrake, libdvdcss CSS bypass, isoinfo for
-# volume-label probe). libdvd-pkg lives in Debian's `contrib` archive,
-# which the python:slim base doesn't enable by default.
-RUN echo "deb http://deb.debian.org/debian bookworm main contrib" \
-        > /etc/apt/sources.list.d/contrib.list \
- && apt-get update \
- && apt-get install -y --no-install-recommends \
-        ca-certificates eject cdparanoia libcdio-utils whipper \
-        handbrake-cli libdvd-pkg genisoimage \
-        libbluray-bdj libbluray2 libbluray-bin \
- && DEBIAN_FRONTEND=noninteractive dpkg-reconfigure libdvd-pkg \
- && rm -rf /var/lib/apt/lists/* \
- && pip install --no-cache-dir apprise
-
-# MakeMKV — built from source. Used by the BDMV + UHD pipelines (M3.1).
-# Build deps installed, MakeMKV compiled + installed, build deps purged.
-ARG MAKEMKV_VERSION=1.17.5
+FROM debian:bookworm-slim AS makemkv-build
+ARG MAKEMKV_VERSION=1.18.3
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
         build-essential pkg-config libc6-dev libssl-dev libexpat1-dev \
         libavcodec-dev libgl1-mesa-dev qtbase5-dev zlib1g-dev curl \
+        ca-certificates \
  && curl -fsSL "https://www.makemkv.com/download/makemkv-oss-${MAKEMKV_VERSION}.tar.gz" \
         | tar xz -C /tmp \
  && curl -fsSL "https://www.makemkv.com/download/makemkv-bin-${MAKEMKV_VERSION}.tar.gz" \
@@ -70,11 +57,36 @@ RUN apt-get update \
         && ./configure --disable-gui && make -j"$(nproc)" && make install \
  && cd "/tmp/makemkv-bin-${MAKEMKV_VERSION}" \
         && mkdir -p tmp && echo accepted > tmp/eula_accepted \
-        && make install \
- && apt-get purge -y --auto-remove \
-        build-essential pkg-config libssl-dev libexpat1-dev libavcodec-dev \
-        libgl1-mesa-dev qtbase5-dev zlib1g-dev curl \
- && rm -rf /var/lib/apt/lists/* /tmp/makemkv-*
+        && make install
+
+###############################################################################
+# Stage 4 — runtime: python slim + apprise + the daemon binary
+###############################################################################
+FROM python:3.12-slim-bookworm AS runtime
+# whipper is not on PyPI, so install it from Debian apt. cdparanoia +
+# libcdio-utils provide the lower-level rippers and cd-info that
+# identify/classify use. handbrake-cli + libdvd-pkg + genisoimage
+# provide DVD ripping (HandBrake, libdvdcss CSS bypass, isoinfo for
+# volume-label probe). libdvd-pkg lives in Debian's `contrib` archive,
+# which the python:slim base doesn't enable by default.
+# libbluray-bin ships bd_info (UHD AACS2 detection); libssl3 +
+# libexpat1 + libavcodec59 are makemkvcon's runtime shared-lib deps.
+RUN echo "deb http://deb.debian.org/debian bookworm main contrib" \
+        > /etc/apt/sources.list.d/contrib.list \
+ && apt-get update \
+ && apt-get install -y --no-install-recommends \
+        ca-certificates eject cdparanoia libcdio-utils whipper \
+        handbrake-cli libdvd-pkg genisoimage \
+        libbluray-bdj libbluray2 libbluray-bin \
+        libssl3 libexpat1 libavcodec59 \
+ && DEBIAN_FRONTEND=noninteractive dpkg-reconfigure libdvd-pkg \
+ && rm -rf /var/lib/apt/lists/* \
+ && pip install --no-cache-dir apprise
+
+# Copy MakeMKV's built binary + shared libs from the build stage.
+COPY --from=makemkv-build /usr/bin/makemkvcon /usr/bin/makemkvcon
+COPY --from=makemkv-build /lib/libmakemkv.so.1 /lib/libmakemkv.so.1
+COPY --from=makemkv-build /lib/libdriveio.so.0 /lib/libdriveio.so.0
 
 WORKDIR /app
 COPY --from=daemon-build /out/discecho /app/discecho
