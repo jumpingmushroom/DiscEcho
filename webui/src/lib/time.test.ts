@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { formatDuration, relativeTime } from './time';
+import { dayGroupLabel, formatDuration, relativeTime } from './time';
 
 describe('formatDuration', () => {
   it('formats minutes:seconds for short durations', () => {
@@ -48,5 +48,37 @@ describe('relativeTime', () => {
   it('handles invalid input', () => {
     expect(relativeTime('', new Date())).toBe('');
     expect(relativeTime('not-a-date', new Date())).toBe('');
+  });
+});
+
+describe('dayGroupLabel', () => {
+  const fixedNow = new Date('2026-05-07T15:00:00Z');
+
+  it('returns Today for the same calendar day', () => {
+    expect(dayGroupLabel('2026-05-07T03:00:00Z', fixedNow)).toBe('Today');
+    expect(dayGroupLabel('2026-05-07T14:59:59Z', fixedNow)).toBe('Today');
+  });
+
+  it('returns Yesterday for one day earlier', () => {
+    expect(dayGroupLabel('2026-05-06T12:00:00Z', fixedNow)).toBe('Yesterday');
+  });
+
+  it('returns N days ago between 2 and 6 days', () => {
+    expect(dayGroupLabel('2026-05-04T12:00:00Z', fixedNow)).toBe('3 days ago');
+    expect(dayGroupLabel('2026-05-01T12:00:00Z', fixedNow)).toBe('6 days ago');
+  });
+
+  it('returns 1 week ago / N weeks ago between 7 and 29 days', () => {
+    expect(dayGroupLabel('2026-04-29T12:00:00Z', fixedNow)).toBe('1 week ago');
+    expect(dayGroupLabel('2026-04-15T12:00:00Z', fixedNow)).toBe('3 weeks ago');
+  });
+
+  it('returns absolute date past 30 days', () => {
+    expect(dayGroupLabel('2025-12-01T12:00:00Z', fixedNow)).toMatch(/2025/);
+  });
+
+  it('returns empty string for empty/invalid input', () => {
+    expect(dayGroupLabel('', fixedNow)).toBe('');
+    expect(dayGroupLabel('not-a-date', fixedNow)).toBe('');
   });
 });
