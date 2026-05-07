@@ -2,22 +2,41 @@
 // Update both files when the contract changes.
 
 export type DiscType =
-  | 'AUDIO_CD' | 'DVD' | 'BDMV' | 'UHD'
-  | 'PSX' | 'PS2' | 'XBOX' | 'SAT' | 'DC' | 'VCD' | 'DATA';
+  | 'AUDIO_CD'
+  | 'DVD'
+  | 'BDMV'
+  | 'UHD'
+  | 'PSX'
+  | 'PS2'
+  | 'XBOX'
+  | 'SAT'
+  | 'DC'
+  | 'VCD'
+  | 'DATA';
 
-export type DriveState =
-  | 'idle' | 'identifying' | 'ripping' | 'ejecting' | 'error';
+export type DriveState = 'idle' | 'identifying' | 'ripping' | 'ejecting' | 'error';
 
 export type JobState =
-  | 'queued' | 'identifying' | 'running' | 'paused'
-  | 'done' | 'failed' | 'cancelled' | 'interrupted';
+  | 'queued'
+  | 'identifying'
+  | 'running'
+  | 'paused'
+  | 'done'
+  | 'failed'
+  | 'cancelled'
+  | 'interrupted';
 
 export type StepID =
-  | 'detect' | 'identify' | 'rip' | 'transcode'
-  | 'compress' | 'move' | 'notify' | 'eject';
+  | 'detect'
+  | 'identify'
+  | 'rip'
+  | 'transcode'
+  | 'compress'
+  | 'move'
+  | 'notify'
+  | 'eject';
 
-export type JobStepState =
-  | 'pending' | 'running' | 'done' | 'skipped' | 'failed';
+export type JobStepState = 'pending' | 'running' | 'done' | 'skipped' | 'failed';
 
 export type LogLevel = 'debug' | 'info' | 'warn' | 'error';
 
@@ -132,13 +151,19 @@ export interface SnapshotPayload {
 
 // SSE event types
 export type SSEEvent =
-  | { event: 'drive.changed';   data: { drive: Drive } }
-  | { event: 'disc.detected';   data: { disc: Disc } }
+  | { event: 'drive.changed'; data: { drive: Drive } }
+  | { event: 'disc.detected'; data: { disc: Disc } }
   | { event: 'disc.identified'; data: { disc: Disc; candidates: Candidate[] } }
-  | { event: 'job.created';     data: { job: Job } }
-  | { event: 'job.step';        data: { job_id: string; step: StepID; state: JobStepState; notes?: Record<string, unknown> } }
-  | { event: 'job.progress';    data: { job_id: string; step: StepID; pct: number; speed: string; eta_seconds: number } }
-  | { event: 'job.log';         data: { job_id: string; t: string; level: LogLevel; message: string } }
-  | { event: 'job.done';        data: { job_id: string } }
-  | { event: 'job.failed';      data: { job_id: string; error?: string; state?: 'cancelled' } }
-  | { event: 'state.snapshot';  data: SnapshotPayload };
+  | { event: 'job.created'; data: { job: Job } }
+  | {
+      event: 'job.step';
+      data: { job_id: string; step: StepID; state: JobStepState; notes?: Record<string, unknown> };
+    }
+  | {
+      event: 'job.progress';
+      data: { job_id: string; step: StepID; pct: number; speed: string; eta_seconds: number };
+    }
+  | { event: 'job.log'; data: { job_id: string; t: string; level: LogLevel; message: string } }
+  | { event: 'job.done'; data: { job_id: string } }
+  | { event: 'job.failed'; data: { job_id: string; error?: string; state?: 'cancelled' } }
+  | { event: 'state.snapshot'; data: SnapshotPayload };
