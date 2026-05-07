@@ -268,8 +268,78 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
     `deleteProfile`. New `selectedProfileID` writable.
   - New `lib/api.ts` helper `parseValidationErrors(e)` and
     `apiPut<T>` mirroring `apiPost`.
+- **M6.1 daemon-side Saturn / Dreamcast / Xbox / Data pipelines.**
+  - `pipelines/saturn` handler: identifies via Saturn IP.BIN
+    (sector 0 magic `SEGA SEGASATURN` + product number) → Redump
+    dat lookup, rips with redumper (`cd` mode), MD5-verifies
+    against the dat entry (warns on mismatch), compresses to CHD
+    with chdman, atomic-moves to library. Output template
+    `{{.Title}} ({{.Region}})/{{.Title}} ({{.Region}}).chd`.
+  - `pipelines/dreamcast` handler: type-only classification
+    pre-rip via TOC heuristic (2 sessions + session-2 start at
+    LBA ≥ 45000). Rips with redumper (`cd` mode), produces
+    multi-track GDI, computes post-rip MD5 against Redump DC
+    dat — on hit, fills in real `Title` and `Region` before the
+    move step. Compresses to CHD-GDI via chdman.
+  - `pipelines/xbox` handler: identifies via XBE certificate
+    from `default.xbe` on the mounted disc (title ID +
+    allowed-region bitfield) → Redump dat lookup, rips with
+    redumper (`xbox` mode) producing `.iso`, MD5-verifies,
+    atomic-moves. No compress step — XBOX ISO is the
+    deliverable. Output template
+    `{{.Title}} ({{.Region}})/{{.Title}} ({{.Region}}).iso`.
+    Original Xbox only.
+  - `pipelines/data` handler: filesystem volume label becomes
+    `Title` (`data-disc-YYYYMMDD-HHMMSS` fallback when label is
+    empty). Rips with `dd` (`bs=2048 conv=noerror,sync`),
+    sha256-hashes the ISO, records hash and size on the disc
+    record, atomic-moves. Output template
+    `{{.Title}}/{{.Title}}.iso`.
+  - `tools/redumper.go`: `xbox` mode added; emits `<name>.iso`
+    like `dvd` mode. New exported `RedumperOutputExt(mode)`
+    helper.
+  - `tools/dd.go`: new wrapper around `dd if=<dev> of=<out>
+    bs=2048 conv=noerror,sync status=progress`. Pure
+    `ParseDDProgress` for unit tests. Surfaces bad-sector
+    handling via job log lines.
+  - `identify/saturnprobe.go`: pure `ProbeSaturnReader` over an
+    `io.Reader` plus `ProbeSaturn(devPath)` wrapper.
+  - `identify/xboxprobe.go`: parses XBE base-address +
+    certificate-VA offsets to extract title ID and
+    allowed-region bitfield. Refactored to expose `ProbeXBE(data
+    []byte)` so the pipeline can probe via `isoinfo -x
+    /default.xbe` without mounting the disc.
+  - `identify/dctoc.go`: `DCTOCProber` wrapping `cdrdao
+    disk-info` + pure `looksLikeDreamcast` helper.
+  - `identify/redump.go`: `LoadRedumpDir(rootDir)` walks
+    `<root>/<system>/*.dat` and merges all dat-files into one
+    in-memory index. New `LookupByXboxTitleID(uint32)` method.
+    Bracket-code regex generalised to handle Saturn product
+    numbers and Xbox hex title IDs alongside PSX/PS2 boot codes.
+  - Classifier extended: Saturn / Dreamcast / Xbox / Data
+    fallback branches layered after the existing PSX/PS2 logic.
+    Probe errors route to DATA (matches the M3.1/M5.1
+    conservative posture).
+  - Engine schema gains `redumper` (formats `[ISO]`) and `dd`
+    (formats `[ISO]`). `webui/src/lib/profile_schema.ts`
+    mirrors. `DISC_TYPES` array gains `SAT`, `DC`, `XBOX`.
+  - Four new seeded profiles: `Saturn-CHD`, `DC-CHD`,
+    `XBOX-ISO`, `Data-ISO`. Idempotent seed functions in
+    `daemon/settings/settings.go`.
+  - Daemon main wiring switched from per-file
+    `LoadRedumpDB(<system>.dat)` to a single
+    `LoadRedumpDir(${DISCECHO_DATA}/redump)` call shared across
+    all five Redump-aware handlers (PSX, PS2, Saturn, DC, Xbox).
+  - README documents the per-system Redump dat-file layout
+    under `${DISCECHO_DATA}/redump/<system>/`.
+  - **Drops VCD from the disc-type matrix** (dead format; falls
+    through to DATA pipeline as ISO).
 
 ### Changed
+- Redump dat-files must now live under per-system subdirectories
+  (`${DISCECHO_DATA}/redump/{psx,ps2,saturn,dreamcast,xbox}/*.dat`).
+  Files placed directly under `${DISCECHO_DATA}/redump/` are no
+  longer loaded — move them into the right subdirectory.
 
 ### Deprecated
 
