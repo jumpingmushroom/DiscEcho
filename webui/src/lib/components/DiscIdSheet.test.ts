@@ -4,7 +4,7 @@ import { render, fireEvent } from '@testing-library/svelte';
 import { tick } from 'svelte';
 import { get } from 'svelte/store';
 import DiscIdSheet from './DiscIdSheet.svelte';
-import { profiles, pendingDiscID } from '$lib/store';
+import { profiles, pendingDiscID, discs } from '$lib/store';
 import type { Disc, Profile } from '$lib/wire';
 
 const cdProfile: Profile = {
@@ -107,5 +107,163 @@ describe('DiscIdSheet', () => {
     await fireEvent.click(getByText('Skip identification'));
     expect(get(pendingDiscID)).toBeNull();
     expect(fetchSpy).not.toHaveBeenCalled();
+  });
+});
+
+describe('DiscIdSheet — candidate-driven profile binding (M2.2)', () => {
+  let fetchSpy: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    profiles.set([
+      cdProfile,
+      {
+        id: 'p-dvd-movie',
+        disc_type: 'DVD',
+        name: 'DVD-Movie',
+        engine: 'HandBrake',
+        format: 'MP4',
+        preset: 'x264 RF 20',
+        options: {},
+        output_path_template: '{{.Title}}.mp4',
+        enabled: true,
+        step_count: 7,
+        created_at: '2026-05-07T12:00:00Z',
+        updated_at: '2026-05-07T12:00:00Z',
+      },
+      {
+        id: 'p-dvd-series',
+        disc_type: 'DVD',
+        name: 'DVD-Series',
+        engine: 'HandBrake',
+        format: 'MKV',
+        preset: 'x264 RF 20 per-title',
+        options: {},
+        output_path_template: '{{.Show}}/{{.EpisodeNumber}}.mkv',
+        enabled: true,
+        step_count: 7,
+        created_at: '2026-05-07T12:00:00Z',
+        updated_at: '2026-05-07T12:00:00Z',
+      },
+    ]);
+    pendingDiscID.set(null);
+    fetchSpy = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ id: 'job-new' }),
+    });
+    vi.stubGlobal('fetch', fetchSpy);
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+  });
+
+  it('shows FILM badge for movie candidates', () => {
+    const dvdDisc = {
+      id: 'disc-d1',
+      drive_id: 'd1',
+      type: 'DVD' as const,
+      candidates: [
+        {
+          source: 'TMDB',
+          title: 'Arrival',
+          year: 2016,
+          confidence: 80,
+          tmdb_id: 1,
+          media_type: 'movie' as const,
+        },
+      ],
+      created_at: '2026-05-07T12:00:00Z',
+    };
+    discs.set({ 'disc-d1': dvdDisc });
+    const { getByText } = render(DiscIdSheet, { disc: dvdDisc });
+    expect(getByText('FILM')).toBeInTheDocument();
+  });
+
+  it('shows TV badge for tv candidates', () => {
+    const dvdDisc = {
+      id: 'disc-d2',
+      drive_id: 'd1',
+      type: 'DVD' as const,
+      candidates: [
+        {
+          source: 'TMDB',
+          title: 'Friends',
+          year: 1994,
+          confidence: 90,
+          tmdb_id: 1668,
+          media_type: 'tv' as const,
+        },
+      ],
+      created_at: '2026-05-07T12:00:00Z',
+    };
+    discs.set({ 'disc-d2': dvdDisc });
+    const { getByText } = render(DiscIdSheet, { disc: dvdDisc });
+    expect(getByText('TV')).toBeInTheDocument();
+  });
+
+  it('clicking tv candidate starts job with DVD-Series profile', async () => {
+    const dvdDisc = {
+      id: 'disc-d3',
+      drive_id: 'd1',
+      type: 'DVD' as const,
+      candidates: [
+        {
+          source: 'TMDB',
+          title: 'Friends',
+          year: 1994,
+          confidence: 90,
+          tmdb_id: 1668,
+          media_type: 'tv' as const,
+        },
+      ],
+      created_at: '2026-05-07T12:00:00Z',
+    };
+    discs.set({ 'disc-d3': dvdDisc });
+    const { getByText } = render(DiscIdSheet, { disc: dvdDisc });
+
+    await fireEvent.click(getByText('Use top match · Start rip'));
+
+    expect(fetchSpy).toHaveBeenCalled();
+    const url = fetchSpy.mock.calls[0][0] as string;
+    const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
+    expect(url).toBe('/api/discs/disc-d3/start');
+    expect(body.profile_id).toBe('p-dvd-series');
+  });
+
+  it('clicking movie candidate starts job with DVD-Movie profile', async () => {
+    const dvdDisc = {
+      id: 'disc-d4',
+      drive_id: 'd1',
+      type: 'DVD' as const,
+      candidates: [
+        {
+          source: 'TMDB',
+          title: 'Arrival',
+          year: 2016,
+          confidence: 80,
+          tmdb_id: 329865,
+          media_type: 'movie' as const,
+        },
+      ],
+      created_at: '2026-05-07T12:00:00Z',
+    };
+    discs.set({ 'disc-d4': dvdDisc });
+    const { getByText } = render(DiscIdSheet, { disc: dvdDisc });
+
+    await fireEvent.click(getByText('Use top match · Start rip'));
+
+    const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
+    expect(body.profile_id).toBe('p-dvd-movie');
+  });
+
+  it('AUDIO_CD candidate (no media_type) starts CD-FLAC profile', async () => {
+    discs.set({ 'disc-1': disc });
+    const { getByText } = render(DiscIdSheet, { disc });
+    await fireEvent.click(getByText('Use top match · Start rip'));
+    const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
+    expect(body.profile_id).toBe('p-cd');
   });
 });
