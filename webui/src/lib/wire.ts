@@ -1,7 +1,3 @@
-// Sourced from /shared/wire.ts. Re-copy when the daemon's wire format
-// changes; we keep a copy in webui/src/lib/ so SvelteKit's path
-// resolution stays inside the package.
-
 // DiscEcho M1.1 wire types — manually mirrored from daemon/state/types.go.
 // Update both files when the contract changes.
 
@@ -61,7 +57,21 @@ export interface Candidate {
   artist?: string;
   year?: number;
   confidence: number;
-  mbid: string;
+  mbid?: string;
+  tmdb_id?: number;
+  media_type?: 'movie' | 'tv' | '';
+}
+
+export interface HistoryRow {
+  job: Job;
+  disc: Disc;
+}
+
+export interface HistoryResponse {
+  rows: HistoryRow[];
+  total: number;
+  limit: number;
+  offset: number;
 }
 
 export interface Disc {

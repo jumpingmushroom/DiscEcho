@@ -38,7 +38,21 @@ export interface Candidate {
   artist?: string;
   year?: number;
   confidence: number;
-  mbid: string;
+  mbid?: string;
+  tmdb_id?: number;
+  media_type?: 'movie' | 'tv' | '';
+}
+
+export interface HistoryRow {
+  job: Job;
+  disc: Disc;
+}
+
+export interface HistoryResponse {
+  rows: HistoryRow[];
+  total: number;
+  limit: number;
+  offset: number;
 }
 
 export interface Disc {

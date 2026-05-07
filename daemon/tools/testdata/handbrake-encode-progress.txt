@@ -1,0 +1,6 @@
+[15:24:02] sync: first pts is 0
+Encoding: task 1 of 1, 12.50 % (avg fps 28.4, ETA 00h12m48s)
+Encoding: task 1 of 1, 25.00 % (avg fps 30.1, ETA 00h09m22s)
+Encoding: task 1 of 1, 50.00 % (avg fps 31.8, ETA 00h05m44s)
+Encoding: task 1 of 1, 99.50 % (avg fps 32.0, ETA 00h00m03s)
+Encoding done.

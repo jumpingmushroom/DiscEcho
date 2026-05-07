@@ -251,6 +251,26 @@ func (s *Store) ListDiscsForDrive(ctx context.Context, driveID string) ([]Disc, 
 	return out, rows.Err()
 }
 
+// UpdateDiscCandidates replaces the candidates JSON for an existing disc.
+// Used by the identify endpoint when the user supplies a manual TMDB
+// query and we want to persist the new candidate list.
+func (s *Store) UpdateDiscCandidates(ctx context.Context, id string, cands []Candidate) error {
+	body, err := marshalCandidates(cands)
+	if err != nil {
+		return fmt.Errorf("marshal candidates: %w", err)
+	}
+	res, err := s.db.Conn().ExecContext(ctx,
+		`UPDATE discs SET candidates_json = ? WHERE id = ?`, body, id)
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
 // nullString returns a sql.NullString that's NULL on the empty string,
 // used for nullable FK columns. SQLite ON DELETE SET NULL needs real
 // NULLs to work; an empty-string value would never match.
@@ -1102,4 +1122,132 @@ func (s *Store) SetSetting(ctx context.Context, key, value string) error {
 		ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
 		key, value, timestamp(time.Now()))
 	return err
+}
+
+// ---- HISTORY (query layer over jobs + discs) ------------------------------
+
+// HistoryFilter narrows ListHistory.
+type HistoryFilter struct {
+	Type   DiscType
+	From   time.Time
+	To     time.Time
+	Limit  int
+	Offset int
+}
+
+// HistoryRow is one finished job + the disc it ripped.
+type HistoryRow struct {
+	Job  Job  `json:"job"`
+	Disc Disc `json:"disc"`
+}
+
+// ListHistory returns finished jobs (state in done/failed/cancelled)
+// joined with their disc, ordered by finished_at DESC.
+func (s *Store) ListHistory(ctx context.Context, f HistoryFilter) ([]HistoryRow, error) {
+	if f.Limit <= 0 {
+		f.Limit = 50
+	}
+	if f.Limit > 200 {
+		f.Limit = 200
+	}
+
+	q := `
+		SELECT
+		  j.id, j.disc_id, COALESCE(j.drive_id, ''), j.profile_id, j.state, j.active_step,
+		  j.progress, j.speed, j.eta_seconds, j.elapsed_seconds,
+		  j.started_at, j.finished_at, j.error_message, j.created_at,
+		  d.id, COALESCE(d.drive_id, ''), d.type, d.title, d.year, d.runtime_seconds,
+		  d.size_bytes_raw, d.toc_hash, d.metadata_provider, d.metadata_id,
+		  d.candidates_json, d.created_at
+		FROM jobs j
+		JOIN discs d ON j.disc_id = d.id
+		WHERE j.state IN ('done','failed','cancelled')
+	`
+	args := []any{}
+	if f.Type != "" {
+		q += " AND d.type = ?"
+		args = append(args, string(f.Type))
+	}
+	if !f.From.IsZero() {
+		q += " AND j.finished_at >= ?"
+		args = append(args, timestamp(f.From))
+	}
+	if !f.To.IsZero() {
+		q += " AND j.finished_at <= ?"
+		args = append(args, timestamp(f.To))
+	}
+	q += " ORDER BY j.finished_at DESC LIMIT ? OFFSET ?"
+	args = append(args, f.Limit, f.Offset)
+
+	rows, err := s.db.Conn().QueryContext(ctx, q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+
+	var out []HistoryRow
+	for rows.Next() {
+		var (
+			j                                              Job
+			d                                              Disc
+			jState, jActive, jStarted, jFinished, jCreated string
+			dType, dCands, dCreated                        string
+		)
+		if err := rows.Scan(
+			&j.ID, &j.DiscID, &j.DriveID, &j.ProfileID, &jState, &jActive,
+			&j.Progress, &j.Speed, &j.ETASeconds, &j.ElapsedSeconds,
+			&jStarted, &jFinished, &j.ErrorMessage, &jCreated,
+			&d.ID, &d.DriveID, &dType, &d.Title, &d.Year, &d.RuntimeSeconds,
+			&d.SizeBytesRaw, &d.TOCHash, &d.MetadataProvider, &d.MetadataID,
+			&dCands, &dCreated,
+		); err != nil {
+			return nil, err
+		}
+		j.State = JobState(jState)
+		j.ActiveStep = StepID(jActive)
+		var err error
+		if j.StartedAt, err = parseTimePtr(jStarted); err != nil {
+			return nil, fmt.Errorf("parse j.started_at: %w", err)
+		}
+		if j.FinishedAt, err = parseTimePtr(jFinished); err != nil {
+			return nil, fmt.Errorf("parse j.finished_at: %w", err)
+		}
+		if j.CreatedAt, err = parseTime(jCreated); err != nil {
+			return nil, fmt.Errorf("parse j.created_at: %w", err)
+		}
+		d.Type = DiscType(dType)
+		if d.Candidates, err = unmarshalCandidates(dCands); err != nil {
+			return nil, fmt.Errorf("unmarshal candidates: %w", err)
+		}
+		if d.CreatedAt, err = parseTime(dCreated); err != nil {
+			return nil, fmt.Errorf("parse d.created_at: %w", err)
+		}
+		out = append(out, HistoryRow{Job: j, Disc: d})
+	}
+	return out, rows.Err()
+}
+
+// CountHistory returns the count of rows matching the filter.
+func (s *Store) CountHistory(ctx context.Context, f HistoryFilter) (int, error) {
+	q := `SELECT COUNT(*) FROM jobs j WHERE j.state IN ('done','failed','cancelled')`
+	args := []any{}
+	if f.Type != "" {
+		q = `SELECT COUNT(*) FROM jobs j JOIN discs d ON j.disc_id = d.id
+		     WHERE j.state IN ('done','failed','cancelled') AND d.type = ?`
+		args = append(args, string(f.Type))
+	}
+	if !f.From.IsZero() {
+		q += " AND j.finished_at >= ?"
+		args = append(args, timestamp(f.From))
+	}
+	if !f.To.IsZero() {
+		q += " AND j.finished_at <= ?"
+		args = append(args, timestamp(f.To))
+	}
+	row := s.db.Conn().QueryRowContext(ctx, q, args...)
+	var n int
+	if err := row.Scan(&n); err != nil {
+		return 0, err
+	}
+	return n, nil
 }

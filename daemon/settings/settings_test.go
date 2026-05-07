@@ -308,3 +308,56 @@ func TestResolveToken_DisabledReturnsEmpty(t *testing.T) {
 		t.Errorf("token file should not be created when auth disabled")
 	}
 }
+
+func TestLoad_DVDProfilesSeeded(t *testing.T) {
+	store := openStore(t)
+	dataDir := t.TempDir()
+	env := envFn(map[string]string{"DISCECHO_DATA": dataDir})
+
+	if _, err := settings.Load(env, store, "test"); err != nil {
+		t.Fatal(err)
+	}
+
+	dvds, _ := store.ListProfilesByDiscType(context.Background(), state.DiscTypeDVD)
+	if len(dvds) != 2 {
+		t.Fatalf("want 2 DVD profiles, got %d", len(dvds))
+	}
+	names := map[string]bool{}
+	for _, p := range dvds {
+		names[p.Name] = true
+	}
+	if !names["DVD-Movie"] || !names["DVD-Series"] {
+		t.Errorf("missing names: %v", names)
+	}
+
+	// Idempotent
+	if _, err := settings.Load(env, store, "test"); err != nil {
+		t.Fatal(err)
+	}
+	dvds2, _ := store.ListProfilesByDiscType(context.Background(), state.DiscTypeDVD)
+	if len(dvds2) != 2 {
+		t.Errorf("after re-Load: %d", len(dvds2))
+	}
+}
+
+func TestLoad_TMDBEnvVars(t *testing.T) {
+	store := openStore(t)
+	dataDir := t.TempDir()
+	env := envFn(map[string]string{
+		"DISCECHO_DATA":          dataDir,
+		"DISCECHO_TMDB_KEY":      "abc-key",
+		"DISCECHO_TMDB_LANG":     "fr-FR",
+		"DISCECHO_SUBS_LANG":     "fra",
+		"DISCECHO_HANDBRAKE_BIN": "/opt/handbrake",
+		"DISCECHO_ISOINFO_BIN":   "/usr/local/bin/isoinfo",
+	})
+	cfg, err := settings.Load(env, store, "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.TMDBKey != "abc-key" || cfg.TMDBLang != "fr-FR" ||
+		cfg.SubsLang != "fra" || cfg.HandBrakeBin != "/opt/handbrake" ||
+		cfg.IsoInfoBin != "/usr/local/bin/isoinfo" {
+		t.Errorf("got %+v", cfg)
+	}
+}

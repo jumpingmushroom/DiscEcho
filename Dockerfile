@@ -40,10 +40,17 @@ RUN CGO_ENABLED=0 go build \
 FROM python:3.12-slim-bookworm AS runtime
 # whipper is not on PyPI, so install it from Debian apt. cdparanoia +
 # libcdio-utils provide the lower-level rippers and cd-info that
-# identify/classify use.
-RUN apt-get update \
+# identify/classify use. handbrake-cli + libdvd-pkg + genisoimage
+# provide DVD ripping (HandBrake, libdvdcss CSS bypass, isoinfo for
+# volume-label probe). libdvd-pkg lives in Debian's `contrib` archive,
+# which the python:slim base doesn't enable by default.
+RUN echo "deb http://deb.debian.org/debian bookworm main contrib" \
+        > /etc/apt/sources.list.d/contrib.list \
+ && apt-get update \
  && apt-get install -y --no-install-recommends \
         ca-certificates eject cdparanoia libcdio-utils whipper \
+        handbrake-cli libdvd-pkg genisoimage \
+ && DEBIAN_FRONTEND=noninteractive dpkg-reconfigure libdvd-pkg \
  && rm -rf /var/lib/apt/lists/* \
  && pip install --no-cache-dir apprise
 

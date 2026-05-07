@@ -1,0 +1,4 @@
+CD-ROM is in ISO 9660 format
+System id:
+Volume id:
+Volume size is: 0

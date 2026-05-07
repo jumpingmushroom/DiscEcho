@@ -79,6 +79,35 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
   - PWA manifest + 192/512 icons (offline shell + push deferred to M6).
   - Daemon: new `DISCECHO_AUTH_DISABLED=true` env to skip the bearer
     token bootstrap, intended for use behind a reverse proxy.
+- **M2.1 daemon-side DVD-Video pipeline + history endpoint.**
+  - `pipelines/dvdvideo`: handler that probes DVD volume label, queries
+    TMDB (movie + tv search merged), runs HandBrake scan + per-title
+    encode, atomic-moves outputs to library, fires Apprise, ejects.
+  - DVD-Movie profile (MP4, x264 RF 20, longest title only) and
+    DVD-Series profile (MKV, x264 RF 20 per-title, titles ≥ 5 min)
+    seeded on first start.
+  - `identify/tmdb.go`: TMDB JSON client with parallel movie+tv search,
+    confidence from `popularity / 10`, capped at 5 candidates.
+  - `identify/dvdlabel.go`: volume label normaliser (replaces `_` and
+    `.`, title-cases via `golang.org/x/text/cases`, rejects `DVD_VIDEO`
+    / ≤ 3 chars).
+  - `identify/dvdprober.go`: shells out to `isoinfo -d` to read the
+    primary volume descriptor.
+  - `tools/handbrake.go`: HandBrakeCLI wrapper with `--scan` title
+    parser and encode-progress parser (computes overall progress
+    across multiple titles via `HB_TITLE_IDX` / `HB_TOTAL_TITLES` env).
+  - `state.Candidate` gains `tmdb_id` and `media_type` fields
+    (additive; no migration).
+  - `state.Store.ListHistory` + `CountHistory` + `HistoryFilter` /
+    `HistoryRow` types; `GET /api/history` endpoint paginated by
+    finished_at DESC, filterable by type/from/to.
+  - `POST /api/discs/:id/identify` accepts `{query, media_type}` body
+    for manual TMDB lookup; persists candidates back onto the disc.
+  - New env vars: `DISCECHO_TMDB_KEY`, `DISCECHO_TMDB_LANG` (default
+    `en-US`), `DISCECHO_SUBS_LANG` (default `eng`),
+    `DISCECHO_HANDBRAKE_BIN`, `DISCECHO_ISOINFO_BIN`.
+  - Runtime image now includes `handbrake-cli`, `libdvd-pkg` (CSS
+    bypass), and `genisoimage` (`isoinfo`).
 
 ### Changed
 

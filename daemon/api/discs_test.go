@@ -173,6 +173,83 @@ func TestIdentifyDisc_NotFound(t *testing.T) {
 	}
 }
 
+func TestIdentifyDisc_EmptyBodyReturnsCurrent(t *testing.T) {
+	h := apitestServer(t)
+	drv := seedDrive(t, h)
+	d := &state.Disc{
+		DriveID: drv.ID, Type: state.DiscTypeDVD, Title: "Existing",
+		Candidates: []state.Candidate{
+			{Source: "TMDB", Title: "Existing", MediaType: "movie", TMDBID: 1, Confidence: 50},
+		},
+	}
+	if err := h.Store.CreateDisc(context.Background(), d); err != nil {
+		t.Fatal(err)
+	}
+
+	r := chi.NewRouter()
+	r.Post("/api/discs/{id}/identify", h.IdentifyDisc)
+	req := httptest.NewRequest(http.MethodPost, "/api/discs/"+d.ID+"/identify", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Errorf("status: %d", w.Code)
+	}
+}
+
+func TestIdentifyDisc_ManualQueryHitsTMDBAndUpdates(t *testing.T) {
+	h := apitestServer(t)
+	fakeCands := []state.Candidate{
+		{Source: "TMDB", Title: "Found", Year: 2020, MediaType: "movie", TMDBID: 99, Confidence: 80},
+	}
+	h.TMDB = &fakeTMDBForAPI{cands: fakeCands}
+
+	drv := seedDrive(t, h)
+	d := &state.Disc{DriveID: drv.ID, Type: state.DiscTypeDVD, Title: ""}
+	if err := h.Store.CreateDisc(context.Background(), d); err != nil {
+		t.Fatal(err)
+	}
+
+	r := chi.NewRouter()
+	r.Post("/api/discs/{id}/identify", h.IdentifyDisc)
+	body := bytes.NewReader([]byte(`{"query":"Found","media_type":"movie"}`))
+	req := httptest.NewRequest(http.MethodPost, "/api/discs/"+d.ID+"/identify", body)
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status: %d body=%s", w.Code, w.Body.String())
+	}
+	var out struct {
+		Candidates []state.Candidate `json:"candidates"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &out); err != nil {
+		t.Fatal(err)
+	}
+	if len(out.Candidates) != 1 || out.Candidates[0].TMDBID != 99 {
+		t.Errorf("got %+v", out.Candidates)
+	}
+
+	got, _ := h.Store.GetDisc(context.Background(), d.ID)
+	if len(got.Candidates) != 1 {
+		t.Errorf("not persisted")
+	}
+}
+
+type fakeTMDBForAPI struct {
+	cands []state.Candidate
+}
+
+func (f *fakeTMDBForAPI) SearchMovie(_ context.Context, _ string) ([]state.Candidate, error) {
+	return f.cands, nil
+}
+func (f *fakeTMDBForAPI) SearchTV(_ context.Context, _ string) ([]state.Candidate, error) {
+	return nil, nil
+}
+func (f *fakeTMDBForAPI) SearchBoth(_ context.Context, _ string) ([]state.Candidate, error) {
+	return f.cands, nil
+}
+
 func mustJSON(t *testing.T, v any) []byte {
 	t.Helper()
 	b, err := json.Marshal(v)

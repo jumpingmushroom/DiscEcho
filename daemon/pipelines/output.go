@@ -15,12 +15,15 @@ import (
 // Add fields here as new disc types need them; templates that reference
 // missing fields render as the empty string (text/template default).
 type OutputFields struct {
-	Artist      string
-	Album       string
-	Year        int
-	TrackNumber int
-	Title       string
-	DiscNumber  int
+	Artist        string
+	Album         string
+	Year          int
+	TrackNumber   int
+	Title         string
+	DiscNumber    int
+	Show          string // DVD-Series episodes
+	Season        int    // DVD-Series episodes
+	EpisodeNumber int    // DVD-Series episodes (1-based after filtering)
 }
 
 // RenderOutputPath applies a Go template to fields and sanitizes the
@@ -50,12 +53,15 @@ func RenderOutputPath(tmpl string, fields OutputFields) (string, error) {
 // folded to "_" while traversal segments (".", "..") are dropped.
 func (f OutputFields) asMap() map[string]any {
 	return map[string]any{
-		"Artist":      sanitizeFieldValue(f.Artist),
-		"Album":       sanitizeFieldValue(f.Album),
-		"Year":        f.Year,
-		"TrackNumber": f.TrackNumber,
-		"Title":       sanitizeFieldValue(f.Title),
-		"DiscNumber":  f.DiscNumber,
+		"Artist":        sanitizeFieldValue(f.Artist),
+		"Album":         sanitizeFieldValue(f.Album),
+		"Year":          f.Year,
+		"TrackNumber":   f.TrackNumber,
+		"Title":         sanitizeFieldValue(f.Title),
+		"DiscNumber":    f.DiscNumber,
+		"Show":          sanitizeFieldValue(f.Show),
+		"Season":        f.Season,
+		"EpisodeNumber": f.EpisodeNumber,
 	}
 }
 

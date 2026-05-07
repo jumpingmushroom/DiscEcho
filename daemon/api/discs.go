@@ -60,10 +60,17 @@ func (h *Handlers) StartDisc(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, job)
 }
 
-// IdentifyDisc is a stub in M1.1 — real classification happens
-// automatically when a disc is inserted (M1.2 wires the udev →
-// classifier flow). This endpoint just returns the disc's current
-// candidates so the UI has a way to refresh.
+// identifyRequest is the optional body for POST /api/discs/:id/identify.
+// Both fields are optional: an empty body re-reads the stored disc.
+type identifyRequest struct {
+	Query     string `json:"query,omitempty"`
+	MediaType string `json:"media_type,omitempty"` // 'movie' | 'tv' | 'both' (default both)
+}
+
+// IdentifyDisc returns the disc plus its candidates. If the body
+// contains a non-empty Query, it triggers a manual TMDB search for the
+// chosen media type and persists the new candidates back onto the disc.
+// Empty body → returns the current stored disc + candidates.
 func (h *Handlers) IdentifyDisc(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	disc, err := h.Store.GetDisc(r.Context(), id)
@@ -75,8 +82,56 @@ func (h *Handlers) IdentifyDisc(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
-		"disc":       disc,
-		"candidates": disc.Candidates,
-	})
+
+	if r.ContentLength == 0 {
+		writeJSON(w, http.StatusOK, map[string]any{"disc": disc, "candidates": disc.Candidates})
+		return
+	}
+
+	var req identifyRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid body: "+err.Error())
+		return
+	}
+
+	if req.Query == "" {
+		writeJSON(w, http.StatusOK, map[string]any{"disc": disc, "candidates": disc.Candidates})
+		return
+	}
+
+	if h.TMDB == nil {
+		writeError(w, http.StatusServiceUnavailable, "TMDB not configured")
+		return
+	}
+	mediaType := req.MediaType
+	if mediaType == "" {
+		mediaType = "both"
+	}
+	var cands []state.Candidate
+	switch mediaType {
+	case "movie":
+		cands, err = h.TMDB.SearchMovie(r.Context(), req.Query)
+	case "tv":
+		cands, err = h.TMDB.SearchTV(r.Context(), req.Query)
+	case "both":
+		cands, err = h.TMDB.SearchBoth(r.Context(), req.Query)
+	default:
+		writeError(w, http.StatusBadRequest, "media_type must be 'movie', 'tv', or 'both'")
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	if cands == nil {
+		cands = []state.Candidate{}
+	}
+
+	disc.Candidates = cands
+	if err := h.Store.UpdateDiscCandidates(r.Context(), disc.ID, cands); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{"disc": disc, "candidates": cands})
 }

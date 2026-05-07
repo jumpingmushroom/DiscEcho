@@ -1,0 +1,5 @@
+[15:24:01] hb_init: starting libhb thread
+HandBrake has exited.
++ title 1:
+  + duration: 01:56:32
+  + size: 720x480, pixel aspect: 32/27, display aspect: 1.78, 29.970 fps
