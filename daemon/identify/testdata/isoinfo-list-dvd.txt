@@ -1,0 +1,8 @@
+Directory listing of /
+d---------   0    0    0            2048 Jan  1 1970 [   23 02]  AUDIO_TS/
+d---------   0    0    0            2048 Jan  1 1970 [   23 03]  VIDEO_TS/
+
+Directory listing of /VIDEO_TS/
+----------   0    0    0           12288 Jan  1 1970 [   23 04]  VIDEO_TS.IFO;1
+----------   0    0    0           12288 Jan  1 1970 [   23 05]  VIDEO_TS.BUP;1
+----------   0    0    0         1048576 Jan  1 1970 [   23 06]  VTS_01_0.IFO;1
