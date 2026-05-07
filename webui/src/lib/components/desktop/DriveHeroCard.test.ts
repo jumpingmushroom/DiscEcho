@@ -1,0 +1,95 @@
+import '@testing-library/jest-dom/vitest';
+import { describe, it, expect, vi } from 'vitest';
+import { render, fireEvent } from '@testing-library/svelte';
+import DriveHeroCard from './DriveHeroCard.svelte';
+import type { Drive, Disc, Job } from '$lib/wire';
+
+const idleDrive: Drive = {
+  id: 'd1',
+  model: 'Pioneer BDR-XS07B',
+  bus: 'USB · sr0',
+  dev_path: '/dev/sr0',
+  state: 'idle',
+  last_seen_at: '2026-05-07T12:00:00Z',
+};
+
+const rippingDrive: Drive = {
+  ...idleDrive,
+  state: 'ripping',
+  current_disc_id: 'disc-1',
+};
+
+const dvdDisc: Disc = {
+  id: 'disc-1',
+  type: 'DVD',
+  title: 'Arrival',
+  year: 2016,
+  candidates: [],
+  created_at: '2026-05-07T12:00:00Z',
+};
+
+const ripJob: Job = {
+  id: 'job-1',
+  disc_id: 'disc-1',
+  drive_id: 'd1',
+  profile_id: 'p1',
+  state: 'running',
+  progress: 67.0,
+  speed: '4.2x',
+  eta_seconds: 134,
+  active_step: 'rip',
+  created_at: '2026-05-07T12:00:00Z',
+};
+
+describe('DriveHeroCard', () => {
+  it('renders model and bus', () => {
+    const { getByText } = render(DriveHeroCard, { drive: idleDrive });
+    expect(getByText('Pioneer BDR-XS07B')).toBeInTheDocument();
+    expect(getByText('USB · sr0')).toBeInTheDocument();
+  });
+
+  it('renders idle state hint when no disc', () => {
+    const { getByText } = render(DriveHeroCard, { drive: idleDrive });
+    expect(getByText(/insert a disc/i)).toBeInTheDocument();
+  });
+
+  it('renders disc title and percent for an active rip', () => {
+    const { getByText } = render(DriveHeroCard, {
+      drive: rippingDrive,
+      disc: dvdDisc,
+      job: ripJob,
+    });
+    expect(getByText('Arrival')).toBeInTheDocument();
+    expect(getByText('67%')).toBeInTheDocument();
+  });
+
+  it('renders +N queued pill when queuedCount > 0', () => {
+    const { getByText } = render(DriveHeroCard, {
+      drive: rippingDrive,
+      disc: dvdDisc,
+      job: ripJob,
+      queuedCount: 2,
+    });
+    expect(getByText('+2 queued')).toBeInTheDocument();
+  });
+
+  it('dispatches select with the active job id when clicked', async () => {
+    const onSelect = vi.fn();
+    const { container, component } = render(DriveHeroCard, {
+      drive: rippingDrive,
+      disc: dvdDisc,
+      job: ripJob,
+    });
+    component.$on('select', (e) => onSelect(e.detail));
+    await fireEvent.click(container.querySelector('button')!);
+    expect(onSelect).toHaveBeenCalledWith('job-1');
+  });
+
+  it('dispatches select with null when clicked on an idle drive', async () => {
+    const onSelect = vi.fn();
+    const { container, component } = render(DriveHeroCard, { drive: idleDrive });
+    component.$on('select', (e) => onSelect(e.detail));
+    await fireEvent.click(container.querySelector('button')!);
+    expect(onSelect).toHaveBeenCalledWith(null);
+  });
+});
