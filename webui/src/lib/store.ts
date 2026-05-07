@@ -31,6 +31,7 @@ export const discs = writable<Record<string, Disc>>({});
 export const logs = writable<Record<string, LogLine[]>>({});
 export const liveStatus = writable<LiveStatus>('connecting');
 export const pendingDiscID = writable<string | null>(null);
+export const selectedJobID = writable<string | null>(null);
 
 const LOG_RING_SIZE = 50;
 const SSE_EVENT_NAMES = [
