@@ -1,0 +1,7 @@
+Directory listing of /
+----------   0    0    0           12288 Jan  1 1970 [   23 02]  README.TXT;1
+d---------   0    0    0            2048 Jan  1 1970 [   23 03]  ARCHIVE/
+
+Directory listing of /ARCHIVE/
+----------   0    0    0         1048576 Jan  1 1970 [   23 04]  PHOTO_001.JPG;1
+----------   0    0    0         1048576 Jan  1 1970 [   23 05]  PHOTO_002.JPG;1

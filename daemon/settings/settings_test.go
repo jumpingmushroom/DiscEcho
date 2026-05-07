@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/jumpingmushroom/DiscEcho/daemon/settings"
@@ -359,5 +360,169 @@ func TestLoad_TMDBEnvVars(t *testing.T) {
 		cfg.SubsLang != "fra" || cfg.HandBrakeBin != "/opt/handbrake" ||
 		cfg.IsoInfoBin != "/usr/local/bin/isoinfo" {
 		t.Errorf("got %+v", cfg)
+	}
+}
+
+func TestSeedBDMVProfile(t *testing.T) {
+	store := openStore(t)
+	dataDir := t.TempDir()
+	env := envFn(map[string]string{
+		"DISCECHO_DATA":          dataDir,
+		"DISCECHO_AUTH_DISABLED": "true",
+	})
+	if _, err := settings.Load(env, store, "test"); err != nil {
+		t.Fatal(err)
+	}
+	bds, err := store.ListProfilesByDiscType(context.Background(), state.DiscTypeBDMV)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(bds) != 1 || bds[0].Name != "BD-1080p" {
+		t.Errorf("BDMV profiles = %+v, want [BD-1080p]", bds)
+	}
+	p := bds[0]
+	if p.Engine != "MakeMKV+HandBrake" {
+		t.Errorf("BD-1080p engine = %q", p.Engine)
+	}
+	if p.Format != "MKV" {
+		t.Errorf("BD-1080p format = %q", p.Format)
+	}
+	if p.Preset != "x265 RF 19 10-bit" {
+		t.Errorf("BD-1080p preset = %q", p.Preset)
+	}
+	if p.StepCount != 7 {
+		t.Errorf("BD-1080p step_count = %d, want 7", p.StepCount)
+	}
+	if !p.Enabled {
+		t.Errorf("BD-1080p should be enabled")
+	}
+}
+
+func TestSeedUHDProfile(t *testing.T) {
+	store := openStore(t)
+	dataDir := t.TempDir()
+	env := envFn(map[string]string{
+		"DISCECHO_DATA":          dataDir,
+		"DISCECHO_AUTH_DISABLED": "true",
+	})
+	if _, err := settings.Load(env, store, "test"); err != nil {
+		t.Fatal(err)
+	}
+	uhds, err := store.ListProfilesByDiscType(context.Background(), state.DiscTypeUHD)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(uhds) != 1 || uhds[0].Name != "UHD-Remux" {
+		t.Errorf("UHD profiles = %+v, want [UHD-Remux]", uhds)
+	}
+	p := uhds[0]
+	if p.Engine != "MakeMKV" {
+		t.Errorf("UHD-Remux engine = %q", p.Engine)
+	}
+	if p.Format != "MKV" {
+		t.Errorf("UHD-Remux format = %q", p.Format)
+	}
+	if p.Preset != "passthrough" {
+		t.Errorf("UHD-Remux preset = %q", p.Preset)
+	}
+	if p.StepCount != 6 {
+		t.Errorf("UHD-Remux step_count = %d, want 6", p.StepCount)
+	}
+	if !p.Enabled {
+		t.Errorf("UHD-Remux should be enabled")
+	}
+}
+
+func TestSeedVideoProfiles_Idempotent(t *testing.T) {
+	store := openStore(t)
+	dataDir := t.TempDir()
+	env := envFn(map[string]string{
+		"DISCECHO_DATA":          dataDir,
+		"DISCECHO_AUTH_DISABLED": "true",
+	})
+	if _, err := settings.Load(env, store, "test"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := settings.Load(env, store, "test"); err != nil {
+		t.Fatal(err)
+	}
+	bds, _ := store.ListProfilesByDiscType(context.Background(), state.DiscTypeBDMV)
+	if len(bds) != 1 {
+		t.Errorf("BDMV after 2 loads = %d, want 1", len(bds))
+	}
+	uhds, _ := store.ListProfilesByDiscType(context.Background(), state.DiscTypeUHD)
+	if len(uhds) != 1 {
+		t.Errorf("UHD after 2 loads = %d, want 1", len(uhds))
+	}
+}
+
+func TestMakeMKVBetaKey_Bootstrap(t *testing.T) {
+	store := openStore(t)
+	dataDir := t.TempDir()
+	makemkvDir := filepath.Join(dataDir, "MakeMKV")
+
+	env := envFn(map[string]string{
+		"DISCECHO_DATA":             dataDir,
+		"DISCECHO_AUTH_DISABLED":    "true",
+		"DISCECHO_MAKEMKV_BETA_KEY": "T-FAKEKEY-1234567890",
+	})
+	cfg, err := settings.Load(env, store, "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.MakeMKVBetaKey != "T-FAKEKEY-1234567890" {
+		t.Errorf("MakeMKVBetaKey = %q", cfg.MakeMKVBetaKey)
+	}
+	if cfg.MakeMKVDataDir != makemkvDir {
+		t.Errorf("MakeMKVDataDir = %q, want %q", cfg.MakeMKVDataDir, makemkvDir)
+	}
+	settingsConf := filepath.Join(makemkvDir, "settings.conf")
+	b, err := os.ReadFile(settingsConf)
+	if err != nil {
+		t.Fatalf("read %s: %v", settingsConf, err)
+	}
+	if !strings.Contains(string(b), `app_Key = "T-FAKEKEY-1234567890"`) {
+		t.Errorf("settings.conf content = %q", string(b))
+	}
+}
+
+func TestMakeMKVBetaKey_NotSet_NoFileWritten(t *testing.T) {
+	store := openStore(t)
+	dataDir := t.TempDir()
+	makemkvDir := filepath.Join(dataDir, "MakeMKV")
+	env := envFn(map[string]string{
+		"DISCECHO_DATA":          dataDir,
+		"DISCECHO_AUTH_DISABLED": "true",
+	})
+	if _, err := settings.Load(env, store, "test"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(makemkvDir, "settings.conf")); !os.IsNotExist(err) {
+		t.Errorf("settings.conf should not exist when beta key empty, err = %v", err)
+	}
+}
+
+func TestNewMakeMKVEnvVars_Defaults(t *testing.T) {
+	store := openStore(t)
+	dataDir := t.TempDir()
+	env := envFn(map[string]string{
+		"DISCECHO_DATA":          dataDir,
+		"DISCECHO_AUTH_DISABLED": "true",
+	})
+	cfg, err := settings.Load(env, store, "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.MakeMKVBin != "makemkvcon" {
+		t.Errorf("MakeMKVBin = %q, want makemkvcon", cfg.MakeMKVBin)
+	}
+	if want := filepath.Join(dataDir, "MakeMKV"); cfg.MakeMKVDataDir != want {
+		t.Errorf("MakeMKVDataDir = %q, want %q", cfg.MakeMKVDataDir, want)
+	}
+	if cfg.BDInfoBin != "bd_info" {
+		t.Errorf("BDInfoBin = %q, want bd_info", cfg.BDInfoBin)
+	}
+	if cfg.MakeMKVBetaKey != "" {
+		t.Errorf("MakeMKVBetaKey should be empty by default, got %q", cfg.MakeMKVBetaKey)
 	}
 }

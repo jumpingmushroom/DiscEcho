@@ -36,6 +36,10 @@ type Settings struct {
 	SubsLang             string
 	HandBrakeBin         string
 	IsoInfoBin           string
+	MakeMKVBin           string
+	MakeMKVDataDir       string
+	MakeMKVBetaKey       string
+	BDInfoBin            string
 }
 
 // Load reads env vars, generates a token if needed, seeds default
@@ -60,6 +64,10 @@ func Load(getenv func(string) string, store *state.Store, version string) (*Sett
 		SubsLang:             firstNonEmpty(getenv("DISCECHO_SUBS_LANG"), "eng"),
 		HandBrakeBin:         firstNonEmpty(getenv("DISCECHO_HANDBRAKE_BIN"), "HandBrakeCLI"),
 		IsoInfoBin:           firstNonEmpty(getenv("DISCECHO_ISOINFO_BIN"), "isoinfo"),
+		MakeMKVBin:           firstNonEmpty(getenv("DISCECHO_MAKEMKV_BIN"), "makemkvcon"),
+		MakeMKVDataDir:       firstNonEmpty(getenv("DISCECHO_MAKEMKV_DATA"), filepath.Join(firstNonEmpty(getenv("DISCECHO_DATA"), "/var/lib/discecho"), "MakeMKV")),
+		MakeMKVBetaKey:       getenv("DISCECHO_MAKEMKV_BETA_KEY"),
+		BDInfoBin:            firstNonEmpty(getenv("DISCECHO_BDINFO_BIN"), "bd_info"),
 	}
 
 	if v := getenv("DISCECHO_AUTO_CONFIRM_SECONDS"); v != "" {
@@ -77,12 +85,24 @@ func Load(getenv func(string) string, store *state.Store, version string) (*Sett
 	}
 	s.Token = tok
 
+	if s.MakeMKVBetaKey != "" {
+		if err := writeMakeMKVBetaKey(s.MakeMKVDataDir, s.MakeMKVBetaKey); err != nil {
+			return nil, fmt.Errorf("makemkv beta key: %w", err)
+		}
+	}
+
 	ctx := context.Background()
 	if err := seedProfile(ctx, store); err != nil {
 		return nil, fmt.Errorf("seed profile: %w", err)
 	}
 	if err := seedDVDProfiles(ctx, store); err != nil {
 		return nil, fmt.Errorf("seed DVD profiles: %w", err)
+	}
+	if err := seedBDMVProfile(ctx, store); err != nil {
+		return nil, fmt.Errorf("seed BDMV profile: %w", err)
+	}
+	if err := seedUHDProfile(ctx, store); err != nil {
+		return nil, fmt.Errorf("seed UHD profile: %w", err)
 	}
 	if err := seedNotifications(ctx, store, getenv("DISCECHO_APPRISE_URLS")); err != nil {
 		return nil, fmt.Errorf("seed notifications: %w", err)
@@ -122,6 +142,8 @@ const (
 	cdFlacProfileName    = "CD-FLAC"
 	dvdMovieProfileName  = "DVD-Movie"
 	dvdSeriesProfileName = "DVD-Series"
+	bdProfileName        = "BD-1080p"
+	uhdProfileName       = "UHD-Remux"
 )
 
 func seedDVDProfiles(ctx context.Context, store *state.Store) error {
@@ -231,6 +253,70 @@ func seedNotifications(ctx context.Context, store *state.Store, urls string) err
 		}
 	}
 	return nil
+}
+
+func writeMakeMKVBetaKey(dataDir, key string) error {
+	if err := os.MkdirAll(dataDir, 0o700); err != nil {
+		return fmt.Errorf("mkdir %s: %w", dataDir, err)
+	}
+	confPath := filepath.Join(dataDir, "settings.conf")
+	content := fmt.Sprintf("app_Key = %q\n", key)
+	if err := os.WriteFile(confPath, []byte(content), 0o600); err != nil {
+		return fmt.Errorf("write %s: %w", confPath, err)
+	}
+	return nil
+}
+
+func seedBDMVProfile(ctx context.Context, store *state.Store) error {
+	existing, err := store.ListProfilesByDiscType(ctx, state.DiscTypeBDMV)
+	if err != nil {
+		return err
+	}
+	for _, p := range existing {
+		if p.Name == bdProfileName {
+			return nil
+		}
+	}
+	now := time.Now()
+	return store.CreateProfile(ctx, &state.Profile{
+		DiscType:           state.DiscTypeBDMV,
+		Name:               bdProfileName,
+		Engine:             "MakeMKV+HandBrake",
+		Format:             "MKV",
+		Preset:             "x265 RF 19 10-bit",
+		Options:            map[string]any{"min_title_seconds": 3600, "keep_all_tracks": false},
+		OutputPathTemplate: `{{.Title}} ({{.Year}})/{{.Title}} ({{.Year}}).mkv`,
+		Enabled:            true,
+		StepCount:          7,
+		CreatedAt:          now,
+		UpdatedAt:          now,
+	})
+}
+
+func seedUHDProfile(ctx context.Context, store *state.Store) error {
+	existing, err := store.ListProfilesByDiscType(ctx, state.DiscTypeUHD)
+	if err != nil {
+		return err
+	}
+	for _, p := range existing {
+		if p.Name == uhdProfileName {
+			return nil
+		}
+	}
+	now := time.Now()
+	return store.CreateProfile(ctx, &state.Profile{
+		DiscType:           state.DiscTypeUHD,
+		Name:               uhdProfileName,
+		Engine:             "MakeMKV",
+		Format:             "MKV",
+		Preset:             "passthrough",
+		Options:            map[string]any{"min_title_seconds": 3600, "keep_all_tracks": true},
+		OutputPathTemplate: `{{.Title}} ({{.Year}})/{{.Title}} ({{.Year}}) [UHD].mkv`,
+		Enabled:            true,
+		StepCount:          6,
+		CreatedAt:          now,
+		UpdatedAt:          now,
+	})
 }
 
 func firstNonEmpty(vals ...string) string {

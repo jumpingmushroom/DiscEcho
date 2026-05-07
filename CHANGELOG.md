@@ -129,6 +129,51 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
     `historyError`, `historyFilter` writables; `fetchHistoryPage` and
     `manualIdentify` imperatives.
   - `lib/time.ts` gains `dayGroupLabel` for the history grouping.
+- **M3.1 daemon-side BDMV + UHD pipelines.**
+  - `pipelines/bdmv` handler: identifies via volume label → TMDB,
+    selects longest title with duration ≥ `min_title_seconds`, uses
+    MakeMKV to decrypt+demux that title, then HandBrake transcodes
+    to MKV (`x265 RF 19 10-bit`), atomic-moves into the library,
+    fires Apprise, ejects.
+  - `pipelines/uhd` handler: same identify shape but with an AACS2
+    key-file precheck *before* TMDB. UHD-Remux skips the transcode
+    and compress steps — the MakeMKV output is the artifact, with
+    HDR10/Dolby Vision metadata, lossless audio, and PGS subtitles
+    preserved. Output lands at
+    `Title (Year)/Title (Year) [UHD].mkv`.
+  - `tools/makemkv.go`: `makemkvcon --robot` wrapper with `Scan`
+    (info parser → titles + tracks) and `Rip` (decrypt+demux of one
+    title to a directory). Progress and operation labels stream to
+    the sink.
+  - `identify/bdprober.go`: `bd_info` wrapper for AACS2 detection.
+  - `identify/fsprobe.go`: `isoinfo -R -l` listing parser, used by
+    the classifier to tell DVD apart from BDMV.
+  - `identify/bdmt.go`: BDMT_<lang>.xml title parser. Currently used
+    only in tests; production identify reads the volume label.
+    Off-disc XML extraction lands in a follow-up.
+  - Classifier rewritten to a three-step probe (`cd-info` → fs
+    listing → `bd_info`). Routes `AUDIO_CD`, `DVD`, `BDMV`, `UHD`,
+    `DATA` to the right handler. **Fixes a latent gap from M2.1**
+    where the DVD handler was registered but never reachable via
+    the disc-flow because the classifier returned `DATA` for all
+    non-audio discs.
+  - Two new profiles seeded on first start: `BD-1080p` (BDMV) and
+    `UHD-Remux` (UHD).
+  - New env vars: `DISCECHO_MAKEMKV_BIN` (default `makemkvcon`),
+    `DISCECHO_MAKEMKV_DATA` (default `${DISCECHO_DATA}/MakeMKV`),
+    `DISCECHO_MAKEMKV_BETA_KEY` (optional public beta key — daemon
+    writes `~/.MakeMKV/settings.conf` on start), `DISCECHO_BDINFO_BIN`
+    (default `bd_info`).
+  - Runtime image now includes `libbluray-bin` (Debian package
+    that ships `bd_info`) and `makemkvcon` built from source. MakeMKV
+    is compiled in a separate build stage and only its binary +
+    shared libs (`libmakemkv.so.1`, `libdriveio.so.0`) are copied
+    into the runtime image; build deps (qtbase5-dev, mesa-dev, etc.)
+    don't ship. Runtime grew from ~291 MB (M2.1) to ~1 GB (M3.1)
+    — the bulk is `libavcodec59` + transitive media-codec deps that
+    `makemkvcon` links against. Image-size trim is a future task.
+  - README documents the MakeMKV beta-key refresh cadence and
+    where to drop `KEYDB.cfg` for UHD.
 
 ### Changed
 

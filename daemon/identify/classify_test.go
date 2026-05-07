@@ -10,7 +10,7 @@ import (
 	"github.com/jumpingmushroom/DiscEcho/daemon/state"
 )
 
-func TestClassify_AudioCD(t *testing.T) {
+func TestClassify_AudioCDFromCDInfo(t *testing.T) {
 	out, err := os.ReadFile("testdata/cdinfo-cdda.txt")
 	if err != nil {
 		t.Fatal(err)
@@ -24,7 +24,7 @@ func TestClassify_AudioCD(t *testing.T) {
 	}
 }
 
-func TestClassify_Data(t *testing.T) {
+func TestClassify_DataFromCDInfo(t *testing.T) {
 	out, err := os.ReadFile("testdata/cdinfo-data.txt")
 	if err != nil {
 		t.Fatal(err)
@@ -33,15 +33,115 @@ func TestClassify_Data(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// cd-info reports DATA for any non-CD-DA disc; the higher-level
+	// classifier consults the filesystem to refine to DVD/BDMV/UHD.
 	if got != state.DiscTypeData {
 		t.Errorf("want DATA, got %s", got)
 	}
 }
 
-func TestClassify_Empty(t *testing.T) {
-	_, err := identify.ClassifyFromCDInfo("")
-	if err == nil {
+func TestClassify_EmptyCDInfo(t *testing.T) {
+	if _, err := identify.ClassifyFromCDInfo(""); err == nil {
 		t.Errorf("want error on empty input")
+	}
+}
+
+// fakeFSProber returns a fixed file list.
+type fakeFSProber struct{ files []string }
+
+func (f *fakeFSProber) List(_ context.Context, _ string) ([]string, error) {
+	return f.files, nil
+}
+
+// fakeBDProber returns a fixed BDInfo.
+type fakeBDProber struct {
+	info *identify.BDInfo
+	err  error
+}
+
+func (f *fakeBDProber) Probe(_ context.Context, _ string) (*identify.BDInfo, error) {
+	return f.info, f.err
+}
+
+func TestRefineDiscType_DVD(t *testing.T) {
+	got := identify.RefineDiscType(
+		context.Background(),
+		state.DiscTypeData,
+		&fakeFSProber{files: []string{"/AUDIO_TS", "/VIDEO_TS", "/VIDEO_TS/VIDEO_TS.IFO"}},
+		&fakeBDProber{},
+		"/dev/sr0",
+	)
+	if got != state.DiscTypeDVD {
+		t.Errorf("want DVD, got %s", got)
+	}
+}
+
+func TestRefineDiscType_BDMV(t *testing.T) {
+	got := identify.RefineDiscType(
+		context.Background(),
+		state.DiscTypeData,
+		&fakeFSProber{files: []string{"/BDMV", "/BDMV/index.bdmv", "/CERTIFICATE"}},
+		&fakeBDProber{info: &identify.BDInfo{AACSEncrypted: true, HasAACS2: false}},
+		"/dev/sr0",
+	)
+	if got != state.DiscTypeBDMV {
+		t.Errorf("want BDMV, got %s", got)
+	}
+}
+
+func TestRefineDiscType_UHD(t *testing.T) {
+	got := identify.RefineDiscType(
+		context.Background(),
+		state.DiscTypeData,
+		&fakeFSProber{files: []string{"/BDMV", "/BDMV/index.bdmv", "/AACS"}},
+		&fakeBDProber{info: &identify.BDInfo{AACSEncrypted: true, HasAACS2: true}},
+		"/dev/sr0",
+	)
+	if got != state.DiscTypeUHD {
+		t.Errorf("want UHD, got %s", got)
+	}
+}
+
+func TestRefineDiscType_BDMVWhenBDInfoFails(t *testing.T) {
+	got := identify.RefineDiscType(
+		context.Background(),
+		state.DiscTypeData,
+		&fakeFSProber{files: []string{"/BDMV/index.bdmv"}},
+		&fakeBDProber{err: errors.New("bd_info crashed")},
+		"/dev/sr0",
+	)
+	// Conservative: when bd_info is unavailable, default to BDMV. The
+	// UHD handler's key-file precheck is the authoritative gate.
+	if got != state.DiscTypeBDMV {
+		t.Errorf("want BDMV (bd_info failure default), got %s", got)
+	}
+}
+
+func TestRefineDiscType_DataWhenNoVideoMarkers(t *testing.T) {
+	got := identify.RefineDiscType(
+		context.Background(),
+		state.DiscTypeData,
+		&fakeFSProber{files: []string{"/README.TXT", "/ARCHIVE/PHOTO_001.JPG"}},
+		&fakeBDProber{},
+		"/dev/sr0",
+	)
+	if got != state.DiscTypeData {
+		t.Errorf("want DATA, got %s", got)
+	}
+}
+
+func TestRefineDiscType_PreservesAudioCD(t *testing.T) {
+	// Audio CDs short-circuit before the fs probe; RefineDiscType
+	// passes them through unchanged.
+	got := identify.RefineDiscType(
+		context.Background(),
+		state.DiscTypeAudioCD,
+		nil,
+		nil,
+		"/dev/sr0",
+	)
+	if got != state.DiscTypeAudioCD {
+		t.Errorf("want AUDIO_CD, got %s", got)
 	}
 }
 
