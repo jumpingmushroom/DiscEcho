@@ -2,6 +2,7 @@
   import '../app.css';
   import { onMount, onDestroy } from 'svelte';
   import { bootstrap, connect } from '$lib/store';
+  import TopNav from '$lib/components/desktop/TopNav.svelte';
 
   let disconnect: (() => void) | null = null;
 
@@ -19,6 +20,7 @@
   });
 </script>
 
+<TopNav />
 <slot />
 
 <style>
