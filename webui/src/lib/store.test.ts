@@ -10,10 +10,14 @@ import {
   liveStatus,
   pendingDiscID,
   selectedJobID,
+  selectedProfileID,
   bootstrap,
   handleSSEEvent,
   startDisc,
   cancelJob,
+  createProfile,
+  updateProfile,
+  deleteProfile,
   history,
   historyTotal,
   historyLoading,
@@ -460,5 +464,137 @@ describe('selectedJobID', () => {
     expect(get(selectedJobID)).toBe('job-1');
     selectedJobID.set(null);
     expect(get(selectedJobID)).toBeNull();
+  });
+});
+
+const seedProfileFixture: Profile = {
+  id: 'p1',
+  disc_type: 'AUDIO_CD',
+  name: 'CD-FLAC',
+  engine: 'whipper',
+  format: 'FLAC',
+  preset: 'AccurateRip',
+  options: {},
+  output_path_template: '{{.Title}}.flac',
+  enabled: true,
+  step_count: 6,
+  created_at: '2026-05-07T12:00:00Z',
+  updated_at: '2026-05-07T12:00:00Z',
+};
+
+describe('selectedProfileID', () => {
+  beforeEach(() => {
+    selectedProfileID.set(null);
+  });
+
+  it('defaults to null', () => {
+    expect(get(selectedProfileID)).toBeNull();
+  });
+
+  it('can be set and cleared', () => {
+    selectedProfileID.set('p1');
+    expect(get(selectedProfileID)).toBe('p1');
+    selectedProfileID.set(null);
+    expect(get(selectedProfileID)).toBeNull();
+  });
+});
+
+describe('profile mutations', () => {
+  let fetchSpy: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    profiles.set([]);
+    fetchSpy = vi.fn();
+    vi.stubGlobal('fetch', fetchSpy);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('createProfile POSTs and returns the response Profile', async () => {
+    fetchSpy.mockResolvedValueOnce({
+      ok: true,
+      status: 201,
+      json: async () => seedProfileFixture,
+    });
+    const got = await createProfile({
+      disc_type: 'AUDIO_CD',
+      name: 'CD-FLAC',
+      engine: 'whipper',
+      format: 'FLAC',
+      preset: 'AccurateRip',
+      options: {},
+      output_path_template: '{{.Title}}.flac',
+      enabled: true,
+      step_count: 6,
+    });
+    expect(got.id).toBe('p1');
+    const [url, init] = fetchSpy.mock.calls[0];
+    expect(url).toBe('/api/profiles');
+    expect((init as RequestInit).method).toBe('POST');
+  });
+
+  it('updateProfile PUTs to /api/profiles/:id', async () => {
+    fetchSpy.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => ({ ...seedProfileFixture, name: 'renamed' }),
+    });
+    const got = await updateProfile('p1', { ...seedProfileFixture, name: 'renamed' });
+    expect(got.name).toBe('renamed');
+    const [url, init] = fetchSpy.mock.calls[0];
+    expect(url).toBe('/api/profiles/p1');
+    expect((init as RequestInit).method).toBe('PUT');
+  });
+
+  it('deleteProfile DELETEs and resolves to undefined on 204', async () => {
+    fetchSpy.mockResolvedValueOnce({
+      ok: true,
+      status: 204,
+    });
+    await deleteProfile('p1');
+    const [url, init] = fetchSpy.mock.calls[0];
+    expect(url).toBe('/api/profiles/p1');
+    expect((init as RequestInit).method).toBe('DELETE');
+  });
+});
+
+describe('profile.changed SSE handler', () => {
+  beforeEach(() => {
+    profiles.set([seedProfileFixture]);
+    selectedProfileID.set(null);
+  });
+
+  it('upserts on profile payload', () => {
+    handleSSEEvent('profile.changed', {
+      profile: { ...seedProfileFixture, name: 'renamed' },
+    });
+    const arr = get(profiles);
+    expect(arr).toHaveLength(1);
+    expect(arr[0].name).toBe('renamed');
+  });
+
+  it('inserts a new profile when ID is unknown', () => {
+    handleSSEEvent('profile.changed', {
+      profile: { ...seedProfileFixture, id: 'p2', name: 'new' },
+    });
+    const arr = get(profiles);
+    expect(arr).toHaveLength(2);
+    expect(arr.find((p) => p.id === 'p2')?.name).toBe('new');
+  });
+
+  it('removes on deleted payload AND clears selectedProfileID if matching', () => {
+    selectedProfileID.set('p1');
+    handleSSEEvent('profile.changed', { profile_id: 'p1', deleted: true });
+    expect(get(profiles)).toHaveLength(0);
+    expect(get(selectedProfileID)).toBeNull();
+  });
+
+  it('removes on deleted payload but leaves selectedProfileID alone if different', () => {
+    selectedProfileID.set('p9');
+    handleSSEEvent('profile.changed', { profile_id: 'p1', deleted: true });
+    expect(get(profiles)).toHaveLength(0);
+    expect(get(selectedProfileID)).toBe('p9');
   });
 });

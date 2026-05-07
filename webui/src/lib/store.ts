@@ -1,5 +1,5 @@
 import { writable } from 'svelte/store';
-import { apiGet, apiPost } from './api';
+import { apiGet, apiPost, apiPut, apiDelete } from './api';
 import { connectSSE, type LiveStatus } from './sse';
 import type {
   Drive,
@@ -32,6 +32,7 @@ export const logs = writable<Record<string, LogLine[]>>({});
 export const liveStatus = writable<LiveStatus>('connecting');
 export const pendingDiscID = writable<string | null>(null);
 export const selectedJobID = writable<string | null>(null);
+export const selectedProfileID = writable<string | null>(null);
 
 const LOG_RING_SIZE = 50;
 const SSE_EVENT_NAMES = [
@@ -45,6 +46,7 @@ const SSE_EVENT_NAMES = [
   'job.log',
   'job.done',
   'job.failed',
+  'profile.changed',
 ];
 
 // ----- Bootstrap ------------------------------------------------------------
@@ -175,6 +177,18 @@ export function handleSSEEvent(name: string, payload: unknown): void {
       );
       break;
     }
+
+    case 'profile.changed': {
+      if (p.deleted) {
+        const id = p.profile_id as string;
+        profiles.update((arr) => arr.filter((q) => q.id !== id));
+        selectedProfileID.update((cur) => (cur === id ? null : cur));
+      } else {
+        const prof = p.profile as Profile;
+        profiles.update((arr) => upsertById(arr, prof));
+      }
+      break;
+    }
   }
 }
 
@@ -286,4 +300,38 @@ export async function manualIdentify(
   });
 
   return cands;
+}
+
+// ----- Profile mutations -----------------------------------------------------
+
+/**
+ * createProfile POSTs a new profile. Daemon generates id + timestamps.
+ * On success the daemon broadcasts profile.changed; the local
+ * $profiles store updates via the SSE handler — callers don't need
+ * to update it manually.
+ *
+ * On 422: throws an Error whose message starts "HTTP 422: ..."; the
+ * caller can use parseValidationErrors() from api.ts to extract the
+ * field map.
+ */
+export async function createProfile(
+  p: Omit<Profile, 'id' | 'created_at' | 'updated_at'>,
+): Promise<Profile> {
+  return apiPost<Profile>('/api/profiles', p);
+}
+
+/**
+ * updateProfile PUTs to /api/profiles/:id with the full profile.
+ */
+export async function updateProfile(id: string, p: Profile): Promise<Profile> {
+  return apiPut<Profile>(`/api/profiles/${id}`, p);
+}
+
+/**
+ * deleteProfile DELETEs /api/profiles/:id. Resolves on 204 success.
+ * 404 surfaces as "HTTP 404: ..."; 409 (active job conflict) as
+ * "HTTP 409: profile is referenced by ...".
+ */
+export async function deleteProfile(id: string): Promise<void> {
+  await apiDelete(`/api/profiles/${id}`);
 }
