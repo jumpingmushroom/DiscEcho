@@ -18,19 +18,26 @@ func NewRouter(h *Handlers, static http.Handler) http.Handler {
 	r.Use(middleware.RealIP)
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
-	r.Use(middleware.Timeout(30 * time.Second))
+
+	// 30s request timeout for everything except /api/events. SSE streams
+	// are long-lived; chi's middleware.Timeout wraps the response in
+	// http.TimeoutHandler which closes the connection at the deadline.
+	withTimeout := middleware.Timeout(30 * time.Second)
 
 	r.Route("/api", func(api chi.Router) {
 		// Unauthenticated
-		api.Get("/health", HealthHandler)
-		api.Get("/version", VersionHandler)
+		api.With(withTimeout).Get("/health", HealthHandler)
+		api.With(withTimeout).Get("/version", VersionHandler)
 
-		// Authenticated subset
+		// Authenticated SSE — no timeout middleware (long-lived stream).
+		api.With(h.Authenticate).Get("/events", h.StreamEvents)
+
+		// Authenticated subset (with request timeout).
 		api.Group(func(authed chi.Router) {
 			authed.Use(h.Authenticate)
+			authed.Use(withTimeout)
 
 			authed.Get("/state", h.GetState)
-			authed.Get("/events", h.StreamEvents)
 
 			authed.Get("/drives", h.ListDrives)
 			authed.Get("/drives/{id}", h.GetDrive)
@@ -39,7 +46,6 @@ func NewRouter(h *Handlers, static http.Handler) http.Handler {
 			authed.Get("/jobs", h.ListJobs)
 			authed.Get("/jobs/{id}", h.GetJob)
 			authed.Post("/jobs/{id}/cancel", h.CancelJob)
-			authed.Post("/jobs/{id}/pause", h.PauseJob)
 
 			authed.Post("/discs/{id}/identify", h.IdentifyDisc)
 			authed.Post("/discs/{id}/start", h.StartDisc)

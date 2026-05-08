@@ -5,7 +5,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"time"
 )
+
+// sseKeepaliveInterval is how often we emit an SSE comment line. A
+// comment (`: ping\n\n`) keeps reverse-proxy and load-balancer idle
+// timeouts from killing the stream during long quiet periods.
+const sseKeepaliveInterval = 15 * time.Second
 
 // StreamEvents is the GET /api/events SSE handler. It subscribes to the
 // broadcaster, writes an initial state.snapshot, then forwards events
@@ -32,6 +38,9 @@ func (h *Handlers) StreamEvents(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	keepalive := time.NewTicker(sseKeepaliveInterval)
+	defer keepalive.Stop()
+
 	for {
 		select {
 		case <-r.Context().Done():
@@ -43,6 +52,11 @@ func (h *Handlers) StreamEvents(w http.ResponseWriter, r *http.Request) {
 			if err := writeSSE(w, flusher, ev.Name, ev.Payload); err != nil {
 				return
 			}
+		case <-keepalive.C:
+			if _, err := fmt.Fprint(w, ": ping\n\n"); err != nil {
+				return
+			}
+			flusher.Flush()
 		}
 	}
 }
