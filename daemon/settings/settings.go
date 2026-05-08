@@ -19,8 +19,8 @@ import (
 
 // Settings is the resolved runtime configuration.
 type Settings struct {
-	Addr                 string
-	Token                string
+	Addr  string
+	Token string
 	// LibraryRoot is the env-derived parent directory (DISCECHO_LIBRARY).
 	// New code should read the typed roots below; this is kept so that
 	// host-disk-usage reporting still has a stable mount to stat.

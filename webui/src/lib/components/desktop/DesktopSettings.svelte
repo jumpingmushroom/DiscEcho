@@ -6,9 +6,7 @@
 
 <div class="mx-auto max-w-3xl space-y-7 px-7 py-6">
   <div>
-    <div class="text-[11px] font-medium uppercase tracking-[0.14em] text-text-3">
-      configuration
-    </div>
+    <div class="text-[11px] font-medium uppercase tracking-[0.14em] text-text-3">configuration</div>
     <h1 class="mt-1 text-[24px] font-bold tracking-tight text-text">System</h1>
   </div>
   <SystemSection />

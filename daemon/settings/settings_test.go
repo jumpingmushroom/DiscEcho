@@ -727,9 +727,9 @@ func TestLoad_LibraryRoots_StoredKVBeatsEnv(t *testing.T) {
 	// Second boot: a per-root env override is set, but the stored KV
 	// must win.
 	env2 := envFn(map[string]string{
-		"DISCECHO_DATA":            dataDir,
-		"DISCECHO_LIBRARY":         "/library",
-		"DISCECHO_LIBRARY_MOVIES":  "/env/movies-override",
+		"DISCECHO_DATA":           dataDir,
+		"DISCECHO_LIBRARY":        "/library",
+		"DISCECHO_LIBRARY_MOVIES": "/env/movies-override",
 	})
 	s, err := settings.Load(env2, store, "test")
 	if err != nil {
@@ -748,9 +748,9 @@ func TestLoad_LibraryRoots_EnvOverrideFreshInstall(t *testing.T) {
 	store := openStore(t)
 	dataDir := t.TempDir()
 	env := envFn(map[string]string{
-		"DISCECHO_DATA":           dataDir,
-		"DISCECHO_LIBRARY":        "/library",
-		"DISCECHO_LIBRARY_MUSIC":  "/mnt/audio",
+		"DISCECHO_DATA":          dataDir,
+		"DISCECHO_LIBRARY":       "/library",
+		"DISCECHO_LIBRARY_MUSIC": "/mnt/audio",
 	})
 	s, err := settings.Load(env, store, "test")
 	if err != nil {

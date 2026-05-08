@@ -132,10 +132,7 @@
       <div class="px-4 py-3 text-[12px] text-text-3">No drives detected.</div>
     {:else}
       {#each $drives as d (d.id)}
-        <div
-          class="grid items-center gap-4 px-4 py-3"
-          style="grid-template-columns: 1fr auto auto"
-        >
+        <div class="grid items-center gap-4 px-4 py-3" style="grid-template-columns: 1fr auto auto">
           <div>
             <div class="text-[13px] font-medium text-text">{d.model || '—'}</div>
             <div class="font-mono text-[11px] text-text-3">
@@ -156,10 +153,7 @@
   <FormSection title="Library paths" sub="Where ripped media lands.">
     {#each ROOT_ORDER as m (m)}
       <FormRow label={ROOT_LABELS[m]}>
-        <PathField
-          value={dirty[m] ?? roots[m]}
-          on:change={(e) => onRootChange(m, e)}
-        />
+        <PathField value={dirty[m] ?? roots[m]} on:change={(e) => onRootChange(m, e)} />
       </FormRow>
     {/each}
     {#if hasDirty}
