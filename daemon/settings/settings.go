@@ -133,6 +133,9 @@ func Load(getenv func(string) string, store *state.Store, version string) (*Sett
 	if err := seedNotifications(ctx, store, getenv("DISCECHO_APPRISE_URLS")); err != nil {
 		return nil, fmt.Errorf("seed notifications: %w", err)
 	}
+	if err := seedRetentionDefault(ctx, store); err != nil {
+		return nil, fmt.Errorf("seed retention default: %w", err)
+	}
 	return s, nil
 }
 
@@ -256,6 +259,14 @@ func seedProfile(ctx context.Context, store *state.Store) error {
 		UpdatedAt:          now,
 	}
 	return store.CreateProfile(ctx, p)
+}
+
+// seedRetentionDefault sets retention.forever = "true" on first boot if not already set.
+func seedRetentionDefault(ctx context.Context, store *state.Store) error {
+	if v, err := store.GetSetting(ctx, "retention.forever"); err == nil && v != "" {
+		return nil
+	}
+	return store.SetSetting(ctx, "retention.forever", "true")
 }
 
 func seedNotifications(ctx context.Context, store *state.Store, urls string) error {

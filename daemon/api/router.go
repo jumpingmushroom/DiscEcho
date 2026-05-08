@@ -60,6 +60,7 @@ func NewRouter(h *Handlers, static http.Handler) http.Handler {
 			authed.Post("/notifications/{id}/test", h.TestNotification)
 
 			authed.Get("/settings", h.GetSettings)
+			authed.Put("/settings", h.PutSettings)
 		})
 	})
 
