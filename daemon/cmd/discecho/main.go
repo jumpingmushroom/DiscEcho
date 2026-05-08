@@ -62,7 +62,14 @@ func main() {
 		slog.Error("settings.Load", "err", err)
 		os.Exit(1)
 	}
-	slog.Info("settings loaded", "addr", cfg.Addr, "library", cfg.LibraryPath)
+	slog.Info("settings loaded",
+		"addr", cfg.Addr,
+		"library_movies", cfg.LibraryMovies,
+		"library_tv", cfg.LibraryTV,
+		"library_music", cfg.LibraryMusic,
+		"library_games", cfg.LibraryGames,
+		"library_data", cfg.LibraryData,
+	)
 	if cfg.Token != "" {
 		slog.Info("bearer auth enabled")
 	} else {
@@ -119,7 +126,7 @@ func main() {
 		TOC:            tocReader,
 		MB:             mbClient,
 		Tools:          toolReg,
-		LibraryRoot:    cfg.LibraryPath,
+		LibraryRoot:    cfg.LibraryMusic,
 		WorkRoot:       filepath.Join(cfg.DataPath, "work"),
 		URLsForTrigger: urlsForTrigger,
 	}))
@@ -133,12 +140,17 @@ func main() {
 	handBrake := tools.NewHandBrake(cfg.HandBrakeBin)
 	toolReg.Register(handBrake)
 
+	// DVD pipeline shares one root for movies and series. The
+	// orchestrator can't yet differentiate at job time, so series land
+	// under library.movies alongside films. Routing DVD-Series to
+	// library.tv requires per-job profile lookup in the dispatcher —
+	// tracked for branch 3.
 	pipeReg.Register(dvdvideo.New(dvdvideo.Deps{
 		Prober:           dvdProber,
 		TMDB:             tmdbClient,
 		HandBrakeScanner: handBrake,
 		Tools:            toolReg,
-		LibraryRoot:      cfg.LibraryPath,
+		LibraryRoot:      cfg.LibraryMovies,
 		WorkRoot:         filepath.Join(cfg.DataPath, "work"),
 		SubsLang:         cfg.SubsLang,
 		URLsForTrigger:   urlsForTrigger,
@@ -153,7 +165,7 @@ func main() {
 		MakeMKVScanner: makeMKV,
 		MakeMKVRipper:  makeMKV,
 		Tools:          toolReg,
-		LibraryRoot:    cfg.LibraryPath,
+		LibraryRoot:    cfg.LibraryMovies,
 		WorkRoot:       filepath.Join(cfg.DataPath, "work"),
 		SubsLang:       cfg.SubsLang,
 		URLsForTrigger: urlsForTrigger,
@@ -165,7 +177,7 @@ func main() {
 		MakeMKVScanner: makeMKV,
 		MakeMKVRipper:  makeMKV,
 		Tools:          toolReg,
-		LibraryRoot:    cfg.LibraryPath,
+		LibraryRoot:    cfg.LibraryMovies,
 		WorkRoot:       filepath.Join(cfg.DataPath, "work"),
 		SubsLang:       cfg.SubsLang,
 		AACS2KeyDB:     filepath.Join(cfg.MakeMKVDataDir, "KEYDB.cfg"),
@@ -188,7 +200,7 @@ func main() {
 		SystemCNF:      sysCNFProber,
 		RedumpDB:       redumpDB,
 		Tools:          toolReg,
-		LibraryRoot:    cfg.LibraryPath,
+		LibraryRoot:    cfg.LibraryGames,
 		WorkRoot:       filepath.Join(cfg.DataPath, "work"),
 		URLsForTrigger: urlsForTrigger,
 	}))
@@ -198,7 +210,7 @@ func main() {
 		SystemCNF:      sysCNFProber,
 		RedumpDB:       redumpDB,
 		Tools:          toolReg,
-		LibraryRoot:    cfg.LibraryPath,
+		LibraryRoot:    cfg.LibraryGames,
 		WorkRoot:       filepath.Join(cfg.DataPath, "work"),
 		URLsForTrigger: urlsForTrigger,
 	}))
@@ -208,7 +220,7 @@ func main() {
 		SaturnProber:   identify.NewDevSaturnProber(),
 		RedumpDB:       redumpDB,
 		Tools:          toolReg,
-		LibraryRoot:    cfg.LibraryPath,
+		LibraryRoot:    cfg.LibraryGames,
 		WorkRoot:       filepath.Join(cfg.DataPath, "work"),
 		URLsForTrigger: urlsForTrigger,
 	}))
@@ -217,7 +229,7 @@ func main() {
 		CHDMan:         chdmanTool,
 		RedumpDB:       redumpDB,
 		Tools:          toolReg,
-		LibraryRoot:    cfg.LibraryPath,
+		LibraryRoot:    cfg.LibraryGames,
 		WorkRoot:       filepath.Join(cfg.DataPath, "work"),
 		URLsForTrigger: urlsForTrigger,
 	}))
@@ -226,7 +238,7 @@ func main() {
 		XboxProber:     &xbox.IsoinfoXboxProber{Bin: cfg.IsoInfoBin},
 		RedumpDB:       redumpDB,
 		Tools:          toolReg,
-		LibraryRoot:    cfg.LibraryPath,
+		LibraryRoot:    cfg.LibraryGames,
 		WorkRoot:       filepath.Join(cfg.DataPath, "work"),
 		URLsForTrigger: urlsForTrigger,
 	}))
@@ -234,7 +246,7 @@ func main() {
 		DD:             &tools.DD{Bin: cfg.DDBin},
 		LabelProber:    &data.IsoinfoLabelProber{Bin: cfg.IsoInfoBin},
 		Tools:          toolReg,
-		LibraryRoot:    cfg.LibraryPath,
+		LibraryRoot:    cfg.LibraryData,
 		WorkRoot:       filepath.Join(cfg.DataPath, "work"),
 		URLsForTrigger: urlsForTrigger,
 	}))

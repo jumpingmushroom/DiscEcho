@@ -10,12 +10,19 @@ const hostResp = {
   kernel: '6.12.1',
   cpu_count: 8,
   uptime_seconds: 7200,
-  disks: [{ path: '/library', total_bytes: 1000, used_bytes: 250, available_bytes: 750 }],
+  disks: [{ path: '/library/movies', total_bytes: 1000, used_bytes: 250, available_bytes: 750 }],
 };
 const integrationsResp = {
   tmdb: { configured: true, language: 'en-US' },
   musicbrainz: { base_url: 'https://musicbrainz.org', user_agent: 'DiscEcho/test' },
   apprise: { bin: 'apprise', version: '1.7.0' },
+  library_roots: {
+    movies: '/library/movies',
+    tv: '/library/tv',
+    music: '/library/music',
+    games: '/library/games',
+    data: '/library/data',
+  },
 };
 
 function jsonResponse(body: unknown, status = 200): Response {
@@ -54,7 +61,7 @@ describe('SystemSection', () => {
   beforeEach(() => {
     apiPutMock.mockReset();
     mockEndpoints();
-    settings.set({ 'library.path': '/library' });
+    settings.set({});
     drives.set([
       {
         id: 'd1',
@@ -74,10 +81,51 @@ describe('SystemSection', () => {
   it('renders four subsections after data loads', async () => {
     const { container } = render(SystemSection);
     await waitFor(() => expect(container.textContent).toContain('discecho-host'));
-    expect(container.textContent).toContain('Library');
+    expect(container.textContent).toContain('Library paths');
     expect(container.textContent).toContain('Drives');
     expect(container.textContent).toContain('Connections');
     expect(container.textContent).toContain('Host');
+  });
+
+  it('renders one PathField row per typed library root', async () => {
+    const { container } = render(SystemSection);
+    await waitFor(() => expect(container.textContent).toContain('/library/movies'));
+    for (const label of ['Movies', 'TV', 'Music', 'Games', 'Data archive']) {
+      expect(container.textContent).toContain(label);
+    }
+    for (const path of [
+      '/library/movies',
+      '/library/tv',
+      '/library/music',
+      '/library/games',
+      '/library/data',
+    ]) {
+      expect(container.textContent).toContain(path);
+    }
+  });
+
+  it('saves edited library roots via apiPut with typed keys', async () => {
+    const { container, getByText } = render(SystemSection);
+    await waitFor(() => expect(container.textContent).toContain('/library/movies'));
+    // Click the first PathField (Movies) to enter edit mode.
+    const moviesButton = Array.from(container.querySelectorAll('button')).find(
+      (b) => b.textContent && b.textContent.includes('/library/movies'),
+    ) as HTMLButtonElement;
+    expect(moviesButton).toBeTruthy();
+    await fireEvent.click(moviesButton);
+    const input = container.querySelector('input[type="text"]') as HTMLInputElement;
+    expect(input).toBeTruthy();
+    input.value = '/srv/films';
+    await fireEvent.input(input);
+    await fireEvent.blur(input);
+    // Save changes button appears once a row is dirty.
+    await waitFor(() => expect(getByText('Save changes')).toBeInTheDocument());
+    await fireEvent.click(getByText('Save changes'));
+    await waitFor(() =>
+      expect(apiPutMock).toHaveBeenCalledWith('/api/settings', {
+        'library.movies': '/srv/films',
+      }),
+    );
   });
 
   it('shows the drive row from the store', async () => {
@@ -99,6 +147,7 @@ describe('SystemSection', () => {
         tmdb: { configured: false, language: 'en-US' },
         musicbrainz: integrationsResp.musicbrainz,
         apprise: integrationsResp.apprise,
+        library_roots: integrationsResp.library_roots,
       },
     });
     const { container } = render(SystemSection);
@@ -108,20 +157,8 @@ describe('SystemSection', () => {
 
   it('renders disk usage bar for each disk in host info', async () => {
     const { container } = render(SystemSection);
-    await waitFor(() => expect(container.textContent).toContain('/library'));
+    await waitFor(() => expect(container.textContent).toContain('/library/movies'));
     expect(container.textContent).toMatch(/free/);
-  });
-
-  it('saves library.path via apiPut', async () => {
-    const { container, getByText } = render(SystemSection);
-    await waitFor(() => expect(container.querySelector('input[type="text"]')).not.toBeNull());
-    const input = container.querySelector('input[type="text"]') as HTMLInputElement;
-    input.value = '/srv/media';
-    await fireEvent.input(input);
-    await fireEvent.click(getByText('Save'));
-    await waitFor(() =>
-      expect(apiPutMock).toHaveBeenCalledWith('/api/settings', { 'library.path': '/srv/media' }),
-    );
   });
 
   it('renders empty state when no drives', async () => {

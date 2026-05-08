@@ -41,8 +41,23 @@ func TestLoad_Defaults(t *testing.T) {
 	if s.Addr != ":8088" {
 		t.Errorf("Addr = %q, want :8088", s.Addr)
 	}
-	if s.LibraryPath != "/library" {
-		t.Errorf("LibraryPath = %q, want /library", s.LibraryPath)
+	if s.LibraryRoot != "/library" {
+		t.Errorf("LibraryRoot = %q, want /library", s.LibraryRoot)
+	}
+	if want := "/library/movies"; s.LibraryMovies != want {
+		t.Errorf("LibraryMovies = %q, want %q", s.LibraryMovies, want)
+	}
+	if want := "/library/tv"; s.LibraryTV != want {
+		t.Errorf("LibraryTV = %q, want %q", s.LibraryTV, want)
+	}
+	if want := "/library/music"; s.LibraryMusic != want {
+		t.Errorf("LibraryMusic = %q, want %q", s.LibraryMusic, want)
+	}
+	if want := "/library/games"; s.LibraryGames != want {
+		t.Errorf("LibraryGames = %q, want %q", s.LibraryGames, want)
+	}
+	if want := "/library/data"; s.LibraryData != want {
+		t.Errorf("LibraryData = %q, want %q", s.LibraryData, want)
 	}
 	if s.DataPath != dataDir {
 		t.Errorf("DataPath = %q, want %q", s.DataPath, dataDir)
@@ -691,6 +706,83 @@ func TestSeedDataProfile_CreatesAndIsIdempotent(t *testing.T) {
 	}
 	if len(got) != 1 || got[0].Name != "Data-ISO" {
 		t.Fatalf("expected exactly one Data-ISO; got %d: %#v", len(got), got)
+	}
+}
+
+func TestLoad_LibraryRoots_StoredKVBeatsEnv(t *testing.T) {
+	store := openStore(t)
+	dataDir := t.TempDir()
+	// First boot: derive from DISCECHO_LIBRARY.
+	env := envFn(map[string]string{
+		"DISCECHO_DATA":    dataDir,
+		"DISCECHO_LIBRARY": "/library",
+	})
+	if _, err := settings.Load(env, store, "test"); err != nil {
+		t.Fatal(err)
+	}
+	// User edits movies path via the settings API (simulated).
+	if err := store.SetSetting(context.Background(), "library.movies", "/srv/films"); err != nil {
+		t.Fatal(err)
+	}
+	// Second boot: a per-root env override is set, but the stored KV
+	// must win.
+	env2 := envFn(map[string]string{
+		"DISCECHO_DATA":           dataDir,
+		"DISCECHO_LIBRARY":        "/library",
+		"DISCECHO_LIBRARY_MOVIES": "/env/movies-override",
+	})
+	s, err := settings.Load(env2, store, "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.LibraryMovies != "/srv/films" {
+		t.Errorf("LibraryMovies = %q, want stored /srv/films (KV beats env)", s.LibraryMovies)
+	}
+	// Sibling roots still pick up env-derived defaults.
+	if s.LibraryTV != "/library/tv" {
+		t.Errorf("LibraryTV = %q, want /library/tv", s.LibraryTV)
+	}
+}
+
+func TestLoad_LibraryRoots_EnvOverrideFreshInstall(t *testing.T) {
+	store := openStore(t)
+	dataDir := t.TempDir()
+	env := envFn(map[string]string{
+		"DISCECHO_DATA":          dataDir,
+		"DISCECHO_LIBRARY":       "/library",
+		"DISCECHO_LIBRARY_MUSIC": "/mnt/audio",
+	})
+	s, err := settings.Load(env, store, "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.LibraryMusic != "/mnt/audio" {
+		t.Errorf("LibraryMusic = %q, want /mnt/audio", s.LibraryMusic)
+	}
+}
+
+func TestLoad_LibraryRoots_LegacyPathFanout(t *testing.T) {
+	store := openStore(t)
+	dataDir := t.TempDir()
+	// Existing v0 deployment: only library.path is stored.
+	if err := store.SetSetting(context.Background(), "library.path", "/legacy"); err != nil {
+		t.Fatal(err)
+	}
+	env := envFn(map[string]string{"DISCECHO_DATA": dataDir})
+	s, err := settings.Load(env, store, "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for got, want := range map[string]string{
+		s.LibraryMovies: "/legacy/movies",
+		s.LibraryTV:     "/legacy/tv",
+		s.LibraryMusic:  "/legacy/music",
+		s.LibraryGames:  "/legacy/games",
+		s.LibraryData:   "/legacy/data",
+	} {
+		if got != want {
+			t.Errorf("derived root = %q, want %q", got, want)
+		}
 	}
 }
 

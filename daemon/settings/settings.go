@@ -19,9 +19,17 @@ import (
 
 // Settings is the resolved runtime configuration.
 type Settings struct {
-	Addr                 string
-	Token                string
-	LibraryPath          string
+	Addr  string
+	Token string
+	// LibraryRoot is the env-derived parent directory (DISCECHO_LIBRARY).
+	// New code should read the typed roots below; this is kept so that
+	// host-disk-usage reporting still has a stable mount to stat.
+	LibraryRoot          string
+	LibraryMovies        string
+	LibraryTV            string
+	LibraryMusic         string
+	LibraryGames         string
+	LibraryData          string
 	DataPath             string
 	AutoConfirmSeconds   int
 	WhipperBin           string
@@ -54,7 +62,7 @@ func Load(getenv func(string) string, store *state.Store, version string) (*Sett
 	}
 	s := &Settings{
 		Addr:                 firstNonEmpty(getenv("DISCECHO_ADDR"), ":8088"),
-		LibraryPath:          firstNonEmpty(getenv("DISCECHO_LIBRARY"), "/library"),
+		LibraryRoot:          firstNonEmpty(getenv("DISCECHO_LIBRARY"), "/library"),
 		DataPath:             firstNonEmpty(getenv("DISCECHO_DATA"), "/var/lib/discecho"),
 		WhipperBin:           firstNonEmpty(getenv("DISCECHO_WHIPPER_BIN"), "whipper"),
 		AppriseBin:           firstNonEmpty(getenv("DISCECHO_APPRISE_BIN"), "apprise"),
@@ -132,28 +140,132 @@ func Load(getenv func(string) string, store *state.Store, version string) (*Sett
 	if err := seedRetentionDefault(ctx, store); err != nil {
 		return nil, fmt.Errorf("seed retention default: %w", err)
 	}
-	if err := seedLibraryPath(ctx, store, s.LibraryPath); err != nil {
-		return nil, fmt.Errorf("seed library.path: %w", err)
+	if err := seedLibraryRoots(ctx, store, getenv, s.LibraryRoot); err != nil {
+		return nil, fmt.Errorf("seed library roots: %w", err)
 	}
-	if v, err := store.GetSetting(ctx, "library.path"); err == nil {
-		if v = strings.TrimSpace(v); v != "" {
-			s.LibraryPath = v
-		}
-	}
+	s.LibraryMovies = resolveLibraryRoot(ctx, store, getenv, "library.movies", "DISCECHO_LIBRARY_MOVIES", s.LibraryRoot, "movies")
+	s.LibraryTV = resolveLibraryRoot(ctx, store, getenv, "library.tv", "DISCECHO_LIBRARY_TV", s.LibraryRoot, "tv")
+	s.LibraryMusic = resolveLibraryRoot(ctx, store, getenv, "library.music", "DISCECHO_LIBRARY_MUSIC", s.LibraryRoot, "music")
+	s.LibraryGames = resolveLibraryRoot(ctx, store, getenv, "library.games", "DISCECHO_LIBRARY_GAMES", s.LibraryRoot, "games")
+	s.LibraryData = resolveLibraryRoot(ctx, store, getenv, "library.data", "DISCECHO_LIBRARY_DATA", s.LibraryRoot, "data")
 	return s, nil
 }
 
-// seedLibraryPath stores the env-derived path on first boot so the
-// settings UI can render it; subsequent edits via PutSettings overwrite
-// it. No-op if the row already exists.
-func seedLibraryPath(ctx context.Context, store *state.Store, envPath string) error {
-	if v, err := store.GetSetting(ctx, "library.path"); err == nil && strings.TrimSpace(v) != "" {
-		return nil
+// MediaRoot enumerates the typed library subtrees. Order matches what
+// the settings UI renders and what api/system.go advertises.
+type MediaRoot string
+
+const (
+	MediaMovies MediaRoot = "movies"
+	MediaTV     MediaRoot = "tv"
+	MediaMusic  MediaRoot = "music"
+	MediaGames  MediaRoot = "games"
+	MediaData   MediaRoot = "data"
+)
+
+// AllMediaRoots is the canonical iteration order.
+var AllMediaRoots = []MediaRoot{MediaMovies, MediaTV, MediaMusic, MediaGames, MediaData}
+
+// LibraryFor returns the configured root for one media type. Falls back
+// to LibraryRoot/<media> if the typed field is empty (which only happens
+// before Load() runs, e.g. in tests that build Settings by hand).
+func (s *Settings) LibraryFor(m MediaRoot) string {
+	if s == nil {
+		return ""
 	}
-	if envPath == "" {
-		return nil
+	switch m {
+	case MediaMovies:
+		if s.LibraryMovies != "" {
+			return s.LibraryMovies
+		}
+	case MediaTV:
+		if s.LibraryTV != "" {
+			return s.LibraryTV
+		}
+	case MediaMusic:
+		if s.LibraryMusic != "" {
+			return s.LibraryMusic
+		}
+	case MediaGames:
+		if s.LibraryGames != "" {
+			return s.LibraryGames
+		}
+	case MediaData:
+		if s.LibraryData != "" {
+			return s.LibraryData
+		}
 	}
-	return store.SetSetting(ctx, "library.path", envPath)
+	if s.LibraryRoot != "" {
+		return filepath.Join(s.LibraryRoot, string(m))
+	}
+	return ""
+}
+
+// LibraryRootsMap is a snapshot of the 5 typed roots, suitable for
+// serving in /api/system/integrations.
+func (s *Settings) LibraryRootsMap() map[string]string {
+	out := make(map[string]string, len(AllMediaRoots))
+	for _, m := range AllMediaRoots {
+		out[string(m)] = s.LibraryFor(m)
+	}
+	return out
+}
+
+// resolveLibraryRoot picks (in order): stored KV row > env override >
+// derived <root>/<media>. Caller has already loaded the env-derived
+// LibraryRoot so the third branch is always populated.
+func resolveLibraryRoot(ctx context.Context, store *state.Store, getenv func(string) string, kvKey, envVar, root, media string) string {
+	if v, err := store.GetSetting(ctx, kvKey); err == nil {
+		if v = strings.TrimSpace(v); v != "" {
+			return v
+		}
+	}
+	if v := strings.TrimSpace(getenv(envVar)); v != "" {
+		return v
+	}
+	if root == "" {
+		return ""
+	}
+	return filepath.Join(root, media)
+}
+
+// seedLibraryRoots writes a stored KV row for each typed root that
+// doesn't already have one. The seeded value uses the env override if
+// set, otherwise <root>/<media>. Existing rows are left untouched —
+// upgrades from "library.path" deployments seed the 5 from the parent.
+func seedLibraryRoots(ctx context.Context, store *state.Store, getenv func(string) string, root string) error {
+	envFor := map[MediaRoot]string{
+		MediaMovies: "DISCECHO_LIBRARY_MOVIES",
+		MediaTV:     "DISCECHO_LIBRARY_TV",
+		MediaMusic:  "DISCECHO_LIBRARY_MUSIC",
+		MediaGames:  "DISCECHO_LIBRARY_GAMES",
+		MediaData:   "DISCECHO_LIBRARY_DATA",
+	}
+	// Single-root upgrade: legacy "library.path" wins if no per-media
+	// rows exist yet. After this seed it acts only as a default source.
+	legacy, _ := store.GetSetting(ctx, "library.path")
+	legacy = strings.TrimSpace(legacy)
+	for _, m := range AllMediaRoots {
+		key := "library." + string(m)
+		if v, err := store.GetSetting(ctx, key); err == nil && strings.TrimSpace(v) != "" {
+			continue
+		}
+		var value string
+		switch {
+		case strings.TrimSpace(getenv(envFor[m])) != "":
+			value = strings.TrimSpace(getenv(envFor[m]))
+		case legacy != "":
+			value = filepath.Join(legacy, string(m))
+		case root != "":
+			value = filepath.Join(root, string(m))
+		default:
+			continue
+		}
+		if err := store.SetSetting(ctx, key, value); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 const (

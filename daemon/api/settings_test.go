@@ -117,6 +117,60 @@ func TestSettings_Put_LibraryPathValid(t *testing.T) {
 	if v != "/srv/media" {
 		t.Fatalf("library.path: %q", v)
 	}
+	// Legacy compat: writing library.path also fans out to the typed
+	// roots. Future clients should write library.<media> directly.
+	for media, want := range map[string]string{
+		"library.movies": "/srv/media/movies",
+		"library.tv":     "/srv/media/tv",
+		"library.music":  "/srv/media/music",
+		"library.games":  "/srv/media/games",
+		"library.data":   "/srv/media/data",
+	} {
+		got, _ := h.Store.GetSetting(context.Background(), media)
+		if got != want {
+			t.Errorf("%s = %q, want %q", media, got, want)
+		}
+	}
+}
+
+func TestSettings_Put_LibraryRoots_Typed(t *testing.T) {
+	h := apitestServer(t)
+	body := mustMarshal(t, map[string]any{
+		"library.movies": "/srv/movies",
+		"library.tv":     "/srv/tv",
+		"library.music":  "/srv/music",
+		"library.games":  "/srv/games",
+		"library.data":   "/srv/data",
+	})
+	req := authedReq(t, http.MethodPut, "/api/settings", bytes.NewReader(body))
+	rec := httptest.NewRecorder()
+	h.PutSettings(rec, req)
+	if rec.Code != 200 {
+		t.Fatalf("status: %d body: %s", rec.Code, rec.Body.String())
+	}
+	for k, want := range map[string]string{
+		"library.movies": "/srv/movies",
+		"library.tv":     "/srv/tv",
+		"library.music":  "/srv/music",
+		"library.games":  "/srv/games",
+		"library.data":   "/srv/data",
+	} {
+		got, _ := h.Store.GetSetting(context.Background(), k)
+		if got != want {
+			t.Errorf("%s = %q, want %q", k, got, want)
+		}
+	}
+}
+
+func TestSettings_Put_LibraryRoot_Relative_422(t *testing.T) {
+	h := apitestServer(t)
+	body := mustMarshal(t, map[string]any{"library.movies": "media/films"})
+	req := authedReq(t, http.MethodPut, "/api/settings", bytes.NewReader(body))
+	rec := httptest.NewRecorder()
+	h.PutSettings(rec, req)
+	if rec.Code != 422 {
+		t.Fatalf("status: %d body: %s", rec.Code, rec.Body.String())
+	}
 }
 
 func TestSettings_Put_LibraryPathRelative_422(t *testing.T) {

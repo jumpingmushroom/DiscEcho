@@ -14,9 +14,11 @@ import (
 
 func TestGetSystemHost_OK(t *testing.T) {
 	h := apitestServer(t)
+	libDir := t.TempDir()
 	h.Settings = &settings.Settings{
-		LibraryPath: t.TempDir(),
-		DataPath:    "/path/that/definitely/does/not/exist/abcxyz",
+		LibraryRoot:   libDir,
+		LibraryMovies: libDir,
+		DataPath:      "/path/that/definitely/does/not/exist/abcxyz",
 	}
 
 	req := httptest.NewRequest(http.MethodGet, "/api/system/host", nil)
@@ -91,6 +93,38 @@ func TestGetSystemIntegrations_TMDBUnconfigured(t *testing.T) {
 	// Bogus binary → version omitted, no 500.
 	if info.Apprise.Version != "" {
 		t.Errorf("apprise version unexpectedly set: %q", info.Apprise.Version)
+	}
+}
+
+func TestGetSystemIntegrations_LibraryRoots(t *testing.T) {
+	h := apitestServer(t)
+	h.Settings = &settings.Settings{
+		LibraryRoot:   "/library",
+		LibraryMovies: "/library/movies",
+		LibraryTV:     "/library/tv",
+		LibraryMusic:  "/srv/audio",
+		LibraryGames:  "/library/games",
+		LibraryData:   "/library/data",
+		AppriseBin:    "apprise",
+	}
+	req := httptest.NewRequest(http.MethodGet, "/api/system/integrations", nil)
+	w := httptest.NewRecorder()
+	h.GetSystemIntegrations(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status %d", w.Code)
+	}
+	var info api.IntegrationsInfo
+	_ = json.Unmarshal(w.Body.Bytes(), &info)
+	for k, want := range map[string]string{
+		"movies": "/library/movies",
+		"tv":     "/library/tv",
+		"music":  "/srv/audio",
+		"games":  "/library/games",
+		"data":   "/library/data",
+	} {
+		if got := info.LibraryRoots[k]; got != want {
+			t.Errorf("library_roots[%q] = %q, want %q", k, got, want)
+		}
 	}
 }
 
