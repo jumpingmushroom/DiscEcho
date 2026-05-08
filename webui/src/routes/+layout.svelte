@@ -24,6 +24,7 @@
   });
 </script>
 
+<div class="aurora-ribbon" aria-hidden="true"></div>
 <TopNav />
 <slot />
 <UpdateToast />

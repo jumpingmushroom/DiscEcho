@@ -1,10 +1,17 @@
 <script lang="ts">
+  import Icon, { type IconName } from '$lib/icons/Icon.svelte';
+
   export let active: 'dashboard' | 'history' | 'settings';
 
-  const tabs: Array<{ id: 'dashboard' | 'history' | 'settings'; label: string; href: string }> = [
-    { id: 'dashboard', label: 'Drives', href: '/' },
-    { id: 'history', label: 'History', href: '/history' },
-    { id: 'settings', label: 'Settings', href: '/settings' },
+  const tabs: Array<{
+    id: 'dashboard' | 'history' | 'settings';
+    label: string;
+    href: string;
+    icon: IconName;
+  }> = [
+    { id: 'dashboard', label: 'Drives', href: '/', icon: 'home' },
+    { id: 'history', label: 'History', href: '/history', icon: 'history' },
+    { id: 'settings', label: 'Settings', href: '/settings', icon: 'settings' },
   ];
 </script>
 
@@ -25,7 +32,8 @@
           class:active={t.id === active}
           data-sveltekit-preload-data="hover"
         >
-          <span class:accent={t.id === active}>{t.label}</span>
+          <Icon name={t.icon} size={18} />
+          <span>{t.label}</span>
         </a>
       {/each}
     </div>
@@ -33,10 +41,10 @@
 </div>
 
 <style>
-  .accent {
-    color: var(--accent);
-  }
   a {
     color: var(--text-3);
+  }
+  a.active {
+    color: var(--accent);
   }
 </style>
