@@ -67,6 +67,9 @@ func NewRouter(h *Handlers, static http.Handler) http.Handler {
 
 			authed.Get("/settings", h.GetSettings)
 			authed.Put("/settings", h.PutSettings)
+
+			authed.Get("/system/host", h.GetSystemHost)
+			authed.Get("/system/integrations", h.GetSystemIntegrations)
 		})
 	})
 

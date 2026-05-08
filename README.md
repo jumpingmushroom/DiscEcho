@@ -22,6 +22,12 @@ curl http://localhost:8088/api/health   # → {"ok":true}
 Open `http://localhost:8088/` on your phone (or laptop in mobile
 viewport) for the dashboard.
 
+`DISCECHO_LIBRARY_PATH` (host bind mount) and `DISCECHO_LIBRARY` (the
+in-container path the daemon writes to, normally `/library`) seed the
+library setting on first boot. After that, the value is editable from
+Settings → System → Library and the new value is used on the next
+container restart.
+
 ### Deployment
 
 DiscEcho assumes a trusted LAN by default — no authentication is

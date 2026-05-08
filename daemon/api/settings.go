@@ -4,7 +4,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"path/filepath"
 	"strconv"
+	"strings"
 
 	"github.com/jumpingmushroom/DiscEcho/daemon/state"
 )
@@ -106,6 +108,20 @@ var allowedSettings = map[string]func(any) (string, error){
 			return "", fmt.Errorf("must be >= 0")
 		}
 		return strconv.Itoa(n), nil
+	},
+	"library.path": func(v any) (string, error) {
+		s, ok := v.(string)
+		if !ok {
+			return "", fmt.Errorf("must be string")
+		}
+		s = strings.TrimSpace(s)
+		if s == "" {
+			return "", fmt.Errorf("must not be empty")
+		}
+		if !filepath.IsAbs(s) {
+			return "", fmt.Errorf("must be an absolute path")
+		}
+		return s, nil
 	},
 }
 

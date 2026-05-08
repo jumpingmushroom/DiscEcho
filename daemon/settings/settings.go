@@ -132,7 +132,28 @@ func Load(getenv func(string) string, store *state.Store, version string) (*Sett
 	if err := seedRetentionDefault(ctx, store); err != nil {
 		return nil, fmt.Errorf("seed retention default: %w", err)
 	}
+	if err := seedLibraryPath(ctx, store, s.LibraryPath); err != nil {
+		return nil, fmt.Errorf("seed library.path: %w", err)
+	}
+	if v, err := store.GetSetting(ctx, "library.path"); err == nil {
+		if v = strings.TrimSpace(v); v != "" {
+			s.LibraryPath = v
+		}
+	}
 	return s, nil
+}
+
+// seedLibraryPath stores the env-derived path on first boot so the
+// settings UI can render it; subsequent edits via PutSettings overwrite
+// it. No-op if the row already exists.
+func seedLibraryPath(ctx context.Context, store *state.Store, envPath string) error {
+	if v, err := store.GetSetting(ctx, "library.path"); err == nil && strings.TrimSpace(v) != "" {
+		return nil
+	}
+	if envPath == "" {
+		return nil
+	}
+	return store.SetSetting(ctx, "library.path", envPath)
 }
 
 const (
