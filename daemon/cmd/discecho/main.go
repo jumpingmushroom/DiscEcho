@@ -63,7 +63,11 @@ func main() {
 		os.Exit(1)
 	}
 	slog.Info("settings loaded", "addr", cfg.Addr, "library", cfg.LibraryPath)
-	slog.Info("bearer token", "token", maskToken(cfg.Token))
+	if cfg.Token != "" {
+		slog.Info("bearer token configured")
+	} else {
+		slog.Warn("bearer token disabled — API is unauthenticated")
+	}
 
 	if n, err := drive.InitialScan(context.Background(), store); err != nil {
 		slog.Warn("InitialScan", "err", err)
@@ -94,26 +98,30 @@ func main() {
 		SystemCNFProber: sysCNFProber,
 	})
 
+	// urlsForTrigger is shared by every pipeline — looks up the
+	// Apprise URLs configured for a given event trigger.
+	urlsForTrigger := func(ctx context.Context, trigger string) []string {
+		ns, err := store.ListNotificationsForTrigger(ctx, trigger)
+		if err != nil {
+			slog.Warn("notifications lookup", "trigger", trigger, "err", err)
+			return nil
+		}
+		urls := make([]string, 0, len(ns))
+		for _, n := range ns {
+			urls = append(urls, n.URL)
+		}
+		return urls
+	}
+
 	// Pipelines: register the audio-CD handler.
 	pipeReg := pipelines.NewRegistry()
 	pipeReg.Register(audiocd.New(audiocd.Deps{
-		TOC:         tocReader,
-		MB:          mbClient,
-		Tools:       toolReg,
-		LibraryRoot: cfg.LibraryPath,
-		WorkRoot:    filepath.Join(cfg.DataPath, "work"),
-		URLsForTrigger: func(ctx context.Context, trigger string) []string {
-			ns, err := store.ListNotificationsForTrigger(ctx, trigger)
-			if err != nil {
-				slog.Warn("notifications lookup", "trigger", trigger, "err", err)
-				return nil
-			}
-			urls := make([]string, 0, len(ns))
-			for _, n := range ns {
-				urls = append(urls, n.URL)
-			}
-			return urls
-		},
+		TOC:            tocReader,
+		MB:             mbClient,
+		Tools:          toolReg,
+		LibraryRoot:    cfg.LibraryPath,
+		WorkRoot:       filepath.Join(cfg.DataPath, "work"),
+		URLsForTrigger: urlsForTrigger,
 	}))
 
 	// DVD-Video pipeline
@@ -133,35 +141,11 @@ func main() {
 		LibraryRoot:      cfg.LibraryPath,
 		WorkRoot:         filepath.Join(cfg.DataPath, "work"),
 		SubsLang:         cfg.SubsLang,
-		URLsForTrigger: func(ctx context.Context, trigger string) []string {
-			ns, err := store.ListNotificationsForTrigger(ctx, trigger)
-			if err != nil {
-				slog.Warn("notifications lookup", "trigger", trigger, "err", err)
-				return nil
-			}
-			urls := make([]string, 0, len(ns))
-			for _, n := range ns {
-				urls = append(urls, n.URL)
-			}
-			return urls
-		},
+		URLsForTrigger:   urlsForTrigger,
 	}))
 
 	// BDMV + UHD pipelines (M3.1).
 	makeMKV := tools.NewMakeMKV(cfg.MakeMKVBin, cfg.MakeMKVDataDir)
-
-	urlsForTrigger := func(ctx context.Context, trigger string) []string {
-		ns, err := store.ListNotificationsForTrigger(ctx, trigger)
-		if err != nil {
-			slog.Warn("notifications lookup", "trigger", trigger, "err", err)
-			return nil
-		}
-		urls := make([]string, 0, len(ns))
-		for _, n := range ns {
-			urls = append(urls, n.URL)
-		}
-		return urls
-	}
 
 	pipeReg.Register(bdmv.New(bdmv.Deps{
 		Prober:         dvdProber, // re-used for volume-label reading
@@ -338,9 +322,3 @@ func firstEnv(name, def string) string {
 	return def
 }
 
-func maskToken(t string) string {
-	if len(t) <= 8 {
-		return "***"
-	}
-	return t[:4] + "…" + t[len(t)-4:]
-}
