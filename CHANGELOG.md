@@ -32,6 +32,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
   was a 501 placeholder).
 - Deleted the dead, drift-prone `shared/wire.ts` — `webui/src/lib/wire.ts`
   is the sole frontend wire-types source.
+- Auto-generated bearer token at `<DATA>/token`. The token is now
+  sourced exclusively from the `DISCECHO_TOKEN` env var; no on-disk
+  persistence, no auto-generation. Existing token files are left
+  untouched but ignored on startup. To migrate: copy the value from
+  the old `<DATA>/token` into a `DISCECHO_TOKEN` env var on the
+  daemon, then delete the on-disk file.
+- `DISCECHO_AUTH_DISABLED` env var. The default is now "auth off";
+  opt back in by setting `DISCECHO_TOKEN`. To migrate: drop
+  `DISCECHO_AUTH_DISABLED=true` from your environment — the daemon
+  now behaves the same way without it.
 
 ### Changed
 
@@ -42,6 +52,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
   registration.
 - The daemon no longer logs a partial token at startup; it logs only
   whether the bearer token is configured.
+- Daemon defaults to no authentication when `DISCECHO_TOKEN` is unset.
+  This matches the homelab/LAN deployment model the project is
+  designed around: the embedded UI works on first install with zero
+  config. Set `DISCECHO_TOKEN` to enable bearer auth for proxy or
+  exposed deployments.
 
 ### Added
 

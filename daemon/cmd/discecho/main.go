@@ -64,9 +64,9 @@ func main() {
 	}
 	slog.Info("settings loaded", "addr", cfg.Addr, "library", cfg.LibraryPath)
 	if cfg.Token != "" {
-		slog.Info("bearer token configured")
+		slog.Info("bearer auth enabled")
 	} else {
-		slog.Warn("bearer token disabled — API is unauthenticated")
+		slog.Info("auth disabled (LAN mode); set DISCECHO_TOKEN to enable bearer auth")
 	}
 
 	if n, err := drive.InitialScan(context.Background(), store); err != nil {

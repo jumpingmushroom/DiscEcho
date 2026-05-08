@@ -105,8 +105,10 @@ SSE:
   `profile.changed`, `settings.changed`. Payload is a JSON object whose
   shape mirrors the REST resources.
 
-Authentication for MVP: a single shared bearer token (`Authorization: Bearer
-<token>`) configured via env. Reverse-proxy fronted on the homelab.
+Authentication: bearer-token auth is enforced when `DISCECHO_TOKEN` is
+set; otherwise the API is open (LAN-only default). Internet-facing
+deployments are expected to terminate TLS and inject the bearer at a
+reverse proxy.
 
 ## Pipeline-engine abstraction
 
@@ -196,7 +198,7 @@ services:
     environment:
       DISCECHO_LIBRARY: /library
       DISCECHO_DATA: /var/lib/discecho
-      DISCECHO_TOKEN_FILE: /etc/discecho/token
+      DISCECHO_TOKEN: ${DISCECHO_TOKEN:-}   # optional; LAN deploys leave it empty
     ports:
       - "8088:8088"
 ```

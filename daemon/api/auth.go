@@ -7,8 +7,9 @@ import (
 )
 
 // Authenticate returns middleware that requires Authorization: Bearer
-// <Token>. If Token is empty, the middleware is a passthrough — useful
-// during development before the token is bootstrapped.
+// <Token> when Token is non-empty. An empty Token is the documented
+// LAN-only default (set DISCECHO_TOKEN to opt into bearer auth for
+// proxy/exposed deployments).
 func (h *Handlers) Authenticate(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if h.Token == "" {
