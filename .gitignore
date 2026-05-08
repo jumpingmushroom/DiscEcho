@@ -38,3 +38,8 @@ docs/superpowers/
 # Local working agreement; not for the public repo
 CLAUDE.md
 
+# Local Docker compose overrides (host-specific volume mounts, etc.)
+docker-compose.override.yml
+
+# Claude Code per-project cache (scheduled-task locks, transcripts)
+.claude/
