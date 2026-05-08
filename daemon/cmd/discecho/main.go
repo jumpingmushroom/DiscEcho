@@ -303,6 +303,14 @@ func main() {
 		}
 	}()
 
+	sweeper := &state.Sweeper{
+		Store:    store,
+		Settings: store, // *Store satisfies SettingsReader via GetBool/GetInt
+		Now:      time.Now,
+		Logger:   slog.Default(),
+	}
+	sweeper.Start(ctx)
+
 	errCh := make(chan error, 1)
 	go func() { errCh <- server.ListenAndServe() }()
 
