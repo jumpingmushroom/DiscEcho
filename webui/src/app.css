@@ -17,14 +17,20 @@
     --accent: #00d68f;
     --accent-soft: rgba(0, 214, 143, 0.12);
     --accent-glow: rgba(0, 214, 143, 0.35);
+    --accent-rgb: 0, 214, 143;
     --warn: #f5a524;
     --error: #ff5b5b;
     --info: #5ea3ff;
+    --canvas-bg: #000000;
+    --canvas-image:
+      radial-gradient(circle at 20% 10%, var(--accent-soft), transparent 40%),
+      radial-gradient(circle at 80% 90%, rgba(94, 163, 255, 0.03), transparent 40%);
   }
 
   html,
   body {
-    background: var(--bg);
+    background: var(--canvas-bg);
+    background-image: var(--canvas-image);
     color: var(--text);
     font-family:
       'Inter',
@@ -32,5 +38,237 @@
       system-ui,
       sans-serif;
     -webkit-font-smoothing: antialiased;
+    transition: background 600ms ease;
+  }
+
+  /* Accent palette tweak — recolors all accent vars when [data-accent] is set on <html> */
+  html[data-accent='aurora'] {
+    --accent: #00d68f;
+    --accent-soft: rgba(0, 214, 143, 0.12);
+    --accent-glow: rgba(0, 214, 143, 0.35);
+    --accent-rgb: 0, 214, 143;
+  }
+  html[data-accent='amber'] {
+    --accent: #ffae3d;
+    --accent-soft: rgba(255, 174, 61, 0.12);
+    --accent-glow: rgba(255, 174, 61, 0.35);
+    --accent-rgb: 255, 174, 61;
+  }
+  html[data-accent='cobalt'] {
+    --accent: #5ea3ff;
+    --accent-soft: rgba(94, 163, 255, 0.12);
+    --accent-glow: rgba(94, 163, 255, 0.4);
+    --accent-rgb: 94, 163, 255;
+  }
+  html[data-accent='mono'] {
+    --accent: #f4f4f5;
+    --accent-soft: rgba(244, 244, 245, 0.1);
+    --accent-glow: rgba(244, 244, 245, 0.3);
+    --accent-rgb: 244, 244, 245;
+  }
+
+  /* Mood: canvas background shift */
+  html[data-mood='void'] {
+    --canvas-bg: #000000;
+    --canvas-image:
+      radial-gradient(circle at 20% 10%, var(--accent-soft), transparent 40%),
+      radial-gradient(circle at 80% 90%, rgba(94, 163, 255, 0.03), transparent 40%);
+  }
+  html[data-mood='carbon'] {
+    --canvas-bg: #0c0b0a;
+    --surface-1: #16140f;
+    --canvas-image:
+      radial-gradient(circle at 20% 10%, rgba(255, 180, 100, 0.04), transparent 40%),
+      radial-gradient(circle at 80% 90%, rgba(120, 90, 60, 0.04), transparent 40%);
+  }
+  html[data-mood='aurora'] {
+    --canvas-bg: #04060a;
+    --surface-1: #0f1216;
+    --canvas-image:
+      radial-gradient(ellipse 80% 30% at 50% 0%, var(--accent-glow), transparent 70%),
+      radial-gradient(circle at 80% 100%, rgba(94, 163, 255, 0.06), transparent 50%);
+  }
+
+  /* Density: pipeline stepper scale */
+  html[data-density='cinematic'] .v-step-active-card {
+    padding: 20px !important;
+    border-radius: 18px !important;
+  }
+  html[data-density='cinematic'] .v-step-active-title {
+    font-size: 22px !important;
+    letter-spacing: -0.01em !important;
+  }
+  html[data-density='cinematic'] .v-step-active-pct {
+    font-size: 28px !important;
+    letter-spacing: -0.02em !important;
+  }
+  html[data-density='compact'] .v-step-active-card {
+    padding: 8px 10px !important;
+    border-radius: 8px !important;
+  }
+  html[data-density='compact'] .v-step-active-title {
+    font-size: 13px !important;
+  }
+  html[data-density='compact'] .v-step-active-pct {
+    font-size: 11px !important;
+  }
+  html[data-density='compact'] .v-step-active-desc {
+    display: none !important;
+  }
+  html[data-density='compact'] .v-step-pending,
+  html[data-density='compact'] .v-step-done {
+    min-height: 28px !important;
+    padding: 4px 12px 4px 48px !important;
+  }
+}
+
+@layer components {
+  /* Live pulsing dot — used by LiveDot, active stepper rings */
+  @keyframes live-pulse {
+    0%,
+    100% {
+      box-shadow: 0 0 0 0 var(--accent-glow);
+      opacity: 1;
+    }
+    50% {
+      box-shadow: 0 0 0 6px rgba(0, 0, 0, 0);
+      opacity: 0.85;
+    }
+  }
+  .live-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 9999px;
+    background: var(--accent);
+    animation: live-pulse 1.6s ease-in-out infinite;
+  }
+
+  /* Shimmering progress fill */
+  @keyframes progress-shimmer {
+    0% {
+      background-position: -200px 0;
+    }
+    100% {
+      background-position: 200px 0;
+    }
+  }
+  .progress-fill.animated {
+    background: linear-gradient(
+      90deg,
+      var(--accent) 0%,
+      var(--accent) 60%,
+      color-mix(in oklab, var(--accent) 40%, white) 80%,
+      var(--accent) 100%
+    ) !important;
+    background-size: 200px 100% !important;
+    animation: progress-shimmer 2.4s linear infinite;
+  }
+
+  /* Pop-in (newly-completed step check) */
+  @keyframes pop-in {
+    0% {
+      transform: scale(0.6);
+      opacity: 0;
+    }
+    60% {
+      transform: scale(1.15);
+      opacity: 1;
+    }
+    100% {
+      transform: scale(1);
+      opacity: 1;
+    }
+  }
+  .pop-in {
+    animation: pop-in 280ms cubic-bezier(0.2, 0.7, 0.4, 1) both;
+  }
+
+  /* Detect ripple — drive card just saw a disc */
+  @keyframes detect-ring {
+    0% {
+      transform: scale(0.6);
+      opacity: 0.6;
+    }
+    100% {
+      transform: scale(1.6);
+      opacity: 0;
+    }
+  }
+  .detect-ring {
+    animation: detect-ring 1.8s cubic-bezier(0.2, 0.6, 0.4, 1) infinite;
+  }
+
+  /* Slow spinner */
+  @keyframes spin-slow {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+  .spin-slow {
+    animation: spin-slow 3s linear infinite;
+  }
+
+  /* Aurora ribbon — only visible when [data-mood="aurora"] */
+  @keyframes aurora-drift {
+    0%,
+    100% {
+      transform: translateX(-5%) scaleY(1);
+      opacity: 0.55;
+    }
+    50% {
+      transform: translateX(5%) scaleY(1.15);
+      opacity: 0.85;
+    }
+  }
+  .aurora-ribbon {
+    position: fixed;
+    top: -120px;
+    left: -10%;
+    right: -10%;
+    height: 360px;
+    pointer-events: none;
+    z-index: 0;
+    filter: blur(60px);
+    background:
+      radial-gradient(ellipse 60% 100% at 30% 50%, var(--accent-glow), transparent 60%),
+      radial-gradient(
+        ellipse 50% 100% at 70% 50%,
+        color-mix(in oklab, var(--accent) 40%, #5ea3ff),
+        transparent 60%
+      );
+    animation: aurora-drift 9s ease-in-out infinite;
+    mix-blend-mode: screen;
+    opacity: 0.7;
+    display: none;
+  }
+  html[data-mood='aurora'] .aurora-ribbon {
+    display: block;
+  }
+
+  /* Nice scrollbars */
+  .nice-scroll::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  .nice-scroll::-webkit-scrollbar-thumb {
+    background: #2a2a30;
+    border-radius: 99px;
+  }
+  .nice-scroll::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  /* Focus reset */
+  button:focus {
+    outline: none;
+  }
+  button:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+
+  /* Tap targets */
+  .tap {
+    min-height: 44px;
   }
 }
