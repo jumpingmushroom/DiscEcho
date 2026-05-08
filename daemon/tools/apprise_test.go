@@ -14,7 +14,7 @@ import (
 func TestApprise_BuildArgs_SingleURL(t *testing.T) {
 	args := tools.BuildAppriseArgs("Job done", "Kind of Blue ripped", "music", []string{"ntfys://discecho"})
 	got := strings.Join(args, " ")
-	want := "-t Job done -b Kind of Blue ripped --tag music ntfys://discecho"
+	want := "-t Job done -b Kind of Blue ripped --tag music -- ntfys://discecho"
 	if got != want {
 		t.Errorf("args mismatch:\nwant %s\ngot  %s", want, got)
 	}
@@ -26,6 +26,43 @@ func TestApprise_BuildArgs_NoTag(t *testing.T) {
 		if a == "--tag" {
 			t.Errorf("--tag should be omitted when empty")
 		}
+	}
+}
+
+func TestApprise_BuildArgs_SeparatorBeforeURLs(t *testing.T) {
+	args := tools.BuildAppriseArgs("t", "b", "", []string{"ntfys://x", "ntfys://y"})
+	// `--` must precede the first URL so apprise stops flag parsing.
+	var sepAt = -1
+	for i, a := range args {
+		if a == "--" {
+			sepAt = i
+			break
+		}
+	}
+	if sepAt < 0 {
+		t.Fatalf("missing -- separator: %v", args)
+	}
+	if sepAt != len(args)-3 {
+		t.Errorf("-- should be immediately before URLs; got %v", args)
+	}
+}
+
+func TestApprise_DryRun_RejectsDashURL(t *testing.T) {
+	a := tools.NewApprise("/usr/bin/true")
+	err := a.DryRun(context.Background(), "--config=/etc/passwd")
+	if err == nil {
+		t.Fatal("expected url-validation error")
+	}
+	if !strings.Contains(err.Error(), "must not start with") {
+		t.Errorf("want validation message, got %q", err.Error())
+	}
+}
+
+func TestApprise_Send_RejectsDashURL(t *testing.T) {
+	a := tools.NewApprise("/usr/bin/true")
+	err := a.Send(context.Background(), []string{"-c", "ntfy://x"}, "t", "b")
+	if err == nil {
+		t.Fatal("expected url-validation error")
 	}
 }
 
