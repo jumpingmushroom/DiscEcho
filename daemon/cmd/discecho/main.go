@@ -75,7 +75,8 @@ func main() {
 	// for the post-rip eject step.
 	toolReg := tools.NewRegistry()
 	toolReg.Register(tools.NewWhipper(cfg.WhipperBin))
-	toolReg.Register(tools.NewApprise(cfg.AppriseBin))
+	appriseTool := tools.NewApprise(cfg.AppriseBin)
+	toolReg.Register(appriseTool)
 	toolReg.Register(tools.NewEject(cfg.EjectBin))
 
 	// Identify (TOC + MusicBrainz)
@@ -271,6 +272,7 @@ func main() {
 		Classifier:   classifier,
 		TMDB:         tmdbClient,
 		Token:        cfg.Token,
+		Apprise:      appriseTool,
 	}
 
 	embedFS, err := embed.FS()

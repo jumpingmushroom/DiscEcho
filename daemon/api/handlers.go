@@ -19,4 +19,5 @@ type Handlers struct {
 	Classifier   identify.Classifier
 	TMDB         identify.TMDBClient
 	Token        string
+	Apprise      Apprise // defined in notifications.go; nil-safe in handlers
 }

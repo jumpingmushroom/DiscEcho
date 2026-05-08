@@ -33,6 +33,7 @@ func apitestServer(t *testing.T) *api.Handlers {
 		Store:       store,
 		Broadcaster: bc,
 		Pipelines:   pipelines.NewRegistry(),
+		Apprise:     &fakeApprise{},
 	}
 }
 
