@@ -35,9 +35,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Auto-generated bearer token at `<DATA>/token`. The token is now
   sourced exclusively from the `DISCECHO_TOKEN` env var; no on-disk
   persistence, no auto-generation. Existing token files are left
-  untouched but ignored on startup.
+  untouched but ignored on startup. To migrate: copy the value from
+  the old `<DATA>/token` into a `DISCECHO_TOKEN` env var on the
+  daemon, then delete the on-disk file.
 - `DISCECHO_AUTH_DISABLED` env var. The default is now "auth off";
-  opt back in by setting `DISCECHO_TOKEN`.
+  opt back in by setting `DISCECHO_TOKEN`. To migrate: drop
+  `DISCECHO_AUTH_DISABLED=true` from your environment — the daemon
+  now behaves the same way without it.
 
 ### Changed
 
@@ -53,16 +57,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
   designed around: the embedded UI works on first install with zero
   config. Set `DISCECHO_TOKEN` to enable bearer auth for proxy or
   exposed deployments.
-
-### Migration
-
-- If your previous install relied on `DISCECHO_AUTH_DISABLED=true` to
-  use the embedded UI: drop the env var; the daemon now behaves the
-  same way without it.
-- If you used the auto-generated token from `<DATA>/token` with curl
-  or a reverse proxy: copy the existing value into a `DISCECHO_TOKEN`
-  env var on the daemon. The on-disk file is no longer read; you can
-  delete it after migrating.
 
 ### Added
 

@@ -198,7 +198,7 @@ services:
     environment:
       DISCECHO_LIBRARY: /library
       DISCECHO_DATA: /var/lib/discecho
-      DISCECHO_TOKEN: ${DISCECHO_TOKEN}   # optional; LAN deploys leave it empty
+      DISCECHO_TOKEN: ${DISCECHO_TOKEN:-}   # optional; LAN deploys leave it empty
     ports:
       - "8088:8088"
 ```
