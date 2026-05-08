@@ -51,14 +51,14 @@ func (h *Handlers) PutSettings(w http.ResponseWriter, r *http.Request) {
 				n, _ := strconv.Atoi(existing)
 				if n < 1 {
 					errs = append(errs, ValidationError{
-						Field:   "retention.days",
-						Msg: "must be >= 1 when forever is false",
+						Field: "retention.days",
+						Msg:   "must be >= 1 when forever is false",
 					})
 				}
 			} else if d, ok := daysVal.(float64); !ok || int(d) < 1 {
 				errs = append(errs, ValidationError{
-					Field:   "retention.days",
-					Msg: "must be >= 1 when forever is false",
+					Field: "retention.days",
+					Msg:   "must be >= 1 when forever is false",
 				})
 			}
 		}
