@@ -46,9 +46,6 @@
   }
 
   const libraryPath = derived(settings, ($s) => ($s['library.path'] ?? '—') as string);
-  const accent = derived(settings, ($s) => ($s['prefs.accent'] ?? 'aurora') as string);
-  const mood = derived(settings, ($s) => ($s['prefs.mood'] ?? 'void') as string);
-  const density = derived(settings, ($s) => ($s['prefs.density'] ?? 'standard') as string);
   const retainForever = derived(settings, ($s) => $s['retention.forever'] === 'true');
   const retentionDays = derived(settings, ($s) => ($s['retention.days'] ?? '?') as string);
 </script>
@@ -118,15 +115,6 @@
         <li class="text-text-3">No notifications.</li>
       {/if}
     </ul>
-  </section>
-
-  <section>
-    <h2 class="text-[12px] font-semibold uppercase tracking-[0.14em] text-text-3">Appearance</h2>
-    <div class="mt-2 text-[12px] text-text-2">
-      <div>Accent: {$accent}</div>
-      <div>Mood: {$mood}</div>
-      <div>Density: {$density}</div>
-    </div>
   </section>
 
   <section>

@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Removed
+
+- Appearance settings (accent / mood / density picker) on Settings.
+  The theme is now fixed at `aurora` accent, `carbon` mood, `standard`
+  density. The `prefs.accent`, `prefs.mood`, and `prefs.density`
+  setting keys are no longer accepted by `PUT /api/settings`. Existing
+  rows in the database are ignored.
+
 ### Added
 
 - Settings → System tab now mirrors the original mockup: library-path

@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en" data-accent="aurora" data-mood="void" data-density="standard">
+<html lang="en" data-accent="aurora" data-mood="carbon" data-density="standard">
   <head>
     <meta charset="utf-8" />
     <link rel="icon" href="%sveltekit.assets%/favicon.svg" />
@@ -11,19 +11,6 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="DiscEcho" />
     <title>DiscEcho</title>
-    <script>
-      (function () {
-        try {
-          var p = JSON.parse(localStorage.getItem('discecho.prefs') || '{}');
-          var d = document.documentElement.dataset;
-          if (p.accent) d.accent = p.accent;
-          if (p.mood) d.mood = p.mood;
-          if (p.density) d.density = p.density;
-        } catch (e) {
-          /* ignore */
-        }
-      })();
-    </script>
     %sveltekit.head%
   </head>
   <body class="bg-bg text-text">
