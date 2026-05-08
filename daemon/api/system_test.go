@@ -96,6 +96,74 @@ func TestGetSystemIntegrations_TMDBUnconfigured(t *testing.T) {
 	}
 }
 
+func TestGetSystemIntegrations_ItemsList(t *testing.T) {
+	h := apitestServer(t)
+	h.Settings = &settings.Settings{
+		TMDBKey:              "real-key",
+		TMDBLang:             "en-US",
+		MusicBrainzBaseURL:   "https://musicbrainz.org",
+		MusicBrainzUserAgent: "DiscEcho/test",
+		AppriseBin:           "/nonexistent/apprise-binary",
+		RedumperBin:          "/nonexistent/redumper-binary",
+	}
+	req := httptest.NewRequest(http.MethodGet, "/api/system/integrations", nil)
+	w := httptest.NewRecorder()
+	h.GetSystemIntegrations(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status %d body %s", w.Code, w.Body.String())
+	}
+	var info api.IntegrationsInfo
+	_ = json.Unmarshal(w.Body.Bytes(), &info)
+	if len(info.Items) != 4 {
+		t.Fatalf("Items len = %d, want 4", len(info.Items))
+	}
+	want := []string{"TMDB", "MusicBrainz", "redump", "Apprise"}
+	for i, name := range want {
+		if info.Items[i].Name != name {
+			t.Errorf("Items[%d].Name = %q, want %q", i, info.Items[i].Name, name)
+		}
+	}
+	// TMDB connected when key set.
+	if info.Items[0].Status != "connected" {
+		t.Errorf("TMDB status = %q, want connected", info.Items[0].Status)
+	}
+	// MusicBrainz always connected.
+	if info.Items[1].Status != "connected" {
+		t.Errorf("MusicBrainz status = %q, want connected", info.Items[1].Status)
+	}
+	// Bogus redumper bin → error.
+	if !strings.HasPrefix(info.Items[2].Status, "error:") {
+		t.Errorf("redump status = %q, want error: prefix", info.Items[2].Status)
+	}
+	// Apprise: no URLs configured (empty notifications list).
+	if info.Items[3].Status != "no URLs configured" {
+		t.Errorf("Apprise status = %q, want no URLs configured", info.Items[3].Status)
+	}
+}
+
+func TestGetSystemIntegrations_TMDBNotConfigured_ItemsRow(t *testing.T) {
+	h := apitestServer(t)
+	h.Settings = &settings.Settings{
+		MusicBrainzBaseURL:   "https://musicbrainz.org",
+		MusicBrainzUserAgent: "DiscEcho/test",
+		AppriseBin:           "apprise",
+	}
+	req := httptest.NewRequest(http.MethodGet, "/api/system/integrations", nil)
+	w := httptest.NewRecorder()
+	h.GetSystemIntegrations(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status %d", w.Code)
+	}
+	var info api.IntegrationsInfo
+	_ = json.Unmarshal(w.Body.Bytes(), &info)
+	if info.Items[0].Status != "not configured" {
+		t.Errorf("TMDB Items[0] status = %q, want not configured", info.Items[0].Status)
+	}
+	if info.Items[0].Editable != "DISCECHO_TMDB_KEY" {
+		t.Errorf("TMDB Items[0].Editable = %q", info.Items[0].Editable)
+	}
+}
+
 func TestGetSystemIntegrations_LibraryRoots(t *testing.T) {
 	h := apitestServer(t)
 	h.Settings = &settings.Settings{

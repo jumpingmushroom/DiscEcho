@@ -53,6 +53,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
   a follow-up release; switch UIs and scripts to write the typed keys
   directly.
 
+### Added — connections list
+
+- Settings → System → **API keys & connections** is now a structured
+  list: TMDB, MusicBrainz, redump, Apprise. Each row shows a status
+  pill (`connected` / `not configured` / `error: …`), an optional
+  detail (TMDB language, MusicBrainz endpoint, Apprise version), and
+  an Edit button. Apprise's Edit scrolls to the Notifications section;
+  the others surface the env var to set in `.env`.
+- `GET /api/system/integrations` gains an `items: IntegrationStatus[]`
+  field driving the new list. The legacy flat `tmdb` / `musicbrainz` /
+  `apprise` objects are kept alongside for one release so older
+  clients (mobile read-only view) keep working.
+- New webui primitive: `ApiRow.svelte`. Mirrors the original handoff's
+  `ApiRow` from `desktop.jsx`.
+
 ### Fixed
 
 - SSE stream `/api/events` is no longer killed every 30 s by the global

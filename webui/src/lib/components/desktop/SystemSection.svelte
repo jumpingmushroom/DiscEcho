@@ -5,6 +5,7 @@
   import FormSection from './FormSection.svelte';
   import FormRow from './FormRow.svelte';
   import PathField from './PathField.svelte';
+  import ApiRow from './ApiRow.svelte';
 
   type VersionInfo = { version?: string; commit?: string; build_date?: string };
 
@@ -23,11 +24,20 @@
     disks: DiskInfo[];
   };
 
+  type IntegrationStatus = {
+    name: string;
+    hint?: string;
+    status: string;
+    detail?: string;
+    editable?: string;
+  };
+
   type IntegrationsInfo = {
     tmdb: { configured: boolean; language: string };
     musicbrainz: { base_url: string; user_agent: string };
     apprise: { bin: string; version?: string };
     library_roots?: Record<string, string>;
+    items?: IntegrationStatus[];
   };
 
   type MediaRoot = 'movies' | 'tv' | 'music' | 'games' | 'data';
@@ -96,6 +106,21 @@
   function discardRoots(): void {
     dirty = {};
     rootsError = null;
+  }
+
+  function onIntegrationEdit(item: IntegrationStatus): void {
+    if (item.name === 'Apprise') {
+      // Scroll the user to the notifications section, which is where
+      // Apprise URLs are managed.
+      const target = document.querySelector('[data-section="notifications"]');
+      if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      return;
+    }
+    if (item.editable) {
+      window.alert(
+        `Configure ${item.name} by setting ${item.editable} in .env, then restart the container.`,
+      );
+    }
   }
 
   function formatBytes(n: number): string {
@@ -189,29 +214,20 @@
     {/if}
   </FormSection>
 
-  <FormSection title="Connections">
-    {#if integrations}
-      <div class="px-4 py-3 grid gap-2 text-[12px]" style="grid-template-columns: 120px 1fr">
-        <div class="text-text-2">TMDB</div>
-        <div class="text-text">
-          {#if integrations.tmdb.configured}
-            <span class="text-accent">configured</span>
-            {#if integrations.tmdb.language}
-              <span class="text-text-3"> · {integrations.tmdb.language}</span>
-            {/if}
-          {:else}
-            <span class="text-text-3">not configured — set DISCECHO_TMDB_KEY in .env</span>
-          {/if}
-        </div>
-        <div class="text-text-2">MusicBrainz</div>
-        <div class="font-mono text-text">{integrations.musicbrainz.base_url}</div>
-        <div class="text-text-2">Apprise</div>
-        <div class="font-mono text-text">
-          {integrations.apprise.bin}{#if integrations.apprise.version}
-            <span class="text-text-3"> · {integrations.apprise.version}</span>
-          {/if}
-        </div>
-      </div>
+  <FormSection title="API keys & connections">
+    {#if integrations?.items && integrations.items.length > 0}
+      {#each integrations.items as item (item.name)}
+        <ApiRow
+          name={item.name}
+          hint={item.hint ?? ''}
+          status={item.status}
+          detail={item.detail ?? ''}
+          editable={item.editable ?? ''}
+          on:edit={() => onIntegrationEdit(item)}
+        />
+      {/each}
+    {:else if integrations}
+      <div class="px-4 py-3 text-[12px] text-text-3">No integrations configured.</div>
     {:else}
       <div class="px-4 py-3 text-[12px] text-text-3">Loading…</div>
     {/if}

@@ -23,6 +23,28 @@ const integrationsResp = {
     games: '/library/games',
     data: '/library/data',
   },
+  items: [
+    {
+      name: 'TMDB',
+      hint: 'movie & TV metadata',
+      status: 'connected',
+      detail: 'en-US',
+      editable: 'DISCECHO_TMDB_KEY',
+    },
+    {
+      name: 'MusicBrainz',
+      hint: 'audio CD metadata + AccurateRip',
+      status: 'connected',
+      detail: 'https://musicbrainz.org',
+    },
+    {
+      name: 'redump',
+      hint: 'game disc fingerprints',
+      status: 'connected',
+      editable: 'DISCECHO_REDUMPER_BIN',
+    },
+    { name: 'Apprise', hint: 'notification dispatch', status: 'no URLs configured' },
+  ],
 };
 
 function jsonResponse(body: unknown, status = 200): Response {
@@ -83,8 +105,20 @@ describe('SystemSection', () => {
     await waitFor(() => expect(container.textContent).toContain('discecho-host'));
     expect(container.textContent).toContain('Library paths');
     expect(container.textContent).toContain('Drives');
-    expect(container.textContent).toContain('Connections');
+    expect(container.textContent).toContain('API keys & connections');
     expect(container.textContent).toContain('Host');
+  });
+
+  it('renders one ApiRow per integration item', async () => {
+    const { container } = render(SystemSection);
+    await waitFor(() => expect(container.textContent).toContain('TMDB'));
+    expect(container.textContent).toContain('movie & TV metadata');
+    expect(container.textContent).toContain('audio CD metadata');
+    expect(container.textContent).toContain('redump');
+    expect(container.textContent).toContain('Apprise');
+    // Connected pill rendered for the three connected rows.
+    const connectedBadges = container.querySelectorAll('span.text-accent');
+    expect(connectedBadges.length).toBeGreaterThanOrEqual(3);
   });
 
   it('renders one PathField row per typed library root', async () => {
@@ -135,24 +169,34 @@ describe('SystemSection', () => {
     expect(container.textContent).toContain('idle');
   });
 
-  it('shows TMDB configured badge with language', async () => {
+  it('shows TMDB connected badge with language detail', async () => {
     const { container } = render(SystemSection);
-    await waitFor(() => expect(container.textContent).toContain('configured'));
+    await waitFor(() => expect(container.textContent).toContain('connected'));
     expect(container.textContent).toContain('en-US');
   });
 
-  it('shows TMDB unconfigured hint when key is missing', async () => {
+  it('shows TMDB not-configured row when key is missing', async () => {
     mockEndpoints({
       integrations: {
         tmdb: { configured: false, language: 'en-US' },
         musicbrainz: integrationsResp.musicbrainz,
         apprise: integrationsResp.apprise,
         library_roots: integrationsResp.library_roots,
+        items: [
+          {
+            name: 'TMDB',
+            hint: 'movie & TV metadata',
+            status: 'not configured',
+            editable: 'DISCECHO_TMDB_KEY',
+          },
+          { name: 'MusicBrainz', status: 'connected' },
+          { name: 'redump', status: 'connected' },
+          { name: 'Apprise', status: 'no URLs configured' },
+        ],
       },
     });
     const { container } = render(SystemSection);
     await waitFor(() => expect(container.textContent).toMatch(/not configured/i));
-    expect(container.textContent).toContain('DISCECHO_TMDB_KEY');
   });
 
   it('renders disk usage bar for each disk in host info', async () => {

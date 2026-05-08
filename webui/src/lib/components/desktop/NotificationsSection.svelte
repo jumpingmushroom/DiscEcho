@@ -9,7 +9,7 @@
   }
 </script>
 
-<section class="rounded-2xl border border-border bg-surface-1 p-5">
+<section data-section="notifications" class="rounded-2xl border border-border bg-surface-1 p-5">
   <div class="flex items-center justify-between">
     <h2 class="text-[14px] font-semibold text-text">Notifications</h2>
     <button
