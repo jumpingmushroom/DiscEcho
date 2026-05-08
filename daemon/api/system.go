@@ -34,11 +34,29 @@ type DiskInfo struct {
 
 // IntegrationsInfo is the payload for GET /api/system/integrations.
 // The TMDB key itself is never returned — only whether one is set.
+//
+// The legacy TMDB / MusicBrainz / Apprise objects are kept alongside
+// Items for one release so existing clients (mobile read-only view,
+// older webui) keep working. New UI code should prefer Items.
 type IntegrationsInfo struct {
 	TMDB         TMDBIntegration        `json:"tmdb"`
 	MusicBrainz  MusicBrainzIntegration `json:"musicbrainz"`
 	Apprise      AppriseIntegration     `json:"apprise"`
 	LibraryRoots map[string]string      `json:"library_roots,omitempty"`
+	Items        []IntegrationStatus    `json:"items,omitempty"`
+}
+
+// IntegrationStatus is a single row in the connections list. Status
+// values: "connected", "not configured", or "error: <detail>". Detail
+// is a free-form short string ("topic: homelab-disc", "v1.7.0", etc).
+// Editable is the env var an operator would change to set this up;
+// empty when the row is configured indirectly (e.g. via Apprise URLs).
+type IntegrationStatus struct {
+	Name     string `json:"name"`
+	Hint     string `json:"hint,omitempty"`
+	Status   string `json:"status"`
+	Detail   string `json:"detail,omitempty"`
+	Editable string `json:"editable,omitempty"`
 }
 
 type TMDBIntegration struct {
@@ -100,7 +118,91 @@ func (h *Handlers) GetSystemIntegrations(w http.ResponseWriter, r *http.Request)
 	if v, ok := appriseVersion(r.Context(), info.Apprise.Bin); ok {
 		info.Apprise.Version = v
 	}
+	info.Items = h.buildIntegrationItems(r.Context(), info)
 	writeJSON(w, http.StatusOK, info)
+}
+
+// buildIntegrationItems composes the connections list shown on the
+// Settings → System tab. Order matches the original mockup: TMDB,
+// MusicBrainz, redump, Apprise. Jellyfin / Discord webhook / ntfy
+// rows from the design were aspirational and aren't wired in the
+// daemon — they're only surfaced once explicit Apprise URLs target
+// them.
+func (h *Handlers) buildIntegrationItems(ctx context.Context, info IntegrationsInfo) []IntegrationStatus {
+	items := []IntegrationStatus{
+		{
+			Name:     "TMDB",
+			Hint:     "movie & TV metadata",
+			Editable: "DISCECHO_TMDB_KEY",
+			Status: func() string {
+				if info.TMDB.Configured {
+					return "connected"
+				}
+				return "not configured"
+			}(),
+			Detail: info.TMDB.Language,
+		},
+		{
+			Name:   "MusicBrainz",
+			Hint:   "audio CD metadata + AccurateRip",
+			Status: "connected",
+			Detail: info.MusicBrainz.BaseURL,
+		},
+		{
+			Name:     "redump",
+			Hint:     "game disc fingerprints",
+			Editable: "DISCECHO_REDUMPER_BIN",
+			Status:   redumpStatus(h.Settings),
+			Detail:   redumpDetail(h.Settings),
+		},
+		{
+			Name:   "Apprise",
+			Hint:   "notification dispatch",
+			Status: appriseStatus(ctx, h, info),
+			Detail: info.Apprise.Version,
+		},
+	}
+	return items
+}
+
+func redumpStatus(s *settings.Settings) string {
+	if s == nil || strings.TrimSpace(s.RedumperBin) == "" {
+		return "not configured"
+	}
+	if _, err := exec.LookPath(s.RedumperBin); err != nil {
+		return "error: redumper binary not found on PATH"
+	}
+	return "connected"
+}
+
+func redumpDetail(s *settings.Settings) string {
+	if s == nil {
+		return ""
+	}
+	return s.RedumperBin
+}
+
+func appriseStatus(ctx context.Context, h *Handlers, info IntegrationsInfo) string {
+	if h == nil || h.Store == nil {
+		return "not configured"
+	}
+	notifs, err := h.Store.ListNotifications(ctx)
+	if err != nil {
+		return "error: " + err.Error()
+	}
+	enabled := 0
+	for _, n := range notifs {
+		if n.Enabled {
+			enabled++
+		}
+	}
+	if enabled == 0 {
+		return "no URLs configured"
+	}
+	if info.Apprise.Version == "" {
+		return "error: apprise binary missing or unresponsive"
+	}
+	return "connected"
 }
 
 func hostDiskPaths(s *settings.Settings) []string {
