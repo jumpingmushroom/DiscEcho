@@ -45,6 +45,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - **`FormSection` / `FormRow` / `PathField` desktop primitives** ported
   from the original handoff bundle. Used by the rewritten System tab;
   available for the Profiles editor refactor in the next milestone.
+- **Typed profile encoding fields.** Profiles now carry first-class
+  `container`, `video_codec`, `quality_preset`, `hdr_pipeline`,
+  `drive_policy`, and `auto_eject` columns instead of stuffing the
+  same values into a flat `options` map. The Profiles editor is
+  rebuilt around the original mockup's four sections — Engine
+  (Reader / Drive policy / Auto-eject), Encoding (Container / Video
+  codec / Quality preset / HDR pipeline), Post-processing (placeholder
+  for the chain UX), and Library (Output path) — with a typed dropdown
+  per field. The sidebar gains a `DiscTypeBadge` per row and an engine
+  sub-line. The legacy `format` and `preset` fields are kept as a
+  fallback for one release; new clients should write the typed fields
+  directly. Validator errors come back keyed on the new field names
+  (`container`, `video_codec`, `hdr_pipeline`, `drive_policy`).
 
 ### Deprecated
 
@@ -52,6 +65,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
   fan out to the five typed `library.<media>` keys. Will be removed in
   a follow-up release; switch UIs and scripts to write the typed keys
   directly.
+- Profile `format` and `preset` fields. The daemon still accepts and
+  returns them for one release as a fallback when `container` /
+  `quality_preset` are empty; both the migration and the editor mirror
+  values into the typed columns. Will be removed in a follow-up
+  release.
 
 ### Added — connections list
 

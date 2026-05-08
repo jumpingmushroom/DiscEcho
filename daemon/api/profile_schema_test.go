@@ -167,6 +167,98 @@ func TestValidateProfile_DDEngine(t *testing.T) {
 	}
 }
 
+func TestValidateProfile_TypedContainerWins(t *testing.T) {
+	p := validProfile()
+	p.Engine = "HandBrake"
+	p.Format = ""
+	p.Container = "MP4"
+	p.VideoCodec = "x264"
+	p.HDRPipeline = "passthrough"
+	if errs := api.ValidateProfile(p); len(errs) != 0 {
+		t.Fatalf("expected valid; got %v", errs)
+	}
+}
+
+func TestValidateProfile_BadContainerForEngine(t *testing.T) {
+	p := validProfile()
+	p.Engine = "HandBrake"
+	p.Format = ""
+	p.Container = "FLAC"
+	errs := api.ValidateProfile(p)
+	var found bool
+	for _, e := range errs {
+		if e.Field == "container" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("want container error, got %+v", errs)
+	}
+}
+
+func TestValidateProfile_BadVideoCodecForEngine(t *testing.T) {
+	p := validProfile()
+	p.Engine = "HandBrake"
+	p.Format = ""
+	p.Container = "MP4"
+	p.VideoCodec = "vp9"
+	errs := api.ValidateProfile(p)
+	var found bool
+	for _, e := range errs {
+		if e.Field == "video_codec" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("want video_codec error, got %+v", errs)
+	}
+}
+
+func TestValidateProfile_VideoCodecRejectedForAudioEngine(t *testing.T) {
+	p := validProfile()
+	p.VideoCodec = "x265"
+	errs := api.ValidateProfile(p)
+	var found bool
+	for _, e := range errs {
+		if e.Field == "video_codec" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("want video_codec error for whipper, got %+v", errs)
+	}
+}
+
+func TestValidateProfile_BadHDRPipeline(t *testing.T) {
+	p := validProfile()
+	p.HDRPipeline = "wat"
+	errs := api.ValidateProfile(p)
+	var found bool
+	for _, e := range errs {
+		if e.Field == "hdr_pipeline" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("want hdr_pipeline error, got %+v", errs)
+	}
+}
+
+func TestValidateProfile_BadDrivePolicy(t *testing.T) {
+	p := validProfile()
+	p.DrivePolicy = "drv-99"
+	errs := api.ValidateProfile(p)
+	var found bool
+	for _, e := range errs {
+		if e.Field == "drive_policy" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("want drive_policy error, got %+v", errs)
+	}
+}
+
 func TestValidateProfile_DDRejectsOptions(t *testing.T) {
 	p := &state.Profile{
 		DiscType:           state.DiscTypeData,
