@@ -1,12 +1,12 @@
 // Package settings loads environment configuration and seeds the
-// database on first start: the CD-FLAC profile, the bearer token, and
-// any APPRISE_URLS notifications.
+// database on first start: built-in profiles and any
+// APPRISE_URLS notifications. The bearer token (if any) comes
+// straight from DISCECHO_TOKEN — no on-disk persistence, no auto
+// generation.
 package settings
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -46,8 +46,8 @@ type Settings struct {
 	DDBin                string
 }
 
-// Load reads env vars, generates a token if needed, seeds default
-// rows, and returns a *Settings. If getenv is nil, os.Getenv is used.
+// Load reads env vars, seeds default rows, and returns a *Settings.
+// If getenv is nil, os.Getenv is used.
 func Load(getenv func(string) string, store *state.Store, version string) (*Settings, error) {
 	if getenv == nil {
 		getenv = os.Getenv
@@ -87,11 +87,7 @@ func Load(getenv func(string) string, store *state.Store, version string) (*Sett
 		s.AutoConfirmSeconds = 8
 	}
 
-	tok, err := resolveToken(getenv("DISCECHO_TOKEN"), s.DataPath, getenv("DISCECHO_AUTH_DISABLED"))
-	if err != nil {
-		return nil, err
-	}
-	s.Token = tok
+	s.Token = getenv("DISCECHO_TOKEN")
 
 	if s.MakeMKVBetaKey != "" {
 		if err := writeMakeMKVBetaKey(s.MakeMKVDataDir, s.MakeMKVBetaKey); err != nil {
@@ -137,34 +133,6 @@ func Load(getenv func(string) string, store *state.Store, version string) (*Sett
 		return nil, fmt.Errorf("seed retention default: %w", err)
 	}
 	return s, nil
-}
-
-func resolveToken(envVal, dataPath, disabled string) (string, error) {
-	if disabled == "true" || disabled == "1" || disabled == "yes" {
-		return "", nil // explicitly disabled — middleware passthrough
-	}
-	if envVal != "" {
-		return envVal, nil
-	}
-	if err := os.MkdirAll(dataPath, 0o700); err != nil {
-		return "", fmt.Errorf("mkdir data: %w", err)
-	}
-	tokenFile := filepath.Join(dataPath, "token")
-	if b, err := os.ReadFile(tokenFile); err == nil {
-		t := strings.TrimSpace(string(b))
-		if t != "" {
-			return t, nil
-		}
-	}
-	buf := make([]byte, 32)
-	if _, err := rand.Read(buf); err != nil {
-		return "", err
-	}
-	tok := hex.EncodeToString(buf)
-	if err := os.WriteFile(tokenFile, []byte(tok+"\n"), 0o600); err != nil {
-		return "", fmt.Errorf("write token: %w", err)
-	}
-	return tok, nil
 }
 
 const (
