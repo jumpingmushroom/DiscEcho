@@ -91,6 +91,13 @@ describe('bootstrap', () => {
     reset();
     fetchSpy = vi.fn();
     vi.stubGlobal('fetch', fetchSpy);
+    const store = new Map<string, string>();
+    vi.stubGlobal('localStorage', {
+      getItem: (k: string) => store.get(k) ?? null,
+      setItem: (k: string, v: string) => store.set(k, v),
+      removeItem: (k: string) => store.delete(k),
+      clear: () => store.clear(),
+    });
   });
 
   afterEach(() => {
@@ -728,5 +735,72 @@ describe('notification.changed SSE handler', () => {
     notifications.set([seedNotification]);
     handleSSEEvent('notification.changed', { notification_id: 'n-1', deleted: true });
     expect(get(notifications).length).toBe(0);
+  });
+});
+
+describe('prefs', () => {
+  let fetchSpy: ReturnType<typeof vi.fn>;
+  let store: Map<string, string>;
+
+  beforeEach(() => {
+    fetchSpy = vi.fn();
+    vi.stubGlobal('fetch', fetchSpy);
+    store = new Map();
+    vi.stubGlobal('localStorage', {
+      getItem: (k: string) => store.get(k) ?? null,
+      setItem: (k: string, v: string) => store.set(k, v),
+      removeItem: (k: string) => store.delete(k),
+      clear: () => store.clear(),
+    });
+    document.documentElement.dataset.accent = '';
+    document.documentElement.dataset.mood = '';
+    document.documentElement.dataset.density = '';
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('applyPrefsToDOM sets dataset attributes', async () => {
+    const { applyPrefsToDOM } = await import('./store');
+    applyPrefsToDOM({ accent: 'amber', mood: 'carbon', density: 'compact' });
+    expect(document.documentElement.dataset.accent).toBe('amber');
+    expect(document.documentElement.dataset.mood).toBe('carbon');
+    expect(document.documentElement.dataset.density).toBe('compact');
+  });
+
+  it('updatePrefs writes localStorage + applies DOM + PUTs daemon', async () => {
+    fetchSpy.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => ({ ok: true }),
+    });
+    const { updatePrefs } = await import('./store');
+    await updatePrefs({ accent: 'cobalt', mood: 'aurora', density: 'cinematic' });
+    expect(localStorage.getItem('discecho.prefs')).toContain('cobalt');
+    expect(document.documentElement.dataset.accent).toBe('cobalt');
+    expect(fetchSpy).toHaveBeenCalledWith(
+      '/api/settings',
+      expect.objectContaining({ method: 'PUT' }),
+    );
+    const call = fetchSpy.mock.calls[0];
+    const body = JSON.parse((call[1] as RequestInit).body as string);
+    expect(body['prefs.accent']).toBe('cobalt');
+    expect(body['prefs.mood']).toBe('aurora');
+    expect(body['prefs.density']).toBe('cinematic');
+  });
+
+  it('updateRetention PUTs the right keys', async () => {
+    fetchSpy.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => ({ ok: true }),
+    });
+    const { updateRetention } = await import('./store');
+    await updateRetention({ forever: false, days: 60 });
+    const call = fetchSpy.mock.calls[0];
+    const body = JSON.parse((call[1] as RequestInit).body as string);
+    expect(body['retention.forever']).toBe(false);
+    expect(body['retention.days']).toBe(60);
   });
 });
