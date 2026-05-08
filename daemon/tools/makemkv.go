@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os/exec"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -152,7 +153,7 @@ func ParseMakeMKVInfo(s string) ([]MakeMKVTitle, error) {
 		for i := range perTrack {
 			idxs = append(idxs, i)
 		}
-		sortInts(idxs)
+		slices.Sort(idxs)
 		for _, i := range idxs {
 			t.Tracks = append(t.Tracks, *perTrack[i])
 		}
@@ -163,7 +164,7 @@ func ParseMakeMKVInfo(s string) ([]MakeMKVTitle, error) {
 	for id := range titles {
 		tids = append(tids, id)
 	}
-	sortInts(tids)
+	slices.Sort(tids)
 	for _, id := range tids {
 		out = append(out, *titles[id])
 	}
@@ -315,10 +316,3 @@ func parseDurationHHMMSS(s string) int {
 	return h*3600 + m*60 + sec
 }
 
-func sortInts(xs []int) {
-	for i := 1; i < len(xs); i++ {
-		for j := i; j > 0 && xs[j] < xs[j-1]; j-- {
-			xs[j], xs[j-1] = xs[j-1], xs[j]
-		}
-	}
-}
