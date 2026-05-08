@@ -110,4 +110,3 @@ func TestGetJob_NotFound(t *testing.T) {
 		t.Errorf("status %d", w.Code)
 	}
 }
-
