@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strconv"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/jumpingmushroom/DiscEcho/daemon/state"
@@ -46,10 +47,24 @@ func (h *Handlers) StartDisc(w http.ResponseWriter, r *http.Request) {
 	// the source of truth once submitted.
 	if req.CandidateIndex >= 0 && req.CandidateIndex < len(disc.Candidates) {
 		c := disc.Candidates[req.CandidateIndex]
-		disc.MetadataID = c.MBID
-		disc.MetadataProvider = c.Source
-		disc.Title = c.Title
-		disc.Year = c.Year
+		// MBID is set for MusicBrainz candidates; TMDBID for TMDB
+		// (movie/TV) candidates. Pick whichever is present so the
+		// chosen candidate's ID actually persists.
+		var metaID string
+		switch {
+		case c.MBID != "":
+			metaID = c.MBID
+		case c.TMDBID > 0:
+			metaID = strconv.Itoa(c.TMDBID)
+		}
+		// Persist the chosen identity. The orchestrator re-reads the
+		// disc row inside Submit, so without this the user choice is
+		// dropped and the pipeline runs on the original auto-identified
+		// candidate.
+		if err := h.Store.UpdateDiscMetadata(r.Context(), disc.ID, c.Title, c.Year, c.Source, metaID); err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
 	}
 
 	job, err := h.Orchestrator.Submit(r.Context(), disc.ID, req.ProfileID)
