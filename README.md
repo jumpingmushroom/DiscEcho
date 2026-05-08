@@ -22,17 +22,28 @@ curl http://localhost:8088/api/health   # → {"ok":true}
 Open `http://localhost:8088/` on your phone (or laptop in mobile
 viewport) for the dashboard.
 
-### Auth
+### Deployment
 
-By default the daemon generates a bearer token on first start and writes
-it to `${DISCECHO_DATA}/token`. The mobile UI does **not** send this
-token, so for production deployment put DiscEcho behind a reverse proxy
-that handles auth (Tailscale Funnel, Caddy basic auth, etc.) and set
-`DISCECHO_AUTH_DISABLED=true` in your `.env` to skip the daemon-side
-token entirely.
+DiscEcho assumes a trusted LAN by default — no authentication is
+required. Anyone who can reach `:8088` can list drives, start rips,
+and manage profiles. This matches the homelab single-user case the
+project is designed around: the embedded UI works on first install
+with zero config.
 
-For `curl`-only automation, leave the env unset and pass the token from
-`${DISCECHO_DATA}/token` as `Authorization: Bearer <token>`.
+To expose DiscEcho beyond your LAN:
+
+1. Put it behind a reverse proxy that terminates TLS and handles
+   authentication (Caddy with basicauth, Tailscale Funnel,
+   Cloudflare Access, etc.).
+2. Set `DISCECHO_TOKEN=<long random string>` on the daemon (`.env`,
+   systemd unit, or compose env block).
+3. Configure the proxy to inject `Authorization: Bearer <token>` on
+   every upstream request — or strip auth at the proxy and use the
+   token as a defense-in-depth layer.
+
+The embedded SvelteKit UI does not send an `Authorization` header,
+so once you set `DISCECHO_TOKEN` the UI only works through a proxy
+that injects the header for you.
 
 ### TMDB
 
