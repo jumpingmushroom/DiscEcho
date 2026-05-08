@@ -22,7 +22,7 @@ describe('TopNav', () => {
 
   it('renders all four section links', () => {
     const { getByText } = render(TopNav);
-    for (const label of ['Dashboard', 'History', 'Profiles', 'System']) {
+    for (const label of ['Dashboard', 'History', 'Profiles', 'Settings']) {
       expect(getByText(label)).toBeInTheDocument();
     }
   });

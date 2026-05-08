@@ -9,7 +9,7 @@
     { id: 'dashboard', label: 'Dashboard', href: '/' },
     { id: 'history', label: 'History', href: '/history' },
     { id: 'profiles', label: 'Profiles', href: '/profiles' },
-    { id: 'system', label: 'System', href: '/system' },
+    { id: 'settings', label: 'Settings', href: '/settings' },
   ];
 
   function isActive(pathname: string, href: string): boolean {
