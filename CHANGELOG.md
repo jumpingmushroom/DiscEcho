@@ -28,6 +28,30 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
   var seeds the value on first boot; subsequent edits in the UI win
   on next container restart (running pipelines capture the path at
   boot, so a restart is required for the change to apply).
+- **Typed library roots.** Settings → System → Library paths now exposes
+  five separate roots — `library.movies`, `library.tv`, `library.music`,
+  `library.games`, `library.data` — each editable individually and
+  surfaced via the new `library_roots` field on
+  `GET /api/system/integrations`. New per-root env overrides
+  `DISCECHO_LIBRARY_{MOVIES,TV,MUSIC,GAMES,DATA}` set defaults; stored
+  values always win over env. Each pipeline now writes to its typed
+  root: audio CD → music, DVD/BD/UHD → movies, PSX/PS2/Saturn/DC/Xbox
+  → games, data → data. **Migration:** on upgrade, deployments with an
+  existing `library.path` row see the five typed roots seeded as
+  `<library.path>/<media>` so existing layouts keep working.
+  DVD-Series profiles temporarily land under `library.movies` until the
+  orchestrator can route series-typed jobs to `library.tv` (planned for
+  the typed-encoding milestone).
+- **`FormSection` / `FormRow` / `PathField` desktop primitives** ported
+  from the original handoff bundle. Used by the rewritten System tab;
+  available for the Profiles editor refactor in the next milestone.
+
+### Deprecated
+
+- `library.path` setting key. Writes still succeed for one release and
+  fan out to the five typed `library.<media>` keys. Will be removed in
+  a follow-up release; switch UIs and scripts to write the typed keys
+  directly.
 
 ### Fixed
 

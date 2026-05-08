@@ -28,7 +28,14 @@ func (h *Handlers) GetSettings(w http.ResponseWriter, r *http.Request) {
 //
 //	retention.forever  bool
 //	retention.days     int >= 1 (when retention.forever is false)
-//	library.path       absolute filesystem path
+//	library.movies     absolute filesystem path
+//	library.tv         absolute filesystem path
+//	library.music      absolute filesystem path
+//	library.games      absolute filesystem path
+//	library.data       absolute filesystem path
+//	library.path       (deprecated) absolute path; setting it writes
+//	                   library.{movies,tv,music,games,data} as
+//	                   <value>/<media>. Removed in a follow-up release.
 //
 // Unknown keys → 422. Cross-key rule: if retention.forever is false,
 // retention.days must be present in the PATCH (or already stored)
@@ -68,6 +75,16 @@ func (h *Handlers) PutSettings(w http.ResponseWriter, r *http.Request) {
 		writeValidationErrors(w, errs)
 		return
 	}
+	// Deprecated library.path → fan out to typed roots for one release.
+	if v, ok := encoded["library.path"]; ok {
+		for _, m := range []string{"movies", "tv", "music", "games", "data"} {
+			key := "library." + m
+			if _, alreadySet := encoded[key]; alreadySet {
+				continue
+			}
+			encoded[key] = filepath.Join(v, m)
+		}
+	}
 	for k, v := range encoded {
 		if err := h.Store.SetSetting(r.Context(), k, v); err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
@@ -104,20 +121,27 @@ var allowedSettings = map[string]func(any) (string, error){
 		}
 		return strconv.Itoa(n), nil
 	},
-	"library.path": func(v any) (string, error) {
-		s, ok := v.(string)
-		if !ok {
-			return "", fmt.Errorf("must be string")
-		}
-		s = strings.TrimSpace(s)
-		if s == "" {
-			return "", fmt.Errorf("must not be empty")
-		}
-		if !filepath.IsAbs(s) {
-			return "", fmt.Errorf("must be an absolute path")
-		}
-		return s, nil
-	},
+	"library.path":   absolutePathValidator,
+	"library.movies": absolutePathValidator,
+	"library.tv":     absolutePathValidator,
+	"library.music":  absolutePathValidator,
+	"library.games":  absolutePathValidator,
+	"library.data":   absolutePathValidator,
+}
+
+func absolutePathValidator(v any) (string, error) {
+	s, ok := v.(string)
+	if !ok {
+		return "", fmt.Errorf("must be string")
+	}
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return "", fmt.Errorf("must not be empty")
+	}
+	if !filepath.IsAbs(s) {
+		return "", fmt.Errorf("must be an absolute path")
+	}
+	return s, nil
 }
 
 func validateSettingsPatch(patch map[string]any) (encoded map[string]string, errs []ValidationError) {

@@ -35,9 +35,10 @@ type DiskInfo struct {
 // IntegrationsInfo is the payload for GET /api/system/integrations.
 // The TMDB key itself is never returned — only whether one is set.
 type IntegrationsInfo struct {
-	TMDB        TMDBIntegration        `json:"tmdb"`
-	MusicBrainz MusicBrainzIntegration `json:"musicbrainz"`
-	Apprise     AppriseIntegration     `json:"apprise"`
+	TMDB         TMDBIntegration        `json:"tmdb"`
+	MusicBrainz  MusicBrainzIntegration `json:"musicbrainz"`
+	Apprise      AppriseIntegration     `json:"apprise"`
+	LibraryRoots map[string]string      `json:"library_roots,omitempty"`
 }
 
 type TMDBIntegration struct {
@@ -94,6 +95,7 @@ func (h *Handlers) GetSystemIntegrations(w http.ResponseWriter, r *http.Request)
 		info.MusicBrainz.BaseURL = h.Settings.MusicBrainzBaseURL
 		info.MusicBrainz.UserAgent = h.Settings.MusicBrainzUserAgent
 		info.Apprise.Bin = h.Settings.AppriseBin
+		info.LibraryRoots = h.Settings.LibraryRootsMap()
 	}
 	if v, ok := appriseVersion(r.Context(), info.Apprise.Bin); ok {
 		info.Apprise.Version = v
@@ -102,16 +104,31 @@ func (h *Handlers) GetSystemIntegrations(w http.ResponseWriter, r *http.Request)
 }
 
 func hostDiskPaths(s *settings.Settings) []string {
-	lib, data := "/library", "/var/lib/discecho"
+	data := "/var/lib/discecho"
+	roots := []string{"/library"}
 	if s != nil {
-		if s.LibraryPath != "" {
-			lib = s.LibraryPath
-		}
 		if s.DataPath != "" {
 			data = s.DataPath
 		}
+		// Stat each unique typed root, falling back to LibraryRoot when
+		// none are populated (e.g. handler called pre-Load).
+		seen := map[string]bool{}
+		var unique []string
+		for _, m := range settings.AllMediaRoots {
+			p := s.LibraryFor(m)
+			if p == "" || seen[p] {
+				continue
+			}
+			seen[p] = true
+			unique = append(unique, p)
+		}
+		if len(unique) > 0 {
+			roots = unique
+		} else if s.LibraryRoot != "" {
+			roots = []string{s.LibraryRoot}
+		}
 	}
-	return []string{lib, data}
+	return append(roots, data)
 }
 
 func readTrim(path string) string {
