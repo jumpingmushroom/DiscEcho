@@ -50,6 +50,7 @@ const SSE_EVENT_NAMES = [
   'job.failed',
   'profile.changed',
   'notification.changed',
+  'settings.changed',
 ];
 
 // ----- Bootstrap ------------------------------------------------------------
@@ -220,6 +221,29 @@ export function handleSSEEvent(name: string, payload: unknown): void {
       }
       break;
     }
+
+    case 'settings.changed': {
+      // Daemon publishes {keys: [...]} (key names only). Re-fetch the
+      // map so subscribers see the new values. Fire-and-forget — store
+      // updates flow through reactive bindings.
+      void refreshSettings();
+      break;
+    }
+  }
+}
+
+async function refreshSettings(): Promise<void> {
+  try {
+    const fresh = await apiGet<Record<string, string>>('/api/settings');
+    settings.set(fresh);
+    const p = {
+      accent: fresh['prefs.accent'] ?? 'aurora',
+      mood: fresh['prefs.mood'] ?? 'void',
+      density: fresh['prefs.density'] ?? 'standard',
+    };
+    applyPrefsToDOM(p);
+  } catch {
+    // Soft-fail: settings will resync on next bootstrap.
   }
 }
 
