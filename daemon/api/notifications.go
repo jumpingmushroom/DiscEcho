@@ -112,6 +112,58 @@ func (h *Handlers) DeleteNotification(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// ValidateNotification runs apprise --dry-run against the row's URL.
+// Returns 200 in non-404 cases — `ok` reflects success. The Apprise
+// failure does NOT become an HTTP error because validation is an
+// inspection RPC: clients always get a structured result.
+func (h *Handlers) ValidateNotification(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	n, err := h.Store.GetNotification(r.Context(), id)
+	if err != nil {
+		if errors.Is(err, state.ErrNotFound) {
+			writeError(w, http.StatusNotFound, "notification not found")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if h.Apprise == nil {
+		writeError(w, http.StatusInternalServerError, "apprise not configured")
+		return
+	}
+	if err := h.Apprise.DryRun(r.Context(), n.URL); err != nil {
+		writeJSON(w, http.StatusOK, map[string]any{"ok": false, "error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+// TestNotification sends a real Apprise notification using the row's
+// URL. 200 on success, 502 on upstream failure (so HTTP semantics
+// match: the daemon worked, but the upstream provider didn't), 404 if
+// the row is missing.
+func (h *Handlers) TestNotification(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	n, err := h.Store.GetNotification(r.Context(), id)
+	if err != nil {
+		if errors.Is(err, state.ErrNotFound) {
+			writeError(w, http.StatusNotFound, "notification not found")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if h.Apprise == nil {
+		writeError(w, http.StatusInternalServerError, "apprise not configured")
+		return
+	}
+	if err := h.Apprise.Send(r.Context(), []string{n.URL}, "DiscEcho test", "Your notification URL works."); err != nil {
+		writeJSON(w, http.StatusBadGateway, map[string]any{"sent": false, "error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"sent": true})
+}
+
 // validateNotification checks name length, URL via Apprise dry-run,
 // and triggers against the allowlist.
 func validateNotification(ctx context.Context, n *state.Notification, ap Apprise) []ValidationError {

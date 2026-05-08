@@ -20,6 +20,8 @@ import (
 type fakeApprise struct {
 	dryRunErr   error
 	dryRunCalls []string
+	sendErr     error
+	sendCalls   [][]string
 }
 
 func (f *fakeApprise) DryRun(_ context.Context, url string) error {
@@ -27,8 +29,9 @@ func (f *fakeApprise) DryRun(_ context.Context, url string) error {
 	return f.dryRunErr
 }
 
-func (f *fakeApprise) Send(_ context.Context, _ []string, _, _ string) error {
-	return nil
+func (f *fakeApprise) Send(_ context.Context, urls []string, _, _ string) error {
+	f.sendCalls = append(f.sendCalls, urls)
+	return f.sendErr
 }
 
 // withURLParam injects a chi route param into the request context so
@@ -287,6 +290,109 @@ func TestNotifications_SSE_OnDelete(t *testing.T) {
 		}
 	default:
 		t.Fatal("expected a notification.changed SSE event")
+	}
+}
+
+func TestNotifications_Validate_OK(t *testing.T) {
+	h := apitestServer(t)
+	n := &state.Notification{Name: "n", URL: "ntfy://x", Triggers: "done", Enabled: true}
+	_ = h.Store.CreateNotification(context.Background(), n)
+	req := authedReq(t, http.MethodPost, "/api/notifications/"+n.ID+"/validate", nil)
+	req = withURLParam(req, "id", n.ID)
+	rec := httptest.NewRecorder()
+	h.ValidateNotification(rec, req)
+	if rec.Code != 200 {
+		t.Fatalf("status: %d", rec.Code)
+	}
+	var body map[string]any
+	_ = json.Unmarshal(rec.Body.Bytes(), &body)
+	if body["ok"] != true {
+		t.Fatalf("body: %s", rec.Body.String())
+	}
+}
+
+func TestNotifications_Validate_BadURL(t *testing.T) {
+	h := apitestServer(t)
+	n := &state.Notification{Name: "n", URL: "bogus://nope", Triggers: "done", Enabled: true}
+	_ = h.Store.CreateNotification(context.Background(), n)
+	h.Apprise.(*fakeApprise).dryRunErr = errors.New("apprise dry-run: Could not load URL")
+	req := authedReq(t, http.MethodPost, "/api/notifications/"+n.ID+"/validate", nil)
+	req = withURLParam(req, "id", n.ID)
+	rec := httptest.NewRecorder()
+	h.ValidateNotification(rec, req)
+	if rec.Code != 200 {
+		t.Fatalf("status should still be 200; got %d", rec.Code)
+	}
+	var body map[string]any
+	_ = json.Unmarshal(rec.Body.Bytes(), &body)
+	if body["ok"] != false {
+		t.Fatalf("ok should be false; body: %s", rec.Body.String())
+	}
+	errStr, _ := body["error"].(string)
+	if !strings.Contains(errStr, "Could not load URL") {
+		t.Fatalf("error not surfaced: %s", rec.Body.String())
+	}
+}
+
+func TestNotifications_Validate_NotFound(t *testing.T) {
+	h := apitestServer(t)
+	req := authedReq(t, http.MethodPost, "/api/notifications/missing/validate", nil)
+	req = withURLParam(req, "id", "missing")
+	rec := httptest.NewRecorder()
+	h.ValidateNotification(rec, req)
+	if rec.Code != 404 {
+		t.Fatalf("status: %d", rec.Code)
+	}
+}
+
+func TestNotifications_Test_OK(t *testing.T) {
+	h := apitestServer(t)
+	n := &state.Notification{Name: "n", URL: "ntfy://x", Triggers: "done", Enabled: true}
+	_ = h.Store.CreateNotification(context.Background(), n)
+	req := authedReq(t, http.MethodPost, "/api/notifications/"+n.ID+"/test", nil)
+	req = withURLParam(req, "id", n.ID)
+	rec := httptest.NewRecorder()
+	h.TestNotification(rec, req)
+	if rec.Code != 200 {
+		t.Fatalf("status: %d body: %s", rec.Code, rec.Body.String())
+	}
+	var body map[string]any
+	_ = json.Unmarshal(rec.Body.Bytes(), &body)
+	if body["sent"] != true {
+		t.Fatalf("body: %s", rec.Body.String())
+	}
+	if len(h.Apprise.(*fakeApprise).sendCalls) != 1 {
+		t.Fatalf("send not called")
+	}
+}
+
+func TestNotifications_Test_502(t *testing.T) {
+	h := apitestServer(t)
+	n := &state.Notification{Name: "n", URL: "ntfy://x", Triggers: "done", Enabled: true}
+	_ = h.Store.CreateNotification(context.Background(), n)
+	h.Apprise.(*fakeApprise).sendErr = errors.New("apprise send: delivery failed")
+	req := authedReq(t, http.MethodPost, "/api/notifications/"+n.ID+"/test", nil)
+	req = withURLParam(req, "id", n.ID)
+	rec := httptest.NewRecorder()
+	h.TestNotification(rec, req)
+	if rec.Code != 502 {
+		t.Fatalf("status: %d", rec.Code)
+	}
+	var body map[string]any
+	_ = json.Unmarshal(rec.Body.Bytes(), &body)
+	if body["sent"] != false {
+		t.Fatalf("body: %s", rec.Body.String())
+	}
+}
+
+func TestNotifications_Test_NotFound(t *testing.T) {
+	h := apitestServer(t)
+	req := authedReq(t, http.MethodPost, "/api/notifications/missing/test", nil)
+	req = withURLParam(req, "id", "missing")
+	rec := httptest.NewRecorder()
+	h.TestNotification(rec, req)
+	if rec.Code != 404 {
+		t.Fatalf("status: %d", rec.Code)
 	}
 }
 
