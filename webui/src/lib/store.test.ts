@@ -11,6 +11,7 @@ import {
   pendingDiscID,
   selectedJobID,
   selectedProfileID,
+  notifications,
   bootstrap,
   handleSSEEvent,
   startDisc,
@@ -18,6 +19,11 @@ import {
   createProfile,
   updateProfile,
   deleteProfile,
+  createNotification,
+  updateNotification,
+  deleteNotification,
+  validateNotification,
+  testNotification,
   history,
   historyTotal,
   historyLoading,
@@ -101,6 +107,12 @@ describe('bootstrap', () => {
         profiles: [seedProfile],
         settings: { library_path: '/srv/media' },
       }),
+    });
+    // bootstrap also fetches /api/notifications separately
+    fetchSpy.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => [],
     });
 
     await bootstrap();
@@ -596,5 +608,125 @@ describe('profile.changed SSE handler', () => {
     handleSSEEvent('profile.changed', { profile_id: 'p1', deleted: true });
     expect(get(profiles)).toHaveLength(0);
     expect(get(selectedProfileID)).toBe('p9');
+  });
+});
+
+const seedNotification = {
+  id: 'n-1',
+  name: 'x',
+  url: 'ntfy://a',
+  tags: '',
+  triggers: 'done',
+  enabled: true,
+  created_at: '',
+  updated_at: '',
+};
+
+describe('notifications imperatives', () => {
+  let fetchSpy: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    fetchSpy = vi.fn();
+    vi.stubGlobal('fetch', fetchSpy);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('createNotification POSTs and returns the row', async () => {
+    fetchSpy.mockResolvedValueOnce({
+      ok: true,
+      status: 201,
+      json: async () => seedNotification,
+    });
+    const got = await createNotification({
+      name: 'x',
+      url: 'ntfy://a',
+      tags: '',
+      triggers: 'done',
+      enabled: true,
+    });
+    expect(fetchSpy).toHaveBeenCalledWith(
+      '/api/notifications',
+      expect.objectContaining({ method: 'POST' }),
+    );
+    expect(got.id).toBe('n-1');
+  });
+
+  it('updateNotification PUTs to /api/notifications/:id', async () => {
+    fetchSpy.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => ({ ...seedNotification, name: 'updated' }),
+    });
+    await updateNotification('n-1', { ...seedNotification, name: 'updated' });
+    expect(fetchSpy).toHaveBeenCalledWith(
+      '/api/notifications/n-1',
+      expect.objectContaining({ method: 'PUT' }),
+    );
+  });
+
+  it('deleteNotification DELETEs', async () => {
+    fetchSpy.mockResolvedValueOnce({
+      ok: true,
+      status: 204,
+    });
+    await deleteNotification('n-1');
+    expect(fetchSpy).toHaveBeenCalledWith(
+      '/api/notifications/n-1',
+      expect.objectContaining({ method: 'DELETE' }),
+    );
+  });
+
+  it('validateNotification returns ok+error from JSON body', async () => {
+    fetchSpy.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => ({ ok: false, error: 'bad url' }),
+    });
+    const res = await validateNotification('n-1');
+    expect(res.ok).toBe(false);
+    expect(res.error).toBe('bad url');
+  });
+
+  it('testNotification returns sent=true on 200', async () => {
+    fetchSpy.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => ({ sent: true }),
+    });
+    const res = await testNotification('n-1');
+    expect(res.sent).toBe(true);
+  });
+
+  it('testNotification handles 502 sent=false', async () => {
+    fetchSpy.mockResolvedValueOnce({
+      ok: false,
+      status: 502,
+      text: async () => '{"sent":false,"error":"delivery failed"}',
+    });
+    const res = await testNotification('n-1');
+    expect(res.sent).toBe(false);
+    expect(res.error).toContain('delivery failed');
+  });
+});
+
+describe('notification.changed SSE handler', () => {
+  beforeEach(() => {
+    notifications.set([]);
+  });
+
+  it('upserts on update payload', () => {
+    handleSSEEvent('notification.changed', { notification: seedNotification });
+    const arr = get(notifications);
+    expect(arr.length).toBe(1);
+    expect(arr[0].id).toBe('n-1');
+  });
+
+  it('removes on delete payload', () => {
+    notifications.set([seedNotification]);
+    handleSSEEvent('notification.changed', { notification_id: 'n-1', deleted: true });
+    expect(get(notifications).length).toBe(0);
   });
 });

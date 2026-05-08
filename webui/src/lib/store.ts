@@ -12,6 +12,7 @@ import type {
   HistoryResponse,
   DiscType,
   Candidate,
+  Notification,
 } from './wire';
 
 export interface LogLine {
@@ -27,6 +28,7 @@ export const drives = writable<Drive[]>([]);
 export const jobs = writable<Job[]>([]);
 export const profiles = writable<Profile[]>([]);
 export const settings = writable<Record<string, string>>({});
+export const notifications = writable<Notification[]>([]);
 export const discs = writable<Record<string, Disc>>({});
 export const logs = writable<Record<string, LogLine[]>>({});
 export const liveStatus = writable<LiveStatus>('connecting');
@@ -47,6 +49,7 @@ const SSE_EVENT_NAMES = [
   'job.done',
   'job.failed',
   'profile.changed',
+  'notification.changed',
 ];
 
 // ----- Bootstrap ------------------------------------------------------------
@@ -57,6 +60,14 @@ export async function bootstrap(): Promise<void> {
   jobs.set(snap.jobs ?? []);
   profiles.set(snap.profiles ?? []);
   settings.set(snap.settings ?? {});
+  // Notifications fetched separately (not in the snapshot).
+  try {
+    const ns = await apiGet<Notification[]>('/api/notifications');
+    notifications.set(ns ?? []);
+  } catch {
+    // Soft-fail: settings page can still render an empty list.
+    notifications.set([]);
+  }
 }
 
 // ----- SSE event dispatch ---------------------------------------------------
@@ -186,6 +197,17 @@ export function handleSSEEvent(name: string, payload: unknown): void {
       } else {
         const prof = p.profile as Profile;
         profiles.update((arr) => upsertById(arr, prof));
+      }
+      break;
+    }
+
+    case 'notification.changed': {
+      if (p.deleted) {
+        const id = p.notification_id as string;
+        notifications.update((arr) => arr.filter((n) => n.id !== id));
+      } else {
+        const n = p.notification as Notification;
+        notifications.update((arr) => upsertById(arr, n));
       }
       break;
     }
@@ -334,4 +356,51 @@ export async function updateProfile(id: string, p: Profile): Promise<Profile> {
  */
 export async function deleteProfile(id: string): Promise<void> {
   await apiDelete(`/api/profiles/${id}`);
+}
+
+// ----- Notification mutations -------------------------------------------------
+
+export async function createNotification(
+  n: Omit<Notification, 'id' | 'created_at' | 'updated_at'>,
+): Promise<Notification> {
+  return apiPost<Notification>('/api/notifications', n);
+}
+
+export async function updateNotification(id: string, n: Notification): Promise<Notification> {
+  return apiPut<Notification>(`/api/notifications/${id}`, n);
+}
+
+export async function deleteNotification(id: string): Promise<void> {
+  await apiDelete(`/api/notifications/${id}`);
+}
+
+export async function validateNotification(id: string): Promise<{ ok: boolean; error?: string }> {
+  return apiPost(`/api/notifications/${id}/validate`, {});
+}
+
+/**
+ * testNotification fires a test notification via the daemon. On Apprise
+ * failure the daemon returns 502 with {sent:false,error}; apiPost throws
+ * in that case, so we catch and normalise to the same shape.
+ */
+export async function testNotification(id: string): Promise<{ sent: boolean; error?: string }> {
+  try {
+    return await apiPost(`/api/notifications/${id}/test`, {});
+  } catch (e) {
+    const msg = (e as Error).message;
+    // apiPost serialises non-2xx as `HTTP <status>: <body>`. Try to
+    // extract the JSON body so we can return the structured shape.
+    const m = msg.match(/^HTTP \d+:\s*(.*)$/s);
+    if (m) {
+      try {
+        const parsed = JSON.parse(m[1]);
+        if (typeof parsed === 'object' && parsed && 'sent' in parsed) {
+          return parsed as { sent: boolean; error?: string };
+        }
+      } catch {
+        // Body isn't JSON; fall through.
+      }
+    }
+    return { sent: false, error: msg };
+  }
 }
