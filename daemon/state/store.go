@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -1115,6 +1116,34 @@ func (s *Store) GetAllSettings(ctx context.Context) (map[string]string, error) {
 	return out, rows.Err()
 }
 
+// GetBool returns the value for key parsed as bool. Returns (false, nil)
+// if the key is missing or unparseable — callers treat absent settings as false.
+func (s *Store) GetBool(ctx context.Context, key string) (bool, error) {
+	v, err := s.GetSetting(ctx, key)
+	if err != nil || v == "" {
+		return false, nil
+	}
+	b, perr := strconv.ParseBool(v)
+	if perr != nil {
+		return false, nil
+	}
+	return b, nil
+}
+
+// GetInt returns the value for key parsed as int. Returns (0, nil)
+// if the key is missing or unparseable.
+func (s *Store) GetInt(ctx context.Context, key string) (int, error) {
+	v, err := s.GetSetting(ctx, key)
+	if err != nil || v == "" {
+		return 0, nil
+	}
+	n, perr := strconv.Atoi(v)
+	if perr != nil {
+		return 0, nil
+	}
+	return n, nil
+}
+
 // SetSetting upserts (key, value).
 func (s *Store) SetSetting(ctx context.Context, key, value string) error {
 	_, err := s.db.Conn().ExecContext(ctx, `
@@ -1250,4 +1279,38 @@ func (s *Store) CountHistory(ctx context.Context, f HistoryFilter) (int, error) 
 		return 0, err
 	}
 	return n, nil
+}
+
+// PruneHistoryBefore deletes jobs in {done, failed, cancelled} whose
+// finished_at is before cutoff. Returns the number of jobs deleted.
+// FK cascades remove job_steps and log_lines automatically; orphan
+// discs are pruned in the same transaction.
+func (s *Store) PruneHistoryBefore(ctx context.Context, cutoff time.Time) (int, error) {
+	tx, err := s.db.Conn().BeginTx(ctx, nil)
+	if err != nil {
+		return 0, fmt.Errorf("begin: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	res, err := tx.ExecContext(ctx, `
+		DELETE FROM jobs
+		WHERE state IN ('done','failed','cancelled')
+		  AND finished_at IS NOT NULL
+		  AND finished_at < ?`, cutoff.UTC().Format(time.RFC3339Nano))
+	if err != nil {
+		return 0, fmt.Errorf("delete jobs: %w", err)
+	}
+	deleted, _ := res.RowsAffected()
+
+	// Drop discs that are no longer referenced by any job.
+	if _, err := tx.ExecContext(ctx, `
+		DELETE FROM discs
+		WHERE NOT EXISTS (SELECT 1 FROM jobs WHERE jobs.disc_id = discs.id)`); err != nil {
+		return 0, fmt.Errorf("delete orphan discs: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return 0, fmt.Errorf("commit: %w", err)
+	}
+	return int(deleted), nil
 }

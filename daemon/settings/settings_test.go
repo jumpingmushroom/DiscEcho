@@ -709,3 +709,35 @@ func TestSeedDataProfile_CreatesAndIsIdempotent(t *testing.T) {
 		t.Fatalf("expected exactly one Data-ISO; got %d: %#v", len(got), got)
 	}
 }
+
+func TestSeedRetentionDefault_CreatesAndIsIdempotent(t *testing.T) {
+	store := openStore(t)
+	dataDir := t.TempDir()
+	env := envFn(map[string]string{
+		"DISCECHO_DATA":          dataDir,
+		"DISCECHO_AUTH_DISABLED": "true",
+	})
+	// First Load seeds the default.
+	if _, err := settings.Load(env, store, "test"); err != nil {
+		t.Fatalf("first Load: %v", err)
+	}
+	ctx := context.Background()
+	v, err := store.GetSetting(ctx, "retention.forever")
+	if err != nil {
+		t.Fatalf("GetSetting: %v", err)
+	}
+	if v != "true" {
+		t.Fatalf("expected retention.forever=true after first Load, got %q", v)
+	}
+	// Manually override to verify second Load does not overwrite.
+	if err := store.SetSetting(ctx, "retention.forever", "false"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := settings.Load(env, store, "test"); err != nil {
+		t.Fatalf("second Load: %v", err)
+	}
+	v2, _ := store.GetSetting(ctx, "retention.forever")
+	if v2 != "false" {
+		t.Fatalf("second Load must not overwrite existing value; got %q", v2)
+	}
+}

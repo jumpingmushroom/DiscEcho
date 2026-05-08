@@ -1,8 +1,11 @@
 package tools
 
 import (
+	"bytes"
 	"context"
+	"fmt"
 	"os/exec"
+	"strings"
 
 	"github.com/jumpingmushroom/DiscEcho/daemon/state"
 )
@@ -52,6 +55,56 @@ func (a *Apprise) Run(ctx context.Context, args []string, env map[string]string,
 	}
 	sink.Log(state.LogLevelInfo, "apprise: notification sent")
 	return nil
+}
+
+// DryRun runs `apprise --dry-run -t "DiscEcho test" -b "..." <url>`
+// and surfaces stderr on non-zero exit. Used by the settings UI to
+// validate Apprise URLs before saving.
+//
+// Unlike Run (which is for in-pipeline notify steps and intentionally
+// swallows failures), DryRun returns the first stderr line on failure
+// so the caller can surface it to the user.
+func (a *Apprise) DryRun(ctx context.Context, url string) error {
+	args := []string{"--dry-run", "-t", "DiscEcho test", "-b", "Validating URL.", url}
+	var stderr bytes.Buffer
+	cmd := exec.CommandContext(ctx, a.bin, args...)
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		msg := strings.TrimSpace(firstLine(stderr.String()))
+		if msg == "" {
+			msg = err.Error()
+		}
+		return fmt.Errorf("apprise dry-run: %s", msg)
+	}
+	return nil
+}
+
+// Send runs `apprise -t <title> -b <body> <urls...>` and surfaces
+// stderr on non-zero exit. Used by the settings UI's "Test" button.
+//
+// Same error-surfacing semantics as DryRun — distinct from the
+// pipeline-side Run which swallows.
+func (a *Apprise) Send(ctx context.Context, urls []string, title, body string) error {
+	args := append([]string{"-t", title, "-b", body}, urls...)
+	var stderr bytes.Buffer
+	cmd := exec.CommandContext(ctx, a.bin, args...)
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		msg := strings.TrimSpace(firstLine(stderr.String()))
+		if msg == "" {
+			msg = err.Error()
+		}
+		return fmt.Errorf("apprise send: %s", msg)
+	}
+	return nil
+}
+
+// firstLine returns the first newline-delimited line of s.
+func firstLine(s string) string {
+	if i := strings.IndexByte(s, '\n'); i >= 0 {
+		return s[:i]
+	}
+	return s
 }
 
 // BuildAppriseArgs constructs the argv for one apprise invocation.

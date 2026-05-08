@@ -52,7 +52,15 @@ func NewRouter(h *Handlers, static http.Handler) http.Handler {
 
 			authed.Get("/history", h.ListHistory)
 
+			authed.Get("/notifications", h.ListNotifications)
+			authed.Post("/notifications", h.CreateNotification)
+			authed.Put("/notifications/{id}", h.UpdateNotification)
+			authed.Delete("/notifications/{id}", h.DeleteNotification)
+			authed.Post("/notifications/{id}/validate", h.ValidateNotification)
+			authed.Post("/notifications/{id}/test", h.TestNotification)
+
 			authed.Get("/settings", h.GetSettings)
+			authed.Put("/settings", h.PutSettings)
 		})
 	})
 

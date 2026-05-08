@@ -353,6 +353,40 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
     test the PWA via `pnpm preview` or against the deployed daemon.
   - No web push (notifications continue to flow through Apprise
     server-side per M0/M1 stack decisions).
+- **M6.3 settings page + Apprise URL management + retention.**
+  - Daemon: POST/PUT/DELETE on `/api/notifications` with
+    `apprise --dry-run` validation at create/update time. 422 returns
+    flat `{field: msg}`. Plus `POST /api/notifications/{id}/validate`
+    (idempotent dry-run) and `POST /api/notifications/{id}/test` (real
+    Apprise send; 502 on upstream failure). SSE `notification.changed`.
+  - Daemon: `/api/settings` now accepts PUT for a partial map of
+    M6.3-editable keys: `prefs.{accent,mood,density}` and
+    `retention.{forever,days}`. Validation surfaces flat 422 errors per
+    key. `retention.forever = "true"` is seeded on first daemon start
+    so existing deployments don't see sudden deletions.
+  - Daemon: history retention sweeper (`daemon/state/sweeper.go`) runs
+    immediately on startup and daily at 03:00 daemon-local. Deletes
+    `jobs` rows in `done|failed|cancelled` older than the configured
+    cutoff; FK cascade trims `job_steps` and `log_lines`; orphaned
+    `discs` rows pruned in the same transaction.
+  - Daemon: `tools/apprise.go` gains error-surfacing `DryRun(url)` and
+    `Send(urls, title, body)` methods alongside the existing `Run`
+    (which keeps its swallow-and-warn semantics for the in-pipeline
+    notify step).
+  - WebUI desktop `/settings`: single scrolling page with System,
+    Notifications, Appearance, Retention sections. NotificationEditor
+    rows have Save / Validate / Test / Delete (two-step) buttons with
+    inline 422 errors. AppearanceSection auto-applies on change
+    (localStorage cache + DOM dataset + daemon PUT). RetentionSection
+    has a toggle + numeric input with client-side validation.
+  - WebUI mobile `/settings`: read-only list of all four sections;
+    URLs truncated to just the scheme (e.g. `ntfy://...`,
+    `tgram://...`) so embedded credentials never leak onto a phone
+    screen. "Edit on desktop" footer.
+  - WebUI: first-paint prefs hydration via inline IIFE in `app.html`
+    reading `localStorage.discecho.prefs`. Bootstrap reconciles with
+    daemon truth a few hundred ms later — no flash on revisits, single
+    source of truth across devices.
 
 ### Changed
 - Redump dat-files must now live under per-system subdirectories
