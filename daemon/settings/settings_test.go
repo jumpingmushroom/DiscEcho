@@ -71,8 +71,8 @@ func TestLoad_Defaults(t *testing.T) {
 	if s.AutoConfirmSeconds != 8 {
 		t.Errorf("AutoConfirmSeconds = %d, want 8", s.AutoConfirmSeconds)
 	}
-	if s.Token == "" {
-		t.Error("Token should be non-empty (generated)")
+	if s.Token != "" {
+		t.Errorf("Token should be empty by default, got %q", s.Token)
 	}
 }
 
@@ -131,26 +131,7 @@ func TestLoad_Token_FromEnv(t *testing.T) {
 	}
 }
 
-func TestLoad_Token_FromFile(t *testing.T) {
-	store := openStore(t)
-	dataDir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dataDir, "token"), []byte("file-token-abc\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	env := envFn(map[string]string{
-		"DISCECHO_DATA": dataDir,
-	})
-
-	s, err := settings.Load(env, store, "test")
-	if err != nil {
-		t.Fatalf("Load: %v", err)
-	}
-	if s.Token != "file-token-abc" {
-		t.Errorf("Token = %q, want file-token-abc", s.Token)
-	}
-}
-
-func TestLoad_Token_GeneratedAndPersisted(t *testing.T) {
+func TestLoad_Token_DefaultEmpty(t *testing.T) {
 	store := openStore(t)
 	dataDir := t.TempDir()
 	env := envFn(map[string]string{
@@ -159,30 +140,67 @@ func TestLoad_Token_GeneratedAndPersisted(t *testing.T) {
 
 	s1, err := settings.Load(env, store, "test")
 	if err != nil {
-		t.Fatalf("Load: %v", err)
+		t.Fatalf("Load (first): %v", err)
 	}
-	if s1.Token == "" {
-		t.Fatal("expected generated token")
+	if s1.Token != "" {
+		t.Errorf("first Token = %q, want empty", s1.Token)
 	}
-	tokFile := filepath.Join(dataDir, "token")
-	b, err := os.ReadFile(tokFile)
-	if err != nil {
-		t.Fatalf("token file: %v", err)
-	}
-	if got := string(b); got == "" || got[len(got)-1] != '\n' {
-		t.Errorf("token file should end with newline, got %q", got)
-	}
-	// Hex of 32 random bytes => 64 hex chars.
-	if len(s1.Token) != 64 {
-		t.Errorf("generated token len = %d, want 64", len(s1.Token))
-	}
-	// Re-Load should pick up the persisted file, yielding the same token.
+
+	// Reboot on the same data dir — Token must stay empty (no
+	// accidental caching, no token re-emerging from disk state).
 	s2, err := settings.Load(env, store, "test")
 	if err != nil {
 		t.Fatalf("Load (second): %v", err)
 	}
-	if s2.Token != s1.Token {
-		t.Errorf("token not stable across loads: %q vs %q", s1.Token, s2.Token)
+	if s2.Token != "" {
+		t.Errorf("second Token = %q, want empty across reboots", s2.Token)
+	}
+}
+
+func TestLoad_Token_DoesNotWriteFile(t *testing.T) {
+	store := openStore(t)
+	dataDir := t.TempDir()
+
+	// Default mode: no file should ever be created.
+	env := envFn(map[string]string{
+		"DISCECHO_DATA": dataDir,
+	})
+	if _, err := settings.Load(env, store, "test"); err != nil {
+		t.Fatalf("Load (default): %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dataDir, "token")); !os.IsNotExist(err) {
+		t.Errorf("token file should not exist in default mode; stat err=%v", err)
+	}
+
+	// Bearer mode: the env-provided token must also not touch disk.
+	env2 := envFn(map[string]string{
+		"DISCECHO_DATA":  dataDir,
+		"DISCECHO_TOKEN": "env-token",
+	})
+	if _, err := settings.Load(env2, store, "test"); err != nil {
+		t.Fatalf("Load (env token): %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dataDir, "token")); !os.IsNotExist(err) {
+		t.Errorf("token file should not exist when DISCECHO_TOKEN is set; stat err=%v", err)
+	}
+}
+
+func TestLoad_Token_IgnoresExistingFile(t *testing.T) {
+	// Pre-existing on-disk token from a prior install must NOT be read.
+	store := openStore(t)
+	dataDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dataDir, "token"), []byte("legacy-token\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	env := envFn(map[string]string{
+		"DISCECHO_DATA": dataDir,
+	})
+	s, err := settings.Load(env, store, "test")
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if s.Token != "" {
+		t.Errorf("Token = %q, want empty (legacy file must be ignored)", s.Token)
 	}
 }
 
@@ -290,26 +308,6 @@ func TestLoad_NotificationsSeeded_EmptyURLs_NoOp(t *testing.T) {
 	}
 }
 
-func TestResolveToken_DisabledReturnsEmpty(t *testing.T) {
-	store := openStore(t)
-	dataDir := t.TempDir()
-	env := envFn(map[string]string{
-		"DISCECHO_DATA":          dataDir,
-		"DISCECHO_AUTH_DISABLED": "true",
-	})
-
-	cfg, err := settings.Load(env, store, "test")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if cfg.Token != "" {
-		t.Errorf("token should be empty when auth disabled, got %q", cfg.Token)
-	}
-	if _, err := os.Stat(filepath.Join(dataDir, "token")); err == nil {
-		t.Errorf("token file should not be created when auth disabled")
-	}
-}
-
 func TestLoad_DVDProfilesSeeded(t *testing.T) {
 	store := openStore(t)
 	dataDir := t.TempDir()
@@ -367,8 +365,7 @@ func TestSeedBDMVProfile(t *testing.T) {
 	store := openStore(t)
 	dataDir := t.TempDir()
 	env := envFn(map[string]string{
-		"DISCECHO_DATA":          dataDir,
-		"DISCECHO_AUTH_DISABLED": "true",
+		"DISCECHO_DATA": dataDir,
 	})
 	if _, err := settings.Load(env, store, "test"); err != nil {
 		t.Fatal(err)
@@ -402,8 +399,7 @@ func TestSeedUHDProfile(t *testing.T) {
 	store := openStore(t)
 	dataDir := t.TempDir()
 	env := envFn(map[string]string{
-		"DISCECHO_DATA":          dataDir,
-		"DISCECHO_AUTH_DISABLED": "true",
+		"DISCECHO_DATA": dataDir,
 	})
 	if _, err := settings.Load(env, store, "test"); err != nil {
 		t.Fatal(err)
@@ -437,8 +433,7 @@ func TestSeedVideoProfiles_Idempotent(t *testing.T) {
 	store := openStore(t)
 	dataDir := t.TempDir()
 	env := envFn(map[string]string{
-		"DISCECHO_DATA":          dataDir,
-		"DISCECHO_AUTH_DISABLED": "true",
+		"DISCECHO_DATA": dataDir,
 	})
 	if _, err := settings.Load(env, store, "test"); err != nil {
 		t.Fatal(err)
@@ -463,7 +458,6 @@ func TestMakeMKVBetaKey_Bootstrap(t *testing.T) {
 
 	env := envFn(map[string]string{
 		"DISCECHO_DATA":             dataDir,
-		"DISCECHO_AUTH_DISABLED":    "true",
 		"DISCECHO_MAKEMKV_BETA_KEY": "T-FAKEKEY-1234567890",
 	})
 	cfg, err := settings.Load(env, store, "test")
@@ -491,8 +485,7 @@ func TestMakeMKVBetaKey_NotSet_NoFileWritten(t *testing.T) {
 	dataDir := t.TempDir()
 	makemkvDir := filepath.Join(dataDir, "MakeMKV")
 	env := envFn(map[string]string{
-		"DISCECHO_DATA":          dataDir,
-		"DISCECHO_AUTH_DISABLED": "true",
+		"DISCECHO_DATA": dataDir,
 	})
 	if _, err := settings.Load(env, store, "test"); err != nil {
 		t.Fatal(err)
@@ -506,8 +499,7 @@ func TestSeedPSXProfile(t *testing.T) {
 	store := openStore(t)
 	dataDir := t.TempDir()
 	env := envFn(map[string]string{
-		"DISCECHO_DATA":          dataDir,
-		"DISCECHO_AUTH_DISABLED": "true",
+		"DISCECHO_DATA": dataDir,
 	})
 	if _, err := settings.Load(env, store, "test"); err != nil {
 		t.Fatal(err)
@@ -535,8 +527,7 @@ func TestSeedPS2Profile(t *testing.T) {
 	store := openStore(t)
 	dataDir := t.TempDir()
 	env := envFn(map[string]string{
-		"DISCECHO_DATA":          dataDir,
-		"DISCECHO_AUTH_DISABLED": "true",
+		"DISCECHO_DATA": dataDir,
 	})
 	if _, err := settings.Load(env, store, "test"); err != nil {
 		t.Fatal(err)
@@ -551,8 +542,7 @@ func TestSeedGameProfiles_Idempotent(t *testing.T) {
 	store := openStore(t)
 	dataDir := t.TempDir()
 	env := envFn(map[string]string{
-		"DISCECHO_DATA":          dataDir,
-		"DISCECHO_AUTH_DISABLED": "true",
+		"DISCECHO_DATA": dataDir,
 	})
 	if _, err := settings.Load(env, store, "test"); err != nil {
 		t.Fatal(err)
@@ -574,8 +564,7 @@ func TestRedumperEnvVars_Defaults(t *testing.T) {
 	store := openStore(t)
 	dataDir := t.TempDir()
 	env := envFn(map[string]string{
-		"DISCECHO_DATA":          dataDir,
-		"DISCECHO_AUTH_DISABLED": "true",
+		"DISCECHO_DATA": dataDir,
 	})
 	cfg, err := settings.Load(env, store, "test")
 	if err != nil {
@@ -597,8 +586,7 @@ func TestNewMakeMKVEnvVars_Defaults(t *testing.T) {
 	store := openStore(t)
 	dataDir := t.TempDir()
 	env := envFn(map[string]string{
-		"DISCECHO_DATA":          dataDir,
-		"DISCECHO_AUTH_DISABLED": "true",
+		"DISCECHO_DATA": dataDir,
 	})
 	cfg, err := settings.Load(env, store, "test")
 	if err != nil {
@@ -622,8 +610,7 @@ func TestSeedSaturnProfile_CreatesAndIsIdempotent(t *testing.T) {
 	store := openStore(t)
 	dataDir := t.TempDir()
 	env := envFn(map[string]string{
-		"DISCECHO_DATA":          dataDir,
-		"DISCECHO_AUTH_DISABLED": "true",
+		"DISCECHO_DATA": dataDir,
 	})
 	if _, err := settings.Load(env, store, "test"); err != nil {
 		t.Fatalf("first Load: %v", err)
@@ -645,8 +632,7 @@ func TestSeedDCProfile_CreatesAndIsIdempotent(t *testing.T) {
 	store := openStore(t)
 	dataDir := t.TempDir()
 	env := envFn(map[string]string{
-		"DISCECHO_DATA":          dataDir,
-		"DISCECHO_AUTH_DISABLED": "true",
+		"DISCECHO_DATA": dataDir,
 	})
 	if _, err := settings.Load(env, store, "test"); err != nil {
 		t.Fatalf("first Load: %v", err)
@@ -668,8 +654,7 @@ func TestSeedXboxProfile_CreatesAndIsIdempotent(t *testing.T) {
 	store := openStore(t)
 	dataDir := t.TempDir()
 	env := envFn(map[string]string{
-		"DISCECHO_DATA":          dataDir,
-		"DISCECHO_AUTH_DISABLED": "true",
+		"DISCECHO_DATA": dataDir,
 	})
 	if _, err := settings.Load(env, store, "test"); err != nil {
 		t.Fatalf("first Load: %v", err)
@@ -691,8 +676,7 @@ func TestSeedDataProfile_CreatesAndIsIdempotent(t *testing.T) {
 	store := openStore(t)
 	dataDir := t.TempDir()
 	env := envFn(map[string]string{
-		"DISCECHO_DATA":          dataDir,
-		"DISCECHO_AUTH_DISABLED": "true",
+		"DISCECHO_DATA": dataDir,
 	})
 	if _, err := settings.Load(env, store, "test"); err != nil {
 		t.Fatalf("first Load: %v", err)
@@ -714,8 +698,7 @@ func TestSeedRetentionDefault_CreatesAndIsIdempotent(t *testing.T) {
 	store := openStore(t)
 	dataDir := t.TempDir()
 	env := envFn(map[string]string{
-		"DISCECHO_DATA":          dataDir,
-		"DISCECHO_AUTH_DISABLED": "true",
+		"DISCECHO_DATA": dataDir,
 	})
 	// First Load seeds the default.
 	if _, err := settings.Load(env, store, "test"); err != nil {
