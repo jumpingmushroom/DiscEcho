@@ -2,6 +2,9 @@ package tools_test
 
 import (
 	"context"
+	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -39,4 +42,57 @@ func TestApprise_FailureSwallowed(t *testing.T) {
 	if err != nil {
 		t.Errorf("apprise should swallow exec errors, got %v", err)
 	}
+}
+
+func TestApprise_DryRun_OK(t *testing.T) {
+	stub := writeStubBin(t, 0, "")
+	a := tools.NewApprise(stub)
+	if err := a.DryRun(context.Background(), "ntfy://example.com/topic"); err != nil {
+		t.Fatalf("expected nil; got %v", err)
+	}
+}
+
+func TestApprise_DryRun_BadURL(t *testing.T) {
+	stub := writeStubBin(t, 1, "Could not load URL\n")
+	a := tools.NewApprise(stub)
+	err := a.DryRun(context.Background(), "bogus://nope")
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "Could not load URL") {
+		t.Fatalf("error must surface stderr; got %q", err.Error())
+	}
+}
+
+func TestApprise_Send_OK(t *testing.T) {
+	stub := writeStubBin(t, 0, "")
+	a := tools.NewApprise(stub)
+	if err := a.Send(context.Background(), []string{"ntfy://x"}, "title", "body"); err != nil {
+		t.Fatalf("expected nil; got %v", err)
+	}
+}
+
+func TestApprise_Send_Failure(t *testing.T) {
+	stub := writeStubBin(t, 1, "delivery failed\n")
+	a := tools.NewApprise(stub)
+	err := a.Send(context.Background(), []string{"ntfy://x"}, "title", "body")
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "delivery failed") {
+		t.Fatalf("error must surface stderr; got %q", err.Error())
+	}
+}
+
+// writeStubBin writes a tiny shell script to a temp dir that exits with
+// the given code and prints stderr to stderr. Returns the path.
+func writeStubBin(t *testing.T, exitCode int, stderr string) string {
+	t.Helper()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "apprise-stub.sh")
+	script := fmt.Sprintf("#!/bin/sh\nprintf %%s %q >&2\nexit %d\n", stderr, exitCode)
+	if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
+		t.Fatalf("write stub: %v", err)
+	}
+	return path
 }
