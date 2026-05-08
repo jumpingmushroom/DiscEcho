@@ -171,14 +171,23 @@ type Job struct {
 	Steps          []JobStep  `json:"steps,omitempty"`
 }
 
-// Profile is a row of the `profiles` table.
+// Profile is a row of the `profiles` table. Container/VideoCodec/
+// QualityPreset/HDRPipeline/DrivePolicy/AutoEject are the typed fields
+// that drive the mockup-shaped editor; Format and Preset stay for one
+// release as a fallback so older API clients continue to work.
 type Profile struct {
 	ID                 string         `json:"id"`
 	DiscType           DiscType       `json:"disc_type"`
 	Name               string         `json:"name"`
 	Engine             string         `json:"engine"`
-	Format             string         `json:"format"`
-	Preset             string         `json:"preset"`
+	Format             string         `json:"format,omitempty"`
+	Preset             string         `json:"preset,omitempty"`
+	Container          string         `json:"container"`
+	VideoCodec         string         `json:"video_codec"`
+	QualityPreset      string         `json:"quality_preset"`
+	HDRPipeline        string         `json:"hdr_pipeline"`
+	DrivePolicy        string         `json:"drive_policy"`
+	AutoEject          bool           `json:"auto_eject"`
 	Options            map[string]any `json:"options"`
 	OutputPathTemplate string         `json:"output_path_template"`
 	Enabled            bool           `json:"enabled"`

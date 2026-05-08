@@ -121,8 +121,14 @@ export interface Profile {
   disc_type: string;
   name: string;
   engine: string;
-  format: string;
-  preset: string;
+  format?: string;
+  preset?: string;
+  container: string;
+  video_codec: string;
+  quality_preset: string;
+  hdr_pipeline: string;
+  drive_policy: string;
+  auto_eject: boolean;
   options: Record<string, unknown>;
   output_path_template: string;
   enabled: boolean;

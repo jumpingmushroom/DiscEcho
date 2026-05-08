@@ -1,6 +1,7 @@
 <script lang="ts">
-  import type { Profile } from '$lib/wire';
+  import type { Profile, DiscType } from '$lib/wire';
   import { DISC_TYPES } from '$lib/profile_schema';
+  import DiscTypeBadge from '$lib/components/DiscTypeBadge.svelte';
   import { createEventDispatcher } from 'svelte';
 
   export let profiles: Profile[];
@@ -8,58 +9,66 @@
 
   const dispatch = createEventDispatcher<{ select: string; new: void }>();
 
-  $: groups = groupByDiscType(profiles);
+  // Sort grouped by disc-type, but render as a single flat list — the
+  // DiscTypeBadge per row already carries the type, so the uppercase
+  // group headers from the previous design are dropped.
+  $: ordered = orderByDiscType(profiles);
 
-  function groupByDiscType(arr: Profile[]): Array<[string, Profile[]]> {
-    const map = new Map<string, Profile[]>();
-    for (const dt of DISC_TYPES) map.set(dt, []);
-    for (const p of arr) {
-      if (!map.has(p.disc_type)) map.set(p.disc_type, []);
-      map.get(p.disc_type)!.push(p);
-    }
-    return [...map.entries()].filter(([, ps]) => ps.length > 0);
+  function dtOf(p: Profile): DiscType {
+    return p.disc_type as DiscType;
+  }
+
+  function orderByDiscType(arr: Profile[]): Profile[] {
+    const rank = new Map<string, number>();
+    DISC_TYPES.forEach((dt, i) => rank.set(dt, i));
+    return [...arr].sort((a, b) => {
+      const ra = rank.get(a.disc_type) ?? 999;
+      const rb = rank.get(b.disc_type) ?? 999;
+      if (ra !== rb) return ra - rb;
+      return a.name.localeCompare(b.name);
+    });
   }
 </script>
 
-<div class="rounded-2xl border border-border bg-surface-1">
-  <div class="flex items-center justify-between border-b border-border px-4 py-3">
-    <div class="text-[13px] font-semibold text-text">Profiles</div>
+<div class="flex h-full flex-col">
+  <div class="flex items-center justify-between px-4 pb-3 pt-5">
+    <h1 class="text-[18px] font-bold tracking-tight text-text">Profiles</h1>
     <button
       type="button"
-      class="rounded-md px-2 py-1 text-[11px] font-medium text-accent
+      class="rounded-md border border-border px-2 py-1 text-[11px] font-medium text-accent
              transition-colors hover:bg-surface-2"
       on:click={() => dispatch('new')}
     >
-      + New profile
+      + New
     </button>
   </div>
 
-  <div class="p-2">
-    {#each groups as [discType, ps] (discType)}
-      <div class="mb-3 last:mb-0">
-        <div class="px-2 pb-1 text-[10px] font-medium uppercase tracking-[0.14em] text-text-3">
-          {discType}
+  <div class="flex-1 overflow-auto px-2 pb-4">
+    {#each ordered as p (p.id)}
+      {@const isSelected = p.id === selectedID}
+      <button
+        type="button"
+        data-profile-id={p.id}
+        data-selected={isSelected ? 'true' : 'false'}
+        class="mb-0.5 flex w-full items-center gap-2.5 rounded-md px-3 py-2.5
+               text-left transition-colors hover:bg-surface-2"
+        class:selected={isSelected}
+        on:click={() => dispatch('select', p.id)}
+      >
+        <DiscTypeBadge type={dtOf(p)} />
+        <div class="min-w-0 flex-1">
+          <div class="text-[13px] font-medium text-text" class:opacity-50={!p.enabled}>
+            {p.name}
+          </div>
+          <div class="truncate font-mono text-[11px] text-text-3">{p.engine}</div>
         </div>
-        {#each ps as p (p.id)}
-          {@const isSelected = p.id === selectedID}
-          <button
-            type="button"
-            data-profile-id={p.id}
-            data-selected={isSelected ? 'true' : 'false'}
-            class="flex w-full items-center justify-between rounded-md px-2 py-1.5
-                   text-left transition-colors hover:bg-surface-2"
-            class:selected={isSelected}
-            on:click={() => dispatch('select', p.id)}
-          >
-            <span class="text-[13px] font-medium text-text" class:opacity-50={!p.enabled}>
-              {p.name}
-            </span>
-            {#if !p.enabled}
-              <span class="font-mono text-[10px] text-text-3">disabled</span>
-            {/if}
-          </button>
-        {/each}
-      </div>
+        <span
+          class="h-1.5 w-1.5 flex-shrink-0 rounded-full"
+          class:bg-success={p.enabled}
+          class:bg-text-3={!p.enabled}
+          aria-label={p.enabled ? 'enabled' : 'disabled'}
+        />
+      </button>
     {/each}
   </div>
 </div>
@@ -67,6 +76,11 @@
 <style>
   button.selected {
     background: var(--surface-2);
-    color: var(--accent);
+  }
+  .bg-success {
+    background-color: #00d68f;
+  }
+  .bg-text-3 {
+    background-color: var(--text-3);
   }
 </style>

@@ -346,12 +346,19 @@ func (s *Store) CreateProfile(ctx context.Context, p *Profile) error {
 	if err != nil {
 		return fmt.Errorf("marshal options: %w", err)
 	}
+	if p.DrivePolicy == "" {
+		p.DrivePolicy = "any"
+	}
 	_, err = s.db.Conn().ExecContext(ctx, `
 		INSERT INTO profiles (id, disc_type, name, engine, format, preset,
+		                      container, video_codec, quality_preset,
+		                      hdr_pipeline, drive_policy, auto_eject,
 		                      options_json, output_path_template, enabled,
 		                      step_count, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		p.ID, string(p.DiscType), p.Name, p.Engine, p.Format, p.Preset,
+		p.Container, p.VideoCodec, p.QualityPreset,
+		p.HDRPipeline, p.DrivePolicy, boolToInt(p.AutoEject),
 		optsJSON, p.OutputPathTemplate, boolToInt(p.Enabled),
 		p.StepCount, timestamp(p.CreatedAt), timestamp(p.UpdatedAt))
 	return err
@@ -361,6 +368,8 @@ func (s *Store) CreateProfile(ctx context.Context, p *Profile) error {
 func (s *Store) GetProfile(ctx context.Context, id string) (*Profile, error) {
 	row := s.db.Conn().QueryRowContext(ctx, `
 		SELECT id, disc_type, name, engine, format, preset,
+		       container, video_codec, quality_preset,
+		       hdr_pipeline, drive_policy, auto_eject,
 		       options_json, output_path_template, enabled,
 		       step_count, created_at, updated_at
 		FROM profiles WHERE id = ?`, id)
@@ -371,6 +380,8 @@ func (s *Store) GetProfile(ctx context.Context, id string) (*Profile, error) {
 func (s *Store) ListProfiles(ctx context.Context) ([]Profile, error) {
 	return s.queryProfiles(ctx, `
 		SELECT id, disc_type, name, engine, format, preset,
+		       container, video_codec, quality_preset,
+		       hdr_pipeline, drive_policy, auto_eject,
 		       options_json, output_path_template, enabled,
 		       step_count, created_at, updated_at
 		FROM profiles ORDER BY name`)
@@ -382,6 +393,8 @@ func (s *Store) ListProfiles(ctx context.Context) ([]Profile, error) {
 func (s *Store) ListProfilesByDiscType(ctx context.Context, dt DiscType) ([]Profile, error) {
 	return s.queryProfiles(ctx, `
 		SELECT id, disc_type, name, engine, format, preset,
+		       container, video_codec, quality_preset,
+		       hdr_pipeline, drive_policy, auto_eject,
 		       options_json, output_path_template, enabled,
 		       step_count, created_at, updated_at
 		FROM profiles WHERE disc_type = ? ORDER BY name`, string(dt))
@@ -395,12 +408,20 @@ func (s *Store) UpdateProfile(ctx context.Context, p *Profile) error {
 	if err != nil {
 		return fmt.Errorf("marshal options: %w", err)
 	}
+	if p.DrivePolicy == "" {
+		p.DrivePolicy = "any"
+	}
 	res, err := s.db.Conn().ExecContext(ctx, `
 		UPDATE profiles SET disc_type = ?, name = ?, engine = ?, format = ?,
-		                    preset = ?, options_json = ?, output_path_template = ?,
+		                    preset = ?, container = ?, video_codec = ?,
+		                    quality_preset = ?, hdr_pipeline = ?,
+		                    drive_policy = ?, auto_eject = ?,
+		                    options_json = ?, output_path_template = ?,
 		                    enabled = ?, step_count = ?, updated_at = ?
 		WHERE id = ?`,
 		string(p.DiscType), p.Name, p.Engine, p.Format, p.Preset,
+		p.Container, p.VideoCodec, p.QualityPreset, p.HDRPipeline,
+		p.DrivePolicy, boolToInt(p.AutoEject),
 		optsJSON, p.OutputPathTemplate, boolToInt(p.Enabled),
 		p.StepCount, timestamp(p.UpdatedAt), p.ID)
 	if err != nil {
@@ -447,9 +468,11 @@ func (s *Store) queryProfiles(ctx context.Context, q string, args ...any) ([]Pro
 func scanProfile(r rowScanner) (*Profile, error) {
 	var p Profile
 	var dtype, optsJSON, createdStr, updatedStr string
-	var enabled int
+	var enabled, autoEject int
 	if err := r.Scan(
 		&p.ID, &dtype, &p.Name, &p.Engine, &p.Format, &p.Preset,
+		&p.Container, &p.VideoCodec, &p.QualityPreset,
+		&p.HDRPipeline, &p.DrivePolicy, &autoEject,
 		&optsJSON, &p.OutputPathTemplate, &enabled,
 		&p.StepCount, &createdStr, &updatedStr,
 	); err != nil {
@@ -460,6 +483,7 @@ func scanProfile(r rowScanner) (*Profile, error) {
 	}
 	p.DiscType = DiscType(dtype)
 	p.Enabled = enabled != 0
+	p.AutoEject = autoEject != 0
 	opts, err := unmarshalOptions(optsJSON)
 	if err != nil {
 		return nil, fmt.Errorf("unmarshal options: %w", err)
