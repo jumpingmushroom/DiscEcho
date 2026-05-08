@@ -257,6 +257,7 @@ func main() {
 		TMDB:         tmdbClient,
 		Token:        cfg.Token,
 		Apprise:      appriseTool,
+		Settings:     cfg,
 	}
 
 	embedFS, err := embed.FS()

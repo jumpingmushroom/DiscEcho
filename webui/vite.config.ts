@@ -64,4 +64,11 @@ export default defineConfig({
     include: ['src/**/*.{test,spec}.{ts,js}'],
     globals: true,
   },
+  // SvelteKit's plugin resolves "svelte" with the SSR conditions by
+  // default, which prevents onMount from firing in jsdom tests. When
+  // running under vitest, prefer the browser export so component
+  // lifecycle hooks behave like they would in a real browser.
+  resolve: {
+    conditions: process.env.VITEST ? ['browser'] : [],
+  },
 });

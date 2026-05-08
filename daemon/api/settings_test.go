@@ -137,6 +137,43 @@ func TestSettings_Put_RetentionForeverTrue_DaysZero_OK(t *testing.T) {
 	}
 }
 
+func TestSettings_Put_LibraryPathValid(t *testing.T) {
+	h := apitestServer(t)
+	body := mustMarshal(t, map[string]any{"library.path": "/srv/media"})
+	req := authedReq(t, http.MethodPut, "/api/settings", bytes.NewReader(body))
+	rec := httptest.NewRecorder()
+	h.PutSettings(rec, req)
+	if rec.Code != 200 {
+		t.Fatalf("status: %d body: %s", rec.Code, rec.Body.String())
+	}
+	v, _ := h.Store.GetSetting(context.Background(), "library.path")
+	if v != "/srv/media" {
+		t.Fatalf("library.path: %q", v)
+	}
+}
+
+func TestSettings_Put_LibraryPathRelative_422(t *testing.T) {
+	h := apitestServer(t)
+	body := mustMarshal(t, map[string]any{"library.path": "media"})
+	req := authedReq(t, http.MethodPut, "/api/settings", bytes.NewReader(body))
+	rec := httptest.NewRecorder()
+	h.PutSettings(rec, req)
+	if rec.Code != 422 {
+		t.Fatalf("status: %d body: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestSettings_Put_LibraryPathEmpty_422(t *testing.T) {
+	h := apitestServer(t)
+	body := mustMarshal(t, map[string]any{"library.path": "   "})
+	req := authedReq(t, http.MethodPut, "/api/settings", bytes.NewReader(body))
+	rec := httptest.NewRecorder()
+	h.PutSettings(rec, req)
+	if rec.Code != 422 {
+		t.Fatalf("status: %d body: %s", rec.Code, rec.Body.String())
+	}
+}
+
 func TestSettings_Put_UnknownKey_422(t *testing.T) {
 	h := apitestServer(t)
 	body := mustMarshal(t, map[string]any{"unknown.key": "value"})

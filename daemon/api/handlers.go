@@ -4,6 +4,7 @@ import (
 	"github.com/jumpingmushroom/DiscEcho/daemon/identify"
 	"github.com/jumpingmushroom/DiscEcho/daemon/jobs"
 	"github.com/jumpingmushroom/DiscEcho/daemon/pipelines"
+	"github.com/jumpingmushroom/DiscEcho/daemon/settings"
 	"github.com/jumpingmushroom/DiscEcho/daemon/state"
 )
 
@@ -20,4 +21,5 @@ type Handlers struct {
 	TMDB         identify.TMDBClient
 	Token        string
 	Apprise      Apprise // defined in notifications.go; nil-safe in handlers
+	Settings     *settings.Settings
 }

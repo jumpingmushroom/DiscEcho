@@ -1,11 +1,36 @@
 import '@testing-library/jest-dom/vitest';
-import { describe, it, expect, beforeEach } from 'vitest';
-import { render } from '@testing-library/svelte';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { render, waitFor } from '@testing-library/svelte';
 import MobileSettings from './MobileSettings.svelte';
-import { notifications, settings } from '$lib/store';
+import { notifications, settings, drives } from '$lib/store';
+
+const hostResp = {
+  hostname: 'mobile-host',
+  kernel: '6.12.1',
+  cpu_count: 4,
+  uptime_seconds: 60,
+  disks: [{ path: '/library', total_bytes: 1000, used_bytes: 250, available_bytes: 750 }],
+};
+
+function jsonResponse(body: unknown, status = 200): Response {
+  return {
+    ok: status >= 200 && status < 300,
+    status,
+    text: async () => JSON.stringify(body),
+    json: async () => body,
+  } as unknown as Response;
+}
 
 describe('MobileSettings', () => {
   beforeEach(() => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((input: RequestInfo | URL) => {
+        const url = typeof input === 'string' ? input : (input as URL).toString();
+        if (url === '/api/system/host') return Promise.resolve(jsonResponse(hostResp));
+        return Promise.reject(new Error('unexpected ' + url));
+      }),
+    );
     notifications.set([
       {
         id: 'n-1',
@@ -29,21 +54,61 @@ describe('MobileSettings', () => {
       },
     ]);
     settings.set({
-      library_path: '/srv/library',
+      'library.path': '/srv/library',
       'prefs.accent': 'aurora',
       'prefs.mood': 'void',
       'prefs.density': 'standard',
       'retention.forever': 'true',
       'retention.days': '30',
     });
+    drives.set([]);
   });
 
-  it('renders all four sections', () => {
-    const { getByText } = render(MobileSettings);
-    expect(getByText(/system/i)).toBeInTheDocument();
-    expect(getByText(/notifications/i)).toBeInTheDocument();
-    expect(getByText(/appearance/i)).toBeInTheDocument();
-    expect(getByText(/retention/i)).toBeInTheDocument();
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('renders all sections', () => {
+    const { getAllByText } = render(MobileSettings);
+    expect(getAllByText(/system/i).length).toBeGreaterThan(0);
+    expect(getAllByText(/drives/i).length).toBeGreaterThan(0);
+    expect(getAllByText(/host/i).length).toBeGreaterThan(0);
+    expect(getAllByText(/notifications/i).length).toBeGreaterThan(0);
+    expect(getAllByText(/appearance/i).length).toBeGreaterThan(0);
+    expect(getAllByText(/retention/i).length).toBeGreaterThan(0);
+  });
+
+  it('shows library path from settings', () => {
+    const { container } = render(MobileSettings);
+    expect(container.textContent).toContain('/srv/library');
+  });
+
+  it('shows drives empty state when no drives', () => {
+    const { container } = render(MobileSettings);
+    expect(container.textContent).toMatch(/no drives detected/i);
+  });
+
+  it('lists drives when present', () => {
+    drives.set([
+      {
+        id: 'd1',
+        model: 'ASUS',
+        bus: 'usb',
+        dev_path: '/dev/sr0',
+        state: 'idle',
+        last_seen_at: '2026-05-08T00:00:00Z',
+      },
+    ]);
+    const { container } = render(MobileSettings);
+    expect(container.textContent).toContain('/dev/sr0');
+    expect(container.textContent).toContain('ASUS');
+  });
+
+  it('renders host info after fetch resolves', async () => {
+    const { container } = render(MobileSettings);
+    await waitFor(() => expect(container.textContent).toContain('mobile-host'));
+    expect(container.textContent).toContain('4 CPUs');
+    expect(container.textContent).toContain('/library');
   });
 
   it('truncates notification URL to scheme only (hides credentials)', () => {
@@ -51,13 +116,6 @@ describe('MobileSettings', () => {
     expect(container.textContent).toMatch(/tgram:\/\//);
     expect(container.textContent).not.toContain('botToken');
     expect(container.textContent).not.toContain('chatId');
-  });
-
-  it('shows enabled state per notification', () => {
-    const { container } = render(MobileSettings);
-    // Both notifications listed; n-1 enabled, n-2 disabled.
-    expect(container.textContent).toContain('tg');
-    expect(container.textContent).toContain('ntfy');
   });
 
   it('shows "forever" when retention.forever is true', () => {

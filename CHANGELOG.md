@@ -6,6 +6,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- Settings → System tab now mirrors the original mockup: library-path
+  editor, drives panel, external-connection status (TMDB configured /
+  language, MusicBrainz endpoint, Apprise binary + version), and host
+  info (kernel, CPU count, uptime, disk usage for `/library` and
+  `/var/lib/discecho`).
+- New read-only endpoints `GET /api/system/host` and
+  `GET /api/system/integrations` back the System tab. The TMDB key
+  itself is never returned — only a `configured` boolean.
+- `library.path` is now an editable setting. The `DISCECHO_LIBRARY` env
+  var seeds the value on first boot; subsequent edits in the UI win
+  on next container restart (running pipelines capture the path at
+  boot, so a restart is required for the change to apply).
+
 ### Fixed
 
 - SSE stream `/api/events` is no longer killed every 30 s by the global
