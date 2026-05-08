@@ -110,16 +110,3 @@ func TestGetJob_NotFound(t *testing.T) {
 		t.Errorf("status %d", w.Code)
 	}
 }
-
-func TestPauseJob_Returns501(t *testing.T) {
-	h := apitestServer(t)
-	r := chi.NewRouter()
-	r.Post("/api/jobs/{id}/pause", h.PauseJob)
-
-	req := httptest.NewRequest(http.MethodPost, "/api/jobs/x/pause", nil)
-	w := httptest.NewRecorder()
-	r.ServeHTTP(w, req)
-	if w.Code != http.StatusNotImplemented {
-		t.Errorf("status %d", w.Code)
-	}
-}

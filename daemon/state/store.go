@@ -252,6 +252,24 @@ func (s *Store) ListDiscsForDrive(ctx context.Context, driveID string) ([]Disc, 
 	return out, rows.Err()
 }
 
+// UpdateDiscMetadata persists the title/year/provider/metadata_id
+// fields for a disc. Used when the user picks a candidate via
+// /discs/{id}/start so the chosen identity reaches the orchestrator
+// (which re-reads the row before dispatching the job).
+func (s *Store) UpdateDiscMetadata(ctx context.Context, id, title string, year int, provider, metadataID string) error {
+	res, err := s.db.Conn().ExecContext(ctx, `
+		UPDATE discs SET title = ?, year = ?, metadata_provider = ?, metadata_id = ?
+		WHERE id = ?`, title, year, provider, metadataID, id)
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
 // UpdateDiscCandidates replaces the candidates JSON for an existing disc.
 // Used by the identify endpoint when the user supplies a manual TMDB
 // query and we want to persist the new candidate list.

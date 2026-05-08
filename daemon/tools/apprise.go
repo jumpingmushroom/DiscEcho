@@ -57,7 +57,22 @@ func (a *Apprise) Run(ctx context.Context, args []string, env map[string]string,
 	return nil
 }
 
-// DryRun runs `apprise --dry-run -t "DiscEcho test" -b "..." <url>`
+// validateURLArg rejects strings that the apprise CLI would interpret
+// as a flag rather than a target URL. We refuse anything that starts
+// with "-" so a user-supplied "--config" or "-c" can't smuggle CLI
+// flags through positional args.
+func validateURLArg(url string) error {
+	url = strings.TrimSpace(url)
+	if url == "" {
+		return fmt.Errorf("empty url")
+	}
+	if strings.HasPrefix(url, "-") {
+		return fmt.Errorf("invalid url: must not start with %q", "-")
+	}
+	return nil
+}
+
+// DryRun runs `apprise --dry-run -t "DiscEcho test" -b "..." -- <url>`
 // and surfaces stderr on non-zero exit. Used by the settings UI to
 // validate Apprise URLs before saving.
 //
@@ -65,7 +80,12 @@ func (a *Apprise) Run(ctx context.Context, args []string, env map[string]string,
 // swallows failures), DryRun returns the first stderr line on failure
 // so the caller can surface it to the user.
 func (a *Apprise) DryRun(ctx context.Context, url string) error {
-	args := []string{"--dry-run", "-t", "DiscEcho test", "-b", "Validating URL.", url}
+	if err := validateURLArg(url); err != nil {
+		return fmt.Errorf("apprise dry-run: %w", err)
+	}
+	// `--` ends flag parsing so a URL beginning with `-` (already
+	// rejected above as a defense in depth) cannot become a flag.
+	args := []string{"--dry-run", "-t", "DiscEcho test", "-b", "Validating URL.", "--", url}
 	var stderr bytes.Buffer
 	cmd := exec.CommandContext(ctx, a.bin, args...)
 	cmd.Stderr = &stderr
@@ -79,13 +99,18 @@ func (a *Apprise) DryRun(ctx context.Context, url string) error {
 	return nil
 }
 
-// Send runs `apprise -t <title> -b <body> <urls...>` and surfaces
+// Send runs `apprise -t <title> -b <body> -- <urls...>` and surfaces
 // stderr on non-zero exit. Used by the settings UI's "Test" button.
 //
 // Same error-surfacing semantics as DryRun — distinct from the
 // pipeline-side Run which swallows.
 func (a *Apprise) Send(ctx context.Context, urls []string, title, body string) error {
-	args := append([]string{"-t", title, "-b", body}, urls...)
+	for _, u := range urls {
+		if err := validateURLArg(u); err != nil {
+			return fmt.Errorf("apprise send: %w", err)
+		}
+	}
+	args := append([]string{"-t", title, "-b", body, "--"}, urls...)
 	var stderr bytes.Buffer
 	cmd := exec.CommandContext(ctx, a.bin, args...)
 	cmd.Stderr = &stderr
@@ -109,12 +134,14 @@ func firstLine(s string) string {
 
 // BuildAppriseArgs constructs the argv for one apprise invocation.
 // title and body land in -t / -b. tag (if non-empty) goes in --tag.
-// urls follow as positional arguments.
+// urls follow as positional arguments after a `--` separator so a URL
+// starting with `-` cannot be parsed as a flag.
 func BuildAppriseArgs(title, body, tag string, urls []string) []string {
 	args := []string{"-t", title, "-b", body}
 	if tag != "" {
 		args = append(args, "--tag", tag)
 	}
+	args = append(args, "--")
 	args = append(args, urls...)
 	return args
 }

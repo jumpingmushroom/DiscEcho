@@ -55,9 +55,3 @@ func (h *Handlers) CancelJob(w http.ResponseWriter, r *http.Request) {
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
-
-// PauseJob is a 501 placeholder per M1.1 decision #6 — pause/resume is
-// out of scope for this milestone.
-func (h *Handlers) PauseJob(w http.ResponseWriter, _ *http.Request) {
-	writeError(w, http.StatusNotImplemented, "pause not implemented in M1.1")
-}

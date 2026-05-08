@@ -1,6 +1,7 @@
 package api
 
 import (
+	"crypto/subtle"
 	"net/http"
 	"strings"
 )
@@ -20,7 +21,9 @@ func (h *Handlers) Authenticate(next http.Handler) http.Handler {
 			return
 		}
 		tok := strings.TrimSpace(strings.TrimPrefix(hdr, "Bearer "))
-		if tok != h.Token {
+		// Constant-time compare to avoid leaking token length / prefix
+		// match progress through response timing.
+		if subtle.ConstantTimeCompare([]byte(tok), []byte(h.Token)) != 1 {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}

@@ -53,15 +53,18 @@ func NewOrchestrator(cfg OrchestratorConfig) *Orchestrator {
 }
 
 // Close stops every per-drive worker. Idempotent.
+//
+// We don't close the per-drive channels; closing them races with
+// Submit (which sends on them). Instead we close o.stopped, which
+// every worker selects on, and discard the queues map so future
+// Submits return errStopped without sending. Pending items in the
+// channels are dropped — the worker observes <-o.stopped first.
 func (o *Orchestrator) Close() {
 	o.stopOnce.Do(func() {
-		close(o.stopped)
 		o.mu.Lock()
-		for _, q := range o.queues {
-			close(q)
-		}
 		o.queues = nil
 		o.mu.Unlock()
+		close(o.stopped)
 		o.wg.Wait()
 	})
 }
@@ -110,21 +113,20 @@ func (o *Orchestrator) Submit(ctx context.Context, discID, profileID string) (*s
 		Name: "job.created", Payload: map[string]any{"job": job},
 	})
 
-	o.enqueue(driveID, job.ID)
+	if err := o.enqueue(driveID, job.ID); err != nil {
+		return nil, err
+	}
 	return job, nil
 }
 
 // Cancel signals the running job to stop. If the job is queued (not
-// yet picked up), this is a no-op for the cancel path; the worker will
-// skip cancelled jobs when it reaches them. Returns ErrNotFound if no
-// active cancel func is registered.
+// yet picked up) it's flipped to cancelled in the store so the worker
+// skips it when it pops.
 func (o *Orchestrator) Cancel(jobID string) error {
 	o.mu.Lock()
 	cancel, ok := o.cancels[jobID]
 	o.mu.Unlock()
 	if !ok {
-		// Job may be queued and not yet running; mark cancelled so the
-		// worker skips it when it pops.
 		if err := o.cfg.Store.UpdateJobState(context.Background(), jobID, state.JobStateCancelled, ""); err != nil {
 			return fmt.Errorf("cancel: %w", err)
 		}
@@ -134,8 +136,15 @@ func (o *Orchestrator) Cancel(jobID string) error {
 	return nil
 }
 
-func (o *Orchestrator) enqueue(driveID, jobID string) {
+// errStopped is returned by enqueue when Submit races shutdown.
+var errStopped = errors.New("orchestrator: stopped")
+
+func (o *Orchestrator) enqueue(driveID, jobID string) error {
 	o.mu.Lock()
+	if o.queues == nil {
+		o.mu.Unlock()
+		return errStopped
+	}
 	q, ok := o.queues[driveID]
 	if !ok {
 		q = make(chan jobItem, 64)
@@ -144,19 +153,29 @@ func (o *Orchestrator) enqueue(driveID, jobID string) {
 		go o.worker(driveID, q)
 	}
 	o.mu.Unlock()
-	q <- jobItem{jobID: jobID}
+	// Send outside the lock so Close/Cancel stay responsive when a
+	// drive's queue is full. The queue is never closed (see Close),
+	// so there's no closed-channel-send risk here; Close signals via
+	// o.stopped instead.
+	select {
+	case q <- jobItem{jobID: jobID}:
+		return nil
+	case <-o.stopped:
+		return errStopped
+	}
 }
 
-// worker drains one drive's queue serially.
+// worker drains one drive's queue serially. Exits when o.stopped is
+// closed; the queue itself is never closed (see Close).
 func (o *Orchestrator) worker(driveID string, q chan jobItem) {
 	defer o.wg.Done()
-	for item := range q {
+	for {
 		select {
 		case <-o.stopped:
 			return
-		default:
+		case item := <-q:
+			o.runJob(item.jobID)
 		}
-		o.runJob(item.jobID)
 	}
 }
 

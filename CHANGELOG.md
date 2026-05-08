@@ -6,9 +6,46 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Fixed
+
+- SSE stream `/api/events` is no longer killed every 30 s by the global
+  request-timeout middleware; the route now bypasses the timeout and
+  emits a `: ping` keepalive comment every 15 s so reverse-proxy idle
+  timeouts don't drop the connection either.
+- `POST /api/discs/{id}/start` now persists the user-selected
+  candidate's identity (title / year / provider / metadata id) and
+  picks `TMDBID` for movie/TV candidates instead of the empty `MBID`.
+  Previously the manual choice was silently dropped before the
+  orchestrator re-read the disc row.
+- Bearer-token comparison in the auth middleware is now constant-time.
+- Apprise CLI invocations (`DryRun`, `Send`, `BuildAppriseArgs`) now
+  reject URLs that begin with `-` and place a `--` separator before
+  positional URL arguments so a malformed URL cannot smuggle CLI flags
+  into the apprise process.
+- Orchestrator `Close` no longer races `Submit` into a closed-channel
+  panic on shutdown; per-drive queues are no longer closed and workers
+  exit via `o.stopped` instead.
+
+### Removed
+
+- Dropped the unimplemented `POST /api/jobs/{id}/pause` endpoint (it
+  was a 501 placeholder).
+- Deleted the dead, drift-prone `shared/wire.ts` — `webui/src/lib/wire.ts`
+  is the sole frontend wire-types source.
+
+### Changed
+
+- Replaced the hand-rolled bubble sort in `tools/makemkv.go` with
+  `slices.Sort`.
+- `daemon/cmd/discecho/main.go` extracts a single `urlsForTrigger`
+  closure shared by every pipeline instead of re-defining it per
+  registration.
+- The daemon no longer logs a partial token at startup; it logs only
+  whether the bearer token is configured.
+
 ### Added
 
-- Initial repo skeleton: `daemon/`, `webui/`, `shared/`.
+- Initial repo skeleton: `daemon/`, `webui/`.
 - Go daemon serving `GET /api/health` and `GET /api/version` on `:8088`.
 - Linux udev subscription that logs disc-insert / disc-remove events on
   `/dev/sr*`; non-Linux builds compile with a no-op stub.
