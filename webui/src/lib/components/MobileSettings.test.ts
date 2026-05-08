@@ -55,9 +55,6 @@ describe('MobileSettings', () => {
     ]);
     settings.set({
       'library.path': '/srv/library',
-      'prefs.accent': 'aurora',
-      'prefs.mood': 'void',
-      'prefs.density': 'standard',
       'retention.forever': 'true',
       'retention.days': '30',
     });
@@ -74,7 +71,6 @@ describe('MobileSettings', () => {
     expect(getAllByText(/drives/i).length).toBeGreaterThan(0);
     expect(getAllByText(/host/i).length).toBeGreaterThan(0);
     expect(getAllByText(/notifications/i).length).toBeGreaterThan(0);
-    expect(getAllByText(/appearance/i).length).toBeGreaterThan(0);
     expect(getAllByText(/retention/i).length).toBeGreaterThan(0);
   });
 

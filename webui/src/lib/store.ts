@@ -61,15 +61,6 @@ export async function bootstrap(): Promise<void> {
   jobs.set(snap.jobs ?? []);
   profiles.set(snap.profiles ?? []);
   settings.set(snap.settings ?? {});
-  const prefs = {
-    accent: (snap.settings?.['prefs.accent'] as string) ?? 'aurora',
-    mood: (snap.settings?.['prefs.mood'] as string) ?? 'void',
-    density: (snap.settings?.['prefs.density'] as string) ?? 'standard',
-  };
-  applyPrefsToDOM(prefs);
-  if (typeof localStorage !== 'undefined') {
-    localStorage.setItem('discecho.prefs', JSON.stringify(prefs));
-  }
   // Notifications fetched separately (not in the snapshot).
   try {
     const ns = await apiGet<Notification[]>('/api/notifications');
@@ -236,12 +227,6 @@ async function refreshSettings(): Promise<void> {
   try {
     const fresh = await apiGet<Record<string, string>>('/api/settings');
     settings.set(fresh);
-    const p = {
-      accent: fresh['prefs.accent'] ?? 'aurora',
-      mood: fresh['prefs.mood'] ?? 'void',
-      density: fresh['prefs.density'] ?? 'standard',
-    };
-    applyPrefsToDOM(p);
   } catch {
     // Soft-fail: settings will resync on next bootstrap.
   }
@@ -436,31 +421,6 @@ export async function testNotification(id: string): Promise<{ sent: boolean; err
     }
     return { sent: false, error: msg };
   }
-}
-
-// ----- Prefs helpers --------------------------------------------------------
-
-export function applyPrefsToDOM(p: { accent: string; mood: string; density: string }): void {
-  if (typeof document === 'undefined') return;
-  document.documentElement.dataset.accent = p.accent;
-  document.documentElement.dataset.mood = p.mood;
-  document.documentElement.dataset.density = p.density;
-}
-
-export async function updatePrefs(p: {
-  accent: string;
-  mood: string;
-  density: string;
-}): Promise<void> {
-  if (typeof localStorage !== 'undefined') {
-    localStorage.setItem('discecho.prefs', JSON.stringify(p));
-  }
-  applyPrefsToDOM(p);
-  await apiPut('/api/settings', {
-    'prefs.accent': p.accent,
-    'prefs.mood': p.mood,
-    'prefs.density': p.density,
-  });
 }
 
 export async function updateRetention(r: { forever: boolean; days: number }): Promise<void> {

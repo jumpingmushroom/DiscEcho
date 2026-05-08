@@ -33,39 +33,6 @@ func TestGetSettings_ReturnsKV(t *testing.T) {
 	}
 }
 
-func TestSettings_Put_PrefsValid(t *testing.T) {
-	h := apitestServer(t)
-	body := mustMarshal(t, map[string]any{
-		"prefs.accent": "amber", "prefs.mood": "carbon", "prefs.density": "compact",
-	})
-	req := authedReq(t, http.MethodPut, "/api/settings", bytes.NewReader(body))
-	rec := httptest.NewRecorder()
-	h.PutSettings(rec, req)
-	if rec.Code != 200 {
-		t.Fatalf("status: %d body: %s", rec.Code, rec.Body.String())
-	}
-	got, _ := h.Store.GetSetting(context.Background(), "prefs.accent")
-	if got != "amber" {
-		t.Fatalf("accent: %q", got)
-	}
-}
-
-func TestSettings_Put_PrefsInvalidAccent_422(t *testing.T) {
-	h := apitestServer(t)
-	body := mustMarshal(t, map[string]any{"prefs.accent": "neon"})
-	req := authedReq(t, http.MethodPut, "/api/settings", bytes.NewReader(body))
-	rec := httptest.NewRecorder()
-	h.PutSettings(rec, req)
-	if rec.Code != 422 {
-		t.Fatalf("status: %d body: %s", rec.Code, rec.Body.String())
-	}
-	var errs map[string]string
-	_ = json.Unmarshal(rec.Body.Bytes(), &errs)
-	if errs["prefs.accent"] == "" {
-		t.Fatalf("expected accent error: %s", rec.Body.String())
-	}
-}
-
 func TestSettings_Put_RetentionValid(t *testing.T) {
 	h := apitestServer(t)
 	body := mustMarshal(t, map[string]any{
@@ -189,7 +156,7 @@ func TestSettings_Put_BroadcastsSettingsChanged(t *testing.T) {
 	h := apitestServer(t)
 	ch, cancel := h.Broadcaster.Subscribe(4)
 	defer cancel()
-	body := mustMarshal(t, map[string]any{"prefs.accent": "cobalt"})
+	body := mustMarshal(t, map[string]any{"library.path": "/srv/media"})
 	req := authedReq(t, http.MethodPut, "/api/settings", bytes.NewReader(body))
 	rec := httptest.NewRecorder()
 	h.PutSettings(rec, req)

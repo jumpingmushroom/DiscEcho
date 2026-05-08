@@ -21,16 +21,14 @@ func (h *Handlers) GetSettings(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, all)
 }
 
-// PutSettings accepts a partial map of M6.3-editable settings,
-// validates each known key, and upserts via Store.SetSetting.
+// PutSettings accepts a partial map of editable settings, validates
+// each known key, and upserts via Store.SetSetting.
 //
 // Editable keys (and their value types):
 //
-//	prefs.accent       string in {aurora, amber, cobalt, mono}
-//	prefs.mood         string in {void, carbon, aurora}
-//	prefs.density      string in {compact, standard, cinematic}
 //	retention.forever  bool
 //	retention.days     int >= 1 (when retention.forever is false)
+//	library.path       absolute filesystem path
 //
 // Unknown keys → 422. Cross-key rule: if retention.forever is false,
 // retention.days must be present in the PATCH (or already stored)
@@ -88,9 +86,6 @@ func (h *Handlers) PutSettings(w http.ResponseWriter, r *http.Request) {
 // allowedSettings maps each editable key to a validator that returns
 // the encoded string value or an error.
 var allowedSettings = map[string]func(any) (string, error){
-	"prefs.accent":  enumString("aurora", "amber", "cobalt", "mono"),
-	"prefs.mood":    enumString("void", "carbon", "aurora"),
-	"prefs.density": enumString("compact", "standard", "cinematic"),
 	"retention.forever": func(v any) (string, error) {
 		b, ok := v.(bool)
 		if !ok {
@@ -123,21 +118,6 @@ var allowedSettings = map[string]func(any) (string, error){
 		}
 		return s, nil
 	},
-}
-
-func enumString(allowed ...string) func(any) (string, error) {
-	return func(v any) (string, error) {
-		s, ok := v.(string)
-		if !ok {
-			return "", fmt.Errorf("must be string")
-		}
-		for _, a := range allowed {
-			if s == a {
-				return s, nil
-			}
-		}
-		return "", fmt.Errorf("must be one of %v", allowed)
-	}
 }
 
 func validateSettingsPatch(patch map[string]any) (encoded map[string]string, errs []ValidationError) {
