@@ -108,6 +108,32 @@ describe('DiscIdSheet', () => {
     expect(body).toEqual({ profile_id: 'p-cd', candidate_index: 0 });
   });
 
+  it('does not auto-rip when top confidence is below 50', async () => {
+    const lowConfDisc: Disc = {
+      ...disc,
+      candidates: [
+        { source: 'TMDB', title: 'Maybe Match', confidence: 12 },
+        { source: 'TMDB', title: 'Other Maybe', confidence: 5 },
+      ],
+    };
+    const { getByText, queryByText } = render(DiscIdSheet, { disc: lowConfDisc });
+    await tick();
+    expect(getByText(/No confident match · pick a title or search/)).toBeInTheDocument();
+    expect(queryByText(/Auto-rip in/)).toBeNull();
+    await vi.advanceTimersByTimeAsync(15_000);
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it('shows "No match found" when candidate list is empty', async () => {
+    const emptyDisc: Disc = { ...disc, candidates: [] };
+    const { getByText, queryByText } = render(DiscIdSheet, { disc: emptyDisc });
+    await tick();
+    expect(getByText(/No match found · search manually/)).toBeInTheDocument();
+    expect(queryByText(/Auto-rip in/)).toBeNull();
+    await vi.advanceTimersByTimeAsync(15_000);
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
   it('skip clears pendingDiscID without firing API', async () => {
     const { getByText } = render(DiscIdSheet, { disc });
     await fireEvent.click(getByText('Skip identification'));
