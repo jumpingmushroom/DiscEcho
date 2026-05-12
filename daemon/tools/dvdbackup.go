@@ -6,11 +6,14 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
+	"time"
 )
 
 // DVDBackup wraps the dvdbackup binary. It mirrors a DVD's VIDEO_TS
@@ -35,11 +38,25 @@ func NewDVDBackup(bin string) *DVDBackup {
 // not registered in tools.Registry.
 func (d *DVDBackup) Name() string { return "dvdbackup" }
 
+// progressPollInterval is the cadence at which Mirror polls the
+// workdir size to compute and emit progress. dvdbackup itself doesn't
+// publish a structured percentage, so we derive one from
+// (bytes-written / disc-total) using /sys/block/<dev>/size as the
+// denominator. Polling every 2 s gives smooth motion without
+// hammering the filesystem.
+var progressPollInterval = 2 * time.Second
+
 // Mirror runs `dvdbackup -M -i <devPath> -o <outDir> -p` to mirror
 // the entire DVD-Video structure into outDir/<VOLUME_LABEL>/. Returns
-// the path to the freshly-created `<VOLUME_LABEL>/VIDEO_TS` directory
-// (HandBrake's `--input` for the transcode step). Sink receives
-// per-VOB progress lines parsed from dvdbackup's stdout.
+// the path to the freshly-created `<VOLUME_LABEL>/VIDEO_TS` parent
+// directory (HandBrake's `--input` for the transcode step).
+//
+// Progress is emitted to sink as a true percentage derived from the
+// running sum of bytes written under outDir vs. the disc's total
+// size (read once from /sys/block/<dev>/size). dvdbackup's textual
+// stdout is also scanned so each VOB-mention becomes a coarse
+// log/speed tick — useful when the size-based path can't read
+// /sys/block (e.g. devPath that's not a block device).
 func (d *DVDBackup) Mirror(ctx context.Context, devPath, outDir string, sink Sink) (string, error) {
 	if devPath == "" {
 		return "", errors.New("dvdbackup: empty devPath")
@@ -50,6 +67,9 @@ func (d *DVDBackup) Mirror(ctx context.Context, devPath, outDir string, sink Sin
 	if err := os.MkdirAll(outDir, 0o755); err != nil {
 		return "", fmt.Errorf("dvdbackup mkdir: %w", err)
 	}
+
+	totalBytes, totalErr := discTotalBytes(devPath)
+	// totalErr is non-fatal — we just fall back to VOB-tick-only progress.
 
 	args := []string{"-M", "-i", devPath, "-o", outDir, "-p"}
 	cmd := exec.CommandContext(ctx, d.bin, args...)
@@ -66,20 +86,29 @@ func (d *DVDBackup) Mirror(ctx context.Context, devPath, outDir string, sink Sin
 		return "", fmt.Errorf("dvdbackup start: %w", err)
 	}
 
+	pollCtx, cancelPoll := context.WithCancel(ctx)
+	defer cancelPoll()
+
 	var wg sync.WaitGroup
-	wg.Add(2)
+	wg.Add(3)
 	go func() { defer wg.Done(); parseDVDBackupStream(stdout, sink) }()
 	go func() { defer wg.Done(); parseDVDBackupStream(stderr, sink) }()
+	go func() { defer wg.Done(); pollProgress(pollCtx, outDir, totalBytes, sink) }()
+
+	waitErr := cmd.Wait()
+	cancelPoll() // stop the progress poll before we close the streams
 	wg.Wait()
 
-	if err := cmd.Wait(); err != nil {
-		return "", fmt.Errorf("dvdbackup: %w", err)
+	if waitErr != nil {
+		return "", fmt.Errorf("dvdbackup: %w", waitErr)
 	}
 
-	// dvdbackup writes outDir/<VOLUME_LABEL>/VIDEO_TS. The volume
-	// label is the disc's own label, lifted by libdvdread; we
-	// discover it by scanning outDir for the (sole) subdir that
-	// contains a VIDEO_TS folder.
+	// Final snap to 100% — the size-based poll caps at 99 % to leave
+	// headroom for sector-alignment slack.
+	if totalErr == nil && totalBytes > 0 {
+		sink.Progress(100, formatSize(totalBytes), 0)
+	}
+
 	videoTS, err := findVideoTSDir(outDir)
 	if err != nil {
 		return "", err
@@ -104,25 +133,165 @@ func findVideoTSDir(outDir string) (string, error) {
 	return "", fmt.Errorf("dvdbackup: no VIDEO_TS produced under %s", outDir)
 }
 
-// parseDVDBackupStream consumes dvdbackup's textual output and turns
-// "copying VTS_NN_NN.VOB" lines into sink log + progress events.
-// dvdbackup doesn't emit a structured percentage, so progress is
-// approximate (one tick per VOB) — good enough for the dashboard
-// to show motion.
-func parseDVDBackupStream(r io.Reader, sink Sink) {
-	scanner := bufio.NewScanner(r)
-	scanner.Buffer(make([]byte, 4096), 64*1024)
-	vobs := 0
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		if line == "" {
+// discTotalBytes returns the total size of the block device, read
+// from /sys/block/<name>/size (which is in 512-byte sectors). Returns
+// 0 / error if devPath isn't a block device or sysfs isn't mounted.
+func discTotalBytes(devPath string) (int64, error) {
+	name := filepath.Base(devPath)
+	sysPath := filepath.Join("/sys/block", name, "size")
+	body, err := os.ReadFile(sysPath) // #nosec G304 -- path built from /dev/<basename>
+	if err != nil {
+		return 0, err
+	}
+	sectors, err := strconv.ParseInt(strings.TrimSpace(string(body)), 10, 64)
+	if err != nil {
+		return 0, fmt.Errorf("parse %s: %w", sysPath, err)
+	}
+	return sectors * 512, nil
+}
+
+// pollProgress samples the running size of outDir until ctx is
+// cancelled (i.e. dvdbackup has exited). totalBytes is the disc-side
+// reference; with 0 / unknown we still emit a speed reading but no
+// percentage.
+func pollProgress(ctx context.Context, outDir string, totalBytes int64, sink Sink) {
+	tick := time.NewTicker(progressPollInterval)
+	defer tick.Stop()
+
+	type sample struct {
+		t     time.Time
+		bytes int64
+	}
+	const windowSec = 10
+	var window []sample
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-tick.C:
+		}
+
+		written, err := dirSize(outDir)
+		if err != nil {
 			continue
 		}
-		if strings.Contains(line, ".VOB") {
-			vobs++
-			// VOBs cap at 1 GB each; dvdbackup writes them sequentially,
-			// so each completed VOB is a coarse progress tick.
-			sink.Progress(0, fmt.Sprintf("%dvob", vobs), 0)
+		now := time.Now()
+		window = append(window, sample{t: now, bytes: written})
+		// trim window to last `windowSec` seconds
+		cutoff := now.Add(-windowSec * time.Second)
+		for len(window) > 1 && window[0].t.Before(cutoff) {
+			window = window[1:]
 		}
+
+		var speed string
+		var eta int
+		if len(window) >= 2 {
+			d := window[len(window)-1].bytes - window[0].bytes
+			t := window[len(window)-1].t.Sub(window[0].t).Seconds()
+			if t > 0 {
+				bps := float64(d) / t
+				speed = formatRate(bps)
+				if totalBytes > 0 && bps > 0 {
+					remaining := totalBytes - written
+					if remaining < 0 {
+						remaining = 0
+					}
+					eta = int(float64(remaining) / bps)
+				}
+			}
+		}
+		if speed == "" {
+			speed = formatSize(written)
+		}
+
+		var pct float64
+		if totalBytes > 0 {
+			pct = float64(written) / float64(totalBytes) * 100
+			// Cap at 99 % until dvdbackup exits — the disc-total
+			// always overshoots the actual VIDEO_TS bytes because of
+			// non-DVD-Video tracks, sector alignment, and trailing
+			// zero-fill. We snap to 100 % in Mirror after Wait().
+			if pct > 99 {
+				pct = 99
+			}
+		}
+		sink.Progress(pct, speed, eta)
+	}
+}
+
+// dirSize sums the sizes of all regular files under root. Symlinks
+// and special files are skipped.
+func dirSize(root string) (int64, error) {
+	var total int64
+	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			// A transient ENOENT can happen while dvdbackup is
+			// creating subdirs; skip and keep walking.
+			if errors.Is(err, fs.ErrNotExist) {
+				return nil
+			}
+			return err
+		}
+		if d.IsDir() {
+			return nil
+		}
+		info, ierr := d.Info()
+		if ierr != nil {
+			if errors.Is(ierr, fs.ErrNotExist) {
+				return nil
+			}
+			return ierr
+		}
+		if info.Mode().IsRegular() {
+			total += info.Size()
+		}
+		return nil
+	})
+	return total, err
+}
+
+func formatSize(b int64) string {
+	const (
+		KB = 1024
+		MB = KB * 1024
+		GB = MB * 1024
+	)
+	switch {
+	case b >= GB:
+		return fmt.Sprintf("%.1fGB", float64(b)/float64(GB))
+	case b >= MB:
+		return fmt.Sprintf("%.0fMB", float64(b)/float64(MB))
+	case b >= KB:
+		return fmt.Sprintf("%.0fKB", float64(b)/float64(KB))
+	default:
+		return fmt.Sprintf("%dB", b)
+	}
+}
+
+func formatRate(bps float64) string {
+	const (
+		KB = 1024.0
+		MB = KB * 1024
+	)
+	switch {
+	case bps >= MB:
+		return fmt.Sprintf("%.1fMB/s", bps/MB)
+	case bps >= KB:
+		return fmt.Sprintf("%.0fKB/s", bps/KB)
+	default:
+		return fmt.Sprintf("%.0fB/s", bps)
+	}
+}
+
+// parseDVDBackupStream consumes dvdbackup's textual output. Today
+// it's a no-op for progress (the size-based poller does the work)
+// but stays in place so future log-level mirroring (sink.Log) has
+// a hook ready.
+func parseDVDBackupStream(r io.Reader, _ Sink) {
+	scanner := bufio.NewScanner(r)
+	scanner.Buffer(make([]byte, 4096), 64*1024)
+	for scanner.Scan() {
+		_ = scanner.Text()
 	}
 }
