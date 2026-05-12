@@ -6,6 +6,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.2.3] - 2026-05-12
+
+### Added
+
+- **Real percentage during DVD rip step.** dvdbackup itself only
+  emits per-VOB log lines, which left the dashboard's progress bar
+  pinned at 0 % through the entire rip. The DVD wrapper now reads
+  the disc's total size once from `/sys/block/<dev>/size`, then
+  polls the workdir every 2 s, summing bytes written, computing
+  `written / total × 100` and pushing it through the sink. A
+  10-second sliding window over the same samples produces a
+  human-readable speed (e.g. `7.2MB/s`) and ETA. Progress caps at
+  99 % until dvdbackup exits cleanly, then snaps to 100 % — the
+  disc total always overshoots the actual VIDEO_TS bytes because
+  of sector-alignment slack and non-DVD-Video tracks.
+
 ## [0.2.2] - 2026-05-12
 
 ### Changed
