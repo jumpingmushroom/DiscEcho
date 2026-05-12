@@ -1,23 +1,20 @@
 <script lang="ts">
   import { discs, jobs } from '$lib/store';
-  import type { Disc, Job } from '$lib/wire';
+  import type { Disc } from '$lib/wire';
   import AwaitingDecisionCard from './AwaitingDecisionCard.svelte';
 
-  // Discs are "awaiting decision" when they have candidates (or the
-  // empty-no-match case worth surfacing) AND no live job referencing
-  // them. Job states that count as "live" are anything not in a
-  // terminal sink — queued / running / identifying. Done / failed /
-  // cancelled / interrupted jobs do NOT keep the card alive, so a
-  // user can pick a different candidate after a failed run.
-  const ACTIVE_JOB_STATES: ReadonlyArray<Job['state']> = ['queued', 'running', 'identifying'];
-
-  $: liveDiscIDs = new Set(
-    $jobs.filter((j) => ACTIVE_JOB_STATES.includes(j.state)).map((j) => j.disc_id),
-  );
+  // A disc is "awaiting decision" when the user hasn't yet picked a
+  // candidate for it. Picking creates a Job — so the moment ANY job
+  // (running, queued, OR terminal) exists for the disc's id, the
+  // decision was made, regardless of how that job ended. Re-rips from
+  // history will be a separate, explicit affordance; until that ships
+  // the disc stays off this surface so an old failed rip doesn't
+  // re-prompt every time the page loads.
+  $: decidedDiscIDs = new Set($jobs.map((j) => j.disc_id));
 
   $: pending = Object.values($discs)
-    .filter((d: Disc) => !liveDiscIDs.has(d.id))
-    .filter((d: Disc) => (d.candidates ?? []).length > 0 || d.type === 'DVD' || d.type === 'BDMV')
+    .filter((d: Disc) => !decidedDiscIDs.has(d.id))
+    .filter((d: Disc) => (d.candidates ?? []).length > 0)
     .sort((a, b) => (a.created_at < b.created_at ? 1 : -1))
     .slice(0, 3);
 </script>

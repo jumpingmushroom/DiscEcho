@@ -6,6 +6,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.1.5] - 2026-05-12
+
+### Fixed
+
+- **Awaiting-decision list no longer resurrects every old disc.**
+  The 0.1.4 filter only excluded discs with an *active* job
+  (`queued`/`running`/`identifying`), so any disc whose job had
+  already ended — `done`, `failed`, `interrupted`, `cancelled` —
+  came back as a stale decision card on every page load. Combined
+  with the redundant "is DVD or BDMV" clause, this meant that
+  every disc ever inserted re-prompted forever. The list now
+  excludes any disc that has *any* job record at all — picking
+  a candidate is a one-shot decision; re-rip flows will be a
+  separate, explicit affordance.
+
 ## [0.1.4] - 2026-05-12
 
 ### Added
