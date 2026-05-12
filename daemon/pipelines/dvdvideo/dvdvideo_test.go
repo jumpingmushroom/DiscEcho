@@ -167,11 +167,12 @@ func TestDVD_Run_MovieEndToEnd(t *testing.T) {
 	reg.Register(eject)
 
 	h := dvdvideo.New(dvdvideo.Deps{
-		Tools:            reg,
-		LibraryRoot:      libRoot,
-		WorkRoot:         t.TempDir(),
-		LibraryProbe:     func(string) error { return nil },
-		HandBrakeScanner: hb,
+		Tools:                    reg,
+		LibraryRoot:              libRoot,
+		WorkRoot:                 t.TempDir(),
+		LibraryProbe:             func(string) error { return nil },
+		HandBrakeScanner:         hb,
+		MinEncodedBytesPerSecond: -1, // disable size check; fake encoder writes a stub
 	})
 
 	drv := &state.Drive{ID: "drv-1", DevPath: "/dev/sr0"}
@@ -221,11 +222,12 @@ func TestDVD_Run_SeriesMultiTitle(t *testing.T) {
 	reg.Register(eject)
 
 	h := dvdvideo.New(dvdvideo.Deps{
-		Tools:            reg,
-		LibraryRoot:      libRoot,
-		WorkRoot:         t.TempDir(),
-		LibraryProbe:     func(string) error { return nil },
-		HandBrakeScanner: hb,
+		Tools:                    reg,
+		LibraryRoot:              libRoot,
+		WorkRoot:                 t.TempDir(),
+		LibraryProbe:             func(string) error { return nil },
+		HandBrakeScanner:         hb,
+		MinEncodedBytesPerSecond: -1,
 	})
 
 	drv := &state.Drive{ID: "drv-1", DevPath: "/dev/sr0"}

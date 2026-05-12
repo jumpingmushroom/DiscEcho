@@ -745,6 +745,25 @@ func (s *Store) ListActiveAndRecentJobs(ctx context.Context, recentLimit int) ([
 	return out, nil
 }
 
+// HasActiveJobOnDrive reports whether the given drive currently has a
+// job in queued / running / identifying state. Used by the udev event
+// handler to drop mid-rip media-change events that would otherwise
+// collide with the active job's exclusive hold on /dev/sr0.
+func (s *Store) HasActiveJobOnDrive(ctx context.Context, driveID string) (bool, error) {
+	if driveID == "" {
+		return false, nil
+	}
+	var n int
+	err := s.db.Conn().QueryRowContext(ctx, `
+		SELECT COUNT(*) FROM jobs
+		WHERE drive_id = ? AND state IN ('queued','running','identifying')`,
+		driveID).Scan(&n)
+	if err != nil {
+		return false, err
+	}
+	return n > 0, nil
+}
+
 // UpdateJobState transitions a job, optionally bumping started_at /
 // finished_at on the relevant transitions. error_message is set on
 // JobStateFailed transitions; pass "" otherwise.

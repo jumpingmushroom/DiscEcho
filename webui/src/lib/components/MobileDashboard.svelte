@@ -1,12 +1,12 @@
 <script lang="ts">
   import { goto } from '$app/navigation';
-  import { drives, jobs, discs, pendingDiscID, liveStatus } from '$lib/store';
+  import { drives, jobs, discs, liveStatus } from '$lib/store';
   import AppBar from '$lib/components/AppBar.svelte';
   import TabBar from '$lib/components/TabBar.svelte';
   import LiveDot from '$lib/components/LiveDot.svelte';
   import DriveCard from '$lib/components/DriveCard.svelte';
   import JobRow from '$lib/components/JobRow.svelte';
-  import DiscIdSheet from '$lib/components/DiscIdSheet.svelte';
+  import AwaitingDecisionList from '$lib/components/AwaitingDecisionList.svelte';
   import type { Drive, Job } from '$lib/wire';
 
   const TERMINAL_STATES: ReadonlyArray<Job['state']> = [
@@ -32,7 +32,6 @@
     return acc;
   }, {});
   $: activeCount = $drives.filter((d) => d.state !== 'idle').length;
-  $: pendingDisc = $pendingDiscID ? $discs[$pendingDiscID] : null;
 
   function formatHeroLine(rip: number, q: number): string {
     if (rip === 0 && q === 0) return '0 jobs';
@@ -42,10 +41,9 @@
   }
 
   function onDriveClick(drive: Drive): void {
-    if (drive.state === 'identifying' && drive.current_disc_id) {
-      pendingDiscID.set(drive.current_disc_id);
-      return;
-    }
+    // identifying drives now have their own AwaitingDecisionList card
+    // higher up the page — clicking the drive card just navigates to
+    // the running job, when there is one.
     if (drive.state === 'ripping') {
       const j = activeJobs.find((j) => j.drive_id === drive.id && j.state !== 'queued');
       if (j) goto(`/jobs/${j.id}`);
@@ -79,6 +77,11 @@
         </div>
       </div>
     </div>
+  </div>
+
+  <!-- Awaiting decision -->
+  <div class="mb-4 px-5">
+    <AwaitingDecisionList />
   </div>
 
   <!-- Drives -->
@@ -117,9 +120,5 @@
     {/if}
   </div>
 </div>
-
-{#if pendingDisc}
-  <DiscIdSheet disc={pendingDisc} />
-{/if}
 
 <TabBar active="dashboard" />

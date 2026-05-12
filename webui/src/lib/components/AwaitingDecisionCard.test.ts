@@ -1,0 +1,108 @@
+import '@testing-library/jest-dom/vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { render, fireEvent } from '@testing-library/svelte';
+import { tick } from 'svelte';
+import AwaitingDecisionCard from './AwaitingDecisionCard.svelte';
+import { profiles } from '$lib/store';
+import type { Disc, Profile } from '$lib/wire';
+
+const dvdProfile: Profile = {
+  id: 'p-dvd',
+  disc_type: 'DVD',
+  name: 'DVD-Movie',
+  engine: 'HandBrake',
+  format: 'MP4',
+  preset: '',
+  container: 'MP4',
+  video_codec: 'x264',
+  quality_preset: '',
+  hdr_pipeline: '',
+  drive_policy: 'any',
+  auto_eject: true,
+  options: {},
+  output_path_template: '{{.Title}}.mp4',
+  enabled: true,
+  step_count: 7,
+  created_at: '2026-05-07T12:00:00Z',
+  updated_at: '2026-05-07T12:00:00Z',
+};
+
+const highConfDisc: Disc = {
+  id: 'disc-1',
+  drive_id: 'd1',
+  type: 'DVD',
+  candidates: [
+    { source: 'TMDB', title: 'Blade Runner 2049', year: 2017, confidence: 92, media_type: 'movie' },
+  ],
+  created_at: '2026-05-12T08:00:00Z',
+};
+
+const lowConfDisc: Disc = {
+  ...highConfDisc,
+  id: 'disc-low',
+  candidates: [
+    { source: 'TMDB', title: 'Jackass: The Movie', year: 2002, confidence: 0, media_type: 'movie' },
+    { source: 'TMDB', title: 'Jackass Number Two', year: 2006, confidence: 0, media_type: 'movie' },
+  ],
+};
+
+describe('AwaitingDecisionCard', () => {
+  let fetchSpy: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    profiles.set([dvdProfile]);
+    fetchSpy = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ id: 'job-new' }),
+    });
+    vi.stubGlobal('fetch', fetchSpy);
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+  });
+
+  it('renders the candidate list and counts the matches', () => {
+    const { getByText } = render(AwaitingDecisionCard, { disc: lowConfDisc });
+    expect(getByText(/2 matches/)).toBeInTheDocument();
+    expect(getByText('Jackass: The Movie')).toBeInTheDocument();
+    expect(getByText('Jackass Number Two')).toBeInTheDocument();
+  });
+
+  it('auto-rips when top confidence ≥ 50', async () => {
+    render(AwaitingDecisionCard, { disc: highConfDisc });
+    await tick();
+    await vi.advanceTimersByTimeAsync(8000);
+    expect(fetchSpy).toHaveBeenCalledWith(
+      '/api/discs/disc-1/start',
+      expect.objectContaining({ method: 'POST' }),
+    );
+  });
+
+  it('does not auto-rip when top confidence is below 50', async () => {
+    const { getByText, queryByText } = render(AwaitingDecisionCard, { disc: lowConfDisc });
+    await tick();
+    expect(getByText(/No confident match · pick a title or search/)).toBeInTheDocument();
+    expect(queryByText(/Auto-rip in/)).toBeNull();
+    await vi.advanceTimersByTimeAsync(15_000);
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it('Use top match · Start rip button posts to /start', async () => {
+    const { getByText } = render(AwaitingDecisionCard, { disc: lowConfDisc });
+    await fireEvent.click(getByText('Use top match · Start rip'));
+    expect(fetchSpy).toHaveBeenCalledWith(
+      '/api/discs/disc-low/start',
+      expect.objectContaining({ method: 'POST' }),
+    );
+  });
+
+  it('renders inline (not wrapped in a bottom sheet dialog)', () => {
+    const { container } = render(AwaitingDecisionCard, { disc: lowConfDisc });
+    // BottomSheet renders a [role=dialog] backdrop; this component must not.
+    expect(container.querySelector('[role="dialog"]')).toBeNull();
+  });
+});
