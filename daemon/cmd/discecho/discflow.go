@@ -12,6 +12,15 @@ import (
 	"github.com/jumpingmushroom/DiscEcho/daemon/state"
 )
 
+// discFlowCooldown is the window after a job ends during which we
+// ignore further media-change uevents on the same drive. Closes the
+// race where the spurious mid-rip uevent fires at the instant
+// HandBrake exits — by then the job is `done` so the active-job
+// guard returns false, but the disc is still spinning down and
+// re-classifying just wastes effort. 10 s comfortably covers
+// HandBrake/makemkvcon teardown and udev's own quiesce time.
+const discFlowCooldown = 10 * time.Second
+
 // discFlow handles one optical-media-change uevent: classify the disc,
 // pick the matching pipeline handler, run Identify, persist the disc
 // row, and broadcast disc.detected / disc.identified events.
@@ -48,6 +57,12 @@ func (df *discFlow) handle(ev drive.Uevent) {
 		slog.Warn("disc-flow: HasActiveJobOnDrive", "err", err)
 	} else if busy {
 		slog.Info("disc-flow: drive busy, ignoring media-change", "dev", devPath, "drive_id", drv.ID)
+		return
+	}
+	if recent, err := df.store.HasRecentJobOnDrive(ctx, drv.ID, discFlowCooldown); err != nil {
+		slog.Warn("disc-flow: HasRecentJobOnDrive", "err", err)
+	} else if recent {
+		slog.Info("disc-flow: drive in post-job cooldown, ignoring media-change", "dev", devPath, "drive_id", drv.ID)
 		return
 	}
 	if err := df.store.UpdateDriveState(ctx, drv.ID, state.DriveStateIdentifying); err != nil {

@@ -6,6 +6,67 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-05-12
+
+### Changed
+
+- **DVD-Video pipeline now uses MakeMKV for the rip step** instead of
+  reading the disc directly with HandBrake. The new flow mirrors the
+  BDMV pipeline: `makemkvcon mkv dev:/dev/sr0 …` extracts each
+  selected title to an MKV in the workdir, then HandBrake transcodes
+  each MKV from the local filesystem. HandBrake no longer touches
+  `/dev/sr0` for DVD jobs, so spurious kernel media-change uevents
+  during a long read can't truncate the output.
+- **MakeMKV now requires the SCSI Generic node** (`/dev/sg0` on most
+  hosts; the actual node may differ — check `ls -l /dev/sg* | grep
+  cdrom`). The compose file maps `${OPTICAL_SG_DEVICE:-/dev/sg0}`;
+  on unraid you need to add the matching `--device` row to the
+  container template manually, alongside the existing `/dev/sr0`.
+- **DVD ripping now requires `DISCECHO_MAKEMKV_BETA_KEY`** to be set,
+  same as BDMV/UHD already did. MakeMKV's "free DVD" mode still
+  needs a registration key while in beta; the project README points
+  to the rotating public key.
+- DVD encoder defaults stay at HandBrake x264 quality 20 in the
+  profile, but the orchestrator no longer infers titles from
+  HandBrake's scan output — it uses MakeMKV's `info` output
+  instead. Title-selection rules (longest for MP4 movie profile,
+  ≥`min_title_seconds` for MKV series profile) are unchanged.
+
+### Fixed
+
+- **MakeMKV beta key was never actually loaded.** The daemon wrote
+  `app_Key = "…"` to `${DISCECHO_DATA}/MakeMKV/settings.conf` but
+  `makemkvcon` reads from `$HOME/.MakeMKV/settings.conf` (note the
+  leading dot). The two directories never matched, so BDMV / UHD
+  jobs would have hit "application version is too old" the moment
+  anyone tried them. `writeMakeMKVBetaKey` now also creates a
+  `.MakeMKV → MakeMKV` symlink in the parent directory so
+  makemkvcon finds the config we wrote, no matter how `HOME` is
+  passed.
+- **discFlow guard now also bails during a 10-second post-job
+  cooldown.** The v0.1.4 guard checked only that the drive had no
+  *active* job, which lost the race where a spurious media-change
+  uevent fires at the exact instant HandBrake exits — the job was
+  briefly `done` before the guard's check ran, and the re-classify
+  proceeded to clobber the drive. Cooldown closes the race; new
+  `Store.HasRecentJobOnDrive`.
+- **Orchestrator now writes `jobs.active_step`** at every
+  `OnStepStart`. Previously the column was always NULL despite the
+  per-job step table being correctly maintained, so the desktop
+  pipeline stepper never highlighted the active dot. New
+  `Store.SetActiveStep`.
+- **Dashboard now shows `running` once the orchestrator picks up
+  the job.** The webui's `job.step` SSE handler used to update only
+  the steps array; the job's `state` stayed `queued` until
+  `job.done` arrived, so the queue row read "QUEUED 0%" through
+  the entire rip. Handler now auto-promotes `queued → running`
+  when the first step transitions out of pending.
+- **Encoded-output validator floor raised** from 300 kbps to 750
+  kbps (`minEncodedBytesPerSecond` 37 500 → 93 750). The 0.1.4
+  threshold was *just* below the 270 kbps truncation we saw on the
+  homelab. Real x264 quality-20 movies sit ≥ 1.5 Mbps so the new
+  floor still has comfortable headroom.
+
 ## [0.1.5] - 2026-05-12
 
 ### Fixed

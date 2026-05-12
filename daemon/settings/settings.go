@@ -422,6 +422,27 @@ func writeMakeMKVBetaKey(dataDir, key string) error {
 	if err := os.WriteFile(confPath, []byte(content), 0o600); err != nil {
 		return fmt.Errorf("write %s: %w", confPath, err)
 	}
+	// makemkvcon always loads its config from `$HOME/.MakeMKV/settings.conf`
+	// — a directory whose name starts with a dot. Our managed dataDir is
+	// the user-friendly `MakeMKV/` (no dot) so KEYDB.cfg and friends are
+	// visible to humans listing the appdata mount. Bridge the naming
+	// mismatch with a `.MakeMKV → MakeMKV` symlink in the parent so
+	// makemkvcon (started with HOME=<parent>) finds the config we wrote.
+	parent := filepath.Dir(dataDir)
+	if parent != "" && parent != "." {
+		dotPath := filepath.Join(parent, ".MakeMKV")
+		if fi, err := os.Lstat(dotPath); err == nil {
+			if fi.Mode()&os.ModeSymlink == 0 {
+				// Existing non-symlink (e.g. real dir). Leave alone — manual
+				// setup wins, but we logged enough above to debug it.
+				return nil
+			}
+			_ = os.Remove(dotPath)
+		}
+		if err := os.Symlink(filepath.Base(dataDir), dotPath); err != nil && !os.IsExist(err) {
+			return fmt.Errorf("symlink %s -> %s: %w", dotPath, dataDir, err)
+		}
+	}
 	return nil
 }
 

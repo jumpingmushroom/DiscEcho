@@ -1,5 +1,9 @@
 # DiscEcho — local / homelab deploy.
-# Required: at least one optical drive at /dev/sr0.
+# Required: at least one optical drive at /dev/sr0 AND its matching
+# SCSI Generic node (typically /dev/sg0; some hosts may number it
+# differently — check `ls -l /dev/sg* | grep cdrom`). MakeMKV uses
+# the sg node for CSS / AACS handshakes and drive control; /dev/sr0
+# alone is not enough for DVD or BD rips.
 
 services:
   discecho:
@@ -14,6 +18,7 @@ services:
     restart: unless-stopped
     devices:
       - /dev/sr0:/dev/sr0
+      - ${OPTICAL_SG_DEVICE:-/dev/sg0}:${OPTICAL_SG_DEVICE:-/dev/sg0}
     group_add:
       - "${CDROM_GID:-24}"
     volumes:

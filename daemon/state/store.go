@@ -764,6 +764,41 @@ func (s *Store) HasActiveJobOnDrive(ctx context.Context, driveID string) (bool, 
 	return n > 0, nil
 }
 
+// SetActiveStep writes jobs.active_step without touching progress /
+// speed / eta. Called by the persistent sink at OnStepStart so the
+// dashboard's pipeline-stepper highlight tracks the running step even
+// before any progress event fires.
+func (s *Store) SetActiveStep(ctx context.Context, jobID string, step StepID) error {
+	_, err := s.db.Conn().ExecContext(ctx,
+		`UPDATE jobs SET active_step = ? WHERE id = ?`,
+		string(step), jobID)
+	return err
+}
+
+// HasRecentJobOnDrive reports whether any job on the drive finished
+// within the last `cooldown`. Defence-in-depth against the race where
+// a spurious mid-rip media-change uevent fires at the *exact* instant
+// the current job transitions to done — HasActiveJobOnDrive returns
+// false, the guard lets the re-classify through, and the kernel disc
+// disturbance trashes whatever the orchestrator was about to do next.
+func (s *Store) HasRecentJobOnDrive(ctx context.Context, driveID string, cooldown time.Duration) (bool, error) {
+	if driveID == "" || cooldown <= 0 {
+		return false, nil
+	}
+	cutoff := timestamp(time.Now().Add(-cooldown))
+	var n int
+	err := s.db.Conn().QueryRowContext(ctx, `
+		SELECT COUNT(*) FROM jobs
+		WHERE drive_id = ?
+		  AND state IN ('done','failed','cancelled','interrupted')
+		  AND finished_at >= ?`,
+		driveID, cutoff).Scan(&n)
+	if err != nil {
+		return false, err
+	}
+	return n > 0, nil
+}
+
 // UpdateJobState transitions a job, optionally bumping started_at /
 // finished_at on the relevant transitions. error_message is set on
 // JobStateFailed transitions; pass "" otherwise.
