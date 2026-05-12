@@ -47,10 +47,17 @@ func NewPersistentSink(store *state.Store, bc *state.Broadcaster, jobID string) 
 // JobID returns the job this sink is bound to.
 func (s *PersistentSink) JobID() string { return s.jobID }
 
-// OnStepStart marks the step running and broadcasts.
+// OnStepStart marks the step running, records it as the job's active
+// step, and broadcasts. Persisting active_step here keeps the
+// dashboard's pipeline stepper in sync even before any progress
+// event fires (HandBrake/makemkvcon may take seconds before they
+// emit anything parseable).
 func (s *PersistentSink) OnStepStart(step state.StepID) {
 	if err := s.store.UpdateJobStepState(context.Background(), s.jobID, step, state.JobStepStateRunning); err != nil {
 		slog.Warn("PersistentSink: UpdateJobStepState running", "job", s.jobID, "step", step, "err", err)
+	}
+	if err := s.store.SetActiveStep(context.Background(), s.jobID, step); err != nil {
+		slog.Warn("PersistentSink: SetActiveStep", "job", s.jobID, "step", step, "err", err)
 	}
 	s.bc.Publish(state.Event{
 		Name: "job.step",

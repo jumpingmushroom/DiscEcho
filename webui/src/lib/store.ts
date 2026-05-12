@@ -132,7 +132,12 @@ export function handleSSEEvent(name: string, payload: unknown): void {
           const steps = (j.steps ?? []).map((s) =>
             s.step === step ? { ...s, state: stepState } : s,
           );
-          return { ...j, active_step: step, steps };
+          // First step transitioning out of pending while the job is
+          // still queued is the moment the orchestrator actually
+          // picked it up. Flip job.state so the dashboard stops
+          // reading "QUEUED" while a step is already running.
+          const promoted = j.state === 'queued' && stepState === 'running' ? 'running' : j.state;
+          return { ...j, active_step: step, state: promoted, steps };
         }),
       );
       break;
