@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strings"
 
 	"github.com/pilebones/go-udev/netlink"
 )
@@ -55,7 +56,7 @@ func translate(raw netlink.UEvent) Uevent {
 		case "SUBSYSTEM":
 			ev.Subsystem = v
 		case "DEVNAME":
-			ev.DevName = v
+			ev.DevName = strings.TrimPrefix(v, "/dev/")
 		case "DEVTYPE":
 			ev.DevType = v
 		}
