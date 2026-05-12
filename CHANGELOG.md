@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-05-12
+
 ### Removed
 
 - Appearance settings (accent / mood / density picker) on Settings.
@@ -534,7 +536,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Security
 
-## [0.1.0] - YYYY-MM-DD
+## [0.0.1] - 2026-05-06
 
 ### Added
 - Initial project scaffold.
