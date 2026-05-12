@@ -6,6 +6,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-05-12
+
+### Fixed
+
+- **MakeMKV beta key now actually reaches makemkvcon.** v0.2.0
+  tried to bridge `MakeMKV/` → `.MakeMKV/` with a symlink, but
+  makemkvcon's first scan materialises `.MakeMKV/` as a real
+  directory (`_private_data.tar` + `update.conf`), so the symlink
+  branch bailed out on its own "existing non-symlink target"
+  guard. Result: BDMV/UHD/DVD-via-MakeMKV still failed with
+  "application version is too old" on freshly applied 0.2.0
+  containers. The daemon now writes `settings.conf` into **both**
+  `${DISCECHO_DATA}/MakeMKV/` and `${DISCECHO_DATA}/.MakeMKV/`
+  unconditionally — idempotent, no symlinks, no guards.
+
 ## [0.2.0] - 2026-05-12
 
 ### Changed

@@ -414,34 +414,36 @@ func seedNotifications(ctx context.Context, store *state.Store, urls string) err
 }
 
 func writeMakeMKVBetaKey(dataDir, key string) error {
+	content := fmt.Sprintf("app_Key = %q\n", key)
 	if err := os.MkdirAll(dataDir, 0o700); err != nil {
 		return fmt.Errorf("mkdir %s: %w", dataDir, err)
 	}
 	confPath := filepath.Join(dataDir, "settings.conf")
-	content := fmt.Sprintf("app_Key = %q\n", key)
 	if err := os.WriteFile(confPath, []byte(content), 0o600); err != nil {
 		return fmt.Errorf("write %s: %w", confPath, err)
 	}
 	// makemkvcon always loads its config from `$HOME/.MakeMKV/settings.conf`
 	// — a directory whose name starts with a dot. Our managed dataDir is
 	// the user-friendly `MakeMKV/` (no dot) so KEYDB.cfg and friends are
-	// visible to humans listing the appdata mount. Bridge the naming
-	// mismatch with a `.MakeMKV → MakeMKV` symlink in the parent so
-	// makemkvcon (started with HOME=<parent>) finds the config we wrote.
+	// visible to humans listing the appdata mount. The runtime image
+	// invokes makemkvcon with `HOME=<parent>`, so we also write the
+	// same settings.conf into `<parent>/.MakeMKV/`. v0.2.0 tried a
+	// symlink, but makemkvcon's first scan had already materialised
+	// `.MakeMKV/` as a real directory (it writes `_private_data.tar`
+	// and `update.conf` there), and the symlink branch bailed out on
+	// a non-symlink target — so the key never reached makemkvcon.
+	// Writing the second copy is unconditional and idempotent.
 	parent := filepath.Dir(dataDir)
-	if parent != "" && parent != "." {
-		dotPath := filepath.Join(parent, ".MakeMKV")
-		if fi, err := os.Lstat(dotPath); err == nil {
-			if fi.Mode()&os.ModeSymlink == 0 {
-				// Existing non-symlink (e.g. real dir). Leave alone — manual
-				// setup wins, but we logged enough above to debug it.
-				return nil
-			}
-			_ = os.Remove(dotPath)
-		}
-		if err := os.Symlink(filepath.Base(dataDir), dotPath); err != nil && !os.IsExist(err) {
-			return fmt.Errorf("symlink %s -> %s: %w", dotPath, dataDir, err)
-		}
+	if parent == "" || parent == "." {
+		return nil
+	}
+	dotDir := filepath.Join(parent, ".MakeMKV")
+	if err := os.MkdirAll(dotDir, 0o700); err != nil {
+		return fmt.Errorf("mkdir %s: %w", dotDir, err)
+	}
+	dotConf := filepath.Join(dotDir, "settings.conf")
+	if err := os.WriteFile(dotConf, []byte(content), 0o600); err != nil {
+		return fmt.Errorf("write %s: %w", dotConf, err)
 	}
 	return nil
 }
