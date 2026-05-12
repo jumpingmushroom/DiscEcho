@@ -6,6 +6,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-05-12
+
+### Fixed
+
+- udev `DEVNAME` is now normalized when the event comes from `udevd`
+  (full path form `/dev/sr0`) rather than the bare kernel form (`sr0`).
+  Without this, disc-insert events on hosts using systemd-udevd / eudev
+  produced `dev=/dev//dev/sr0` and `disc-flow: no drive registered`,
+  so insertion never started the pipeline. Affects every deployment
+  whose container receives events via the udev netlink group (group 2)
+  — which is the default for the embedded `pilebones/go-udev`
+  watcher.
+
 ## [0.1.0] - 2026-05-12
 
 ### Removed

@@ -38,7 +38,10 @@ func ParseUevent(payload string) (Uevent, bool) {
 		case "SUBSYSTEM":
 			ev.Subsystem = v
 		case "DEVNAME":
-			ev.DevName = v
+			// udevd-style events include the "/dev/" prefix; kernel-style
+			// events don't. Normalize so callers can always build the
+			// node path as "/dev/" + DevName.
+			ev.DevName = strings.TrimPrefix(v, "/dev/")
 		case "DEVTYPE":
 			ev.DevType = v
 		}
