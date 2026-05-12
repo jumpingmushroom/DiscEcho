@@ -249,6 +249,7 @@ func (f *fakeTMDBForAPI) SearchTV(_ context.Context, _ string) ([]state.Candidat
 func (f *fakeTMDBForAPI) SearchBoth(_ context.Context, _ string) ([]state.Candidate, error) {
 	return f.cands, nil
 }
+func (f *fakeTMDBForAPI) MovieRuntime(_ context.Context, _ int) (int, error) { return 0, nil }
 
 func mustJSON(t *testing.T, v any) []byte {
 	t.Helper()

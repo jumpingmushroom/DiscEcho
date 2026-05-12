@@ -6,6 +6,50 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-05-12
+
+### Changed
+
+- **DVD movie profile now lets HandBrake pick the main feature.**
+  Pre-v0.3.0 the orchestrator scanned titles and selected the one
+  with the longest reported duration. On a homelab test against
+  the same disc twice, that heuristic shipped an outtakes reel
+  instead of the 85-min feature — outtakes were the longest
+  *encodable* title HandBrake's scan returned (either because
+  dvdbackup's `-M` mirror skipped the main-feature VOBs or because
+  libdvdread's IFO parser came up short). HandBrake's
+  `--main-feature` flag reads the IFO's main-feature bit and picks
+  the right title from the DVD's own metadata; movie profiles
+  now use it.
+- Series profiles (MKV) are unchanged — they still scan, filter
+  to titles ≥ `min_title_seconds`, and encode each as one episode.
+
+### Added
+
+- **Scan-title logging.** Every title HandBrake's `--scan` returns
+  is now emitted as an `INFO` slog line
+  (`scanned title disc=… title=N duration_sec=…`). Diagnoses
+  "wrong title picked" regressions from `docker logs` alone, no
+  workdir snapshot needed.
+- **TMDB runtime cross-check.** When the user picks a TMDB-movie
+  candidate, `/discs/{id}/start` now fetches the runtime from
+  `/movie/{id}` and persists it on the disc (`disc.runtime_seconds`).
+  The DVD pipeline compares the scanned longest-title duration to
+  this expected runtime; on a >50 % mismatch a `WARN` is logged:
+  `duration mismatch expected_sec=5100 scanned_longest_sec=900 ratio=0.18`.
+  The check warns but doesn't fail — DVDs legitimately differ
+  from theatrical runtimes (director's cuts, regional edits) —
+  but a 5× gap is a clear "this isn't the right disc content"
+  signal.
+- New `tools.TMDBClient.MovieRuntime(ctx, tmdbID)` API call.
+- New `state.Candidate.RuntimeSeconds` + `Store.UpdateDiscRuntime`.
+
+### Fixed
+
+- `selectEncodeTitles` MP4 (movie) branch removed — it's no
+  longer reachable; `--main-feature` covers movie selection.
+  Series branch unchanged.
+
 ## [0.2.3] - 2026-05-12
 
 ### Added

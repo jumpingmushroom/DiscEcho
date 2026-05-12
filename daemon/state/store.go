@@ -298,6 +298,23 @@ func (s *Store) UpdateDiscMetadata(ctx context.Context, id, title string, year i
 	return nil
 }
 
+// UpdateDiscRuntime persists the runtime (in seconds) for a disc.
+// Called from /discs/{id}/start after the daemon fetches TMDB's
+// `/movie/{id}` for the chosen candidate. The DVD pipeline reads
+// this column as a sanity check against the scanned title duration.
+func (s *Store) UpdateDiscRuntime(ctx context.Context, id string, runtimeSec int) error {
+	res, err := s.db.Conn().ExecContext(ctx,
+		`UPDATE discs SET runtime_seconds = ? WHERE id = ?`, runtimeSec, id)
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
 // UpdateDiscCandidates replaces the candidates JSON for an existing disc.
 // Used by the identify endpoint when the user supplies a manual TMDB
 // query and we want to persist the new candidate list.
