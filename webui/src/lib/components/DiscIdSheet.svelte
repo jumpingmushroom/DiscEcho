@@ -142,9 +142,7 @@
               No confident match · pick a title or search
             </div>
           {:else}
-            <div class="mt-1 text-[11px] text-warn">
-              No match found · search manually
-            </div>
+            <div class="mt-1 text-[11px] text-warn">No match found · search manually</div>
           {/if}
         {/if}
       </div>
