@@ -61,6 +61,7 @@ export async function bootstrap(): Promise<void> {
   jobs.set(snap.jobs ?? []);
   profiles.set(snap.profiles ?? []);
   settings.set(snap.settings ?? {});
+  discs.set(Object.fromEntries((snap.discs ?? []).map((d) => [d.id, d])));
   // Notifications fetched separately (not in the snapshot).
   try {
     const ns = await apiGet<Notification[]>('/api/notifications');
@@ -85,6 +86,7 @@ export function handleSSEEvent(name: string, payload: unknown): void {
       jobs.set(snap.jobs ?? []);
       profiles.set(snap.profiles ?? []);
       settings.set(snap.settings ?? {});
+      discs.set(Object.fromEntries((snap.discs ?? []).map((d) => [d.id, d])));
       break;
     }
 

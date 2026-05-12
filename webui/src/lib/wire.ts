@@ -151,6 +151,7 @@ export interface Notification {
 export interface SnapshotPayload {
   drives: Drive[];
   jobs: Job[];
+  discs: Disc[];
   profiles: Profile[];
   settings: Record<string, string>;
 }

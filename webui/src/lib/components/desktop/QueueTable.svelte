@@ -1,6 +1,6 @@
 <script lang="ts">
-  import type { Job } from '$lib/wire';
-  import { discs } from '$lib/store';
+  import type { Job, Disc, Drive } from '$lib/wire';
+  import { discs, drives } from '$lib/store';
   import DiscTypeBadge from '$lib/components/DiscTypeBadge.svelte';
   import PipelineStepperMini from '$lib/components/PipelineStepperMini.svelte';
   import { createEventDispatcher } from 'svelte';
@@ -12,6 +12,19 @@
 
   function onRowClick(j: Job): void {
     dispatch('select', j.id);
+  }
+
+  function jobTitle(disc: Disc | undefined): string {
+    if (!disc) return '—';
+    if (disc.title) return disc.title;
+    const top = disc.candidates?.[0];
+    if (top?.title) return top.title;
+    return disc.id.slice(0, 8);
+  }
+
+  function driveLabel(driveID: string, drs: Drive[]): string {
+    const d = drs.find((x) => x.id === driveID);
+    return d?.bus || driveID.slice(0, 8) || '—';
   }
 </script>
 
@@ -45,9 +58,11 @@
               {#if disc}<DiscTypeBadge type={disc.type} />{/if}
             </td>
             <td class="truncate px-4 py-2 text-[13px] font-medium text-text">
-              {disc?.title || 'Unknown'}
+              {jobTitle(disc)}
             </td>
-            <td class="px-4 py-2 font-mono text-[12px] text-text-3">{j.drive_id || '—'}</td>
+            <td class="px-4 py-2 font-mono text-[12px] text-text-3">
+              {driveLabel(j.drive_id ?? '', $drives)}
+            </td>
             <td class="px-4 py-2"><PipelineStepperMini job={j} /></td>
             <td class="px-4 py-2 text-right">
               {#if j.state === 'queued'}

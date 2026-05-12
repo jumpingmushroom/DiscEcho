@@ -1,6 +1,6 @@
 <script lang="ts">
-  import type { Job } from '$lib/wire';
-  import { discs, profiles, logs } from '$lib/store';
+  import type { Disc, Job } from '$lib/wire';
+  import { discs, drives, profiles, logs } from '$lib/store';
   import DiscTypeBadge from '$lib/components/DiscTypeBadge.svelte';
   import ArtPlaceholder from '$lib/components/ArtPlaceholder.svelte';
   import ProgressBar from '$lib/components/ProgressBar.svelte';
@@ -14,6 +14,20 @@
   $: disc = job ? $discs[job.disc_id] : undefined;
   $: profile = job ? $profiles.find((p) => p.id === job.profile_id) : undefined;
   $: tail = job ? ($logs[job.id] ?? []).slice(-LOG_TAIL_LINES) : [];
+
+  function discTitle(d: Disc | undefined): string {
+    if (!d) return '—';
+    if (d.title) return d.title;
+    const top = d.candidates?.[0];
+    if (top?.title) return top.title;
+    return d.id.slice(0, 8);
+  }
+
+  function driveLabel(driveID: string | undefined): string {
+    if (!driveID) return '—';
+    const d = $drives.find((x) => x.id === driveID);
+    return d?.bus || driveID.slice(0, 8);
+  }
 
   function levelColour(level: string): string {
     switch (level) {
@@ -42,13 +56,13 @@
       <div class="min-w-0 flex-1">
         {#if disc}<DiscTypeBadge type={disc.type} />{/if}
         <div class="mt-1 truncate text-[16px] font-semibold text-text">
-          {disc?.title || 'Unknown'}
+          {discTitle(disc)}
         </div>
         <div class="mt-1 text-[12px] text-text-3">
           {disc?.year ? disc.year : ''}
         </div>
         <div class="mt-2 flex items-center gap-2 font-mono text-[11px] text-text-3">
-          <span>{job.drive_id || '—'}</span>
+          <span>{driveLabel(job.drive_id)}</span>
           {#if profile}<span>·</span><span>{profile.name}</span>{/if}
         </div>
       </div>

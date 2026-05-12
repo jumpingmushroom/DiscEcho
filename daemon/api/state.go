@@ -20,6 +20,11 @@ func (h *Handlers) GetState(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	discs, err := h.Store.ListRecentDiscs(ctx, 50)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
 	profiles, err := h.Store.ListProfiles(ctx)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
@@ -33,6 +38,7 @@ func (h *Handlers) GetState(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"drives":   drives,
 		"jobs":     jobs,
+		"discs":    discs,
 		"profiles": profiles,
 		"settings": settings,
 	})

@@ -35,10 +35,12 @@
   <!-- Hero band -->
   <div class="mb-6 grid gap-4" style="grid-template-columns: repeat(auto-fit, minmax(280px, 1fr))">
     {#each $drives as d (d.id)}
+      {@const activeJob = activeJobs.find((j) => j.drive_id === d.id && j.state !== 'queued')}
+      {@const discID = d.current_disc_id ?? activeJob?.disc_id}
       <DriveHeroCard
         drive={d}
-        disc={d.current_disc_id ? $discs[d.current_disc_id] : undefined}
-        job={activeJobs.find((j) => j.drive_id === d.id && j.state !== 'queued')}
+        disc={discID ? $discs[discID] : undefined}
+        job={activeJob}
         queuedCount={queuedByDrive[d.id] ?? 0}
         on:select={(e) => selectedJobID.set(e.detail)}
       />
