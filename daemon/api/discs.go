@@ -65,6 +65,15 @@ func (h *Handlers) StartDisc(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
+		// If the picked candidate is a TMDB movie, fetch its runtime
+		// from `/movie/{id}` so the DVD pipeline can sanity-check the
+		// scanned title duration. Best-effort: a failure here logs
+		// (via the error path) but doesn't block the rip.
+		if c.MediaType == "movie" && c.TMDBID > 0 && h.TMDB != nil {
+			if rt, err := h.TMDB.MovieRuntime(r.Context(), c.TMDBID); err == nil && rt > 0 {
+				_ = h.Store.UpdateDiscRuntime(r.Context(), disc.ID, rt)
+			}
+		}
 	}
 
 	job, err := h.Orchestrator.Submit(r.Context(), disc.ID, req.ProfileID)

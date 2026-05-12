@@ -40,6 +40,7 @@ func (f *fakeTMDB) SearchTV(_ context.Context, _ string) ([]state.Candidate, err
 func (f *fakeTMDB) SearchBoth(_ context.Context, _ string) ([]state.Candidate, error) {
 	return f.cands, f.err
 }
+func (f *fakeTMDB) MovieRuntime(_ context.Context, _ int) (int, error) { return 0, nil }
 
 // fakeHandBrake satisfies tools.Tool for the transcode step AND
 // dvdvideo.HandBrakeScanner for the post-rip title enumeration.
@@ -233,14 +234,27 @@ func TestDVD_Run_MovieEndToEnd(t *testing.T) {
 		t.Errorf("encode calls: want 1, got %d", len(hb.calls))
 	}
 	// HandBrake's --input must point at the local mirror, not /dev/sr0.
+	// MP4 (movie) profile must pass --main-feature (lets HandBrake's
+	// IFO-aware detection pick the title) and must NOT pass --title.
 	if len(hb.calls) > 0 {
 		args := hb.calls[0].args
+		var hasMainFeature, hasTitle bool
 		for i, a := range args {
-			if a == "--input" && i+1 < len(args) {
-				if args[i+1] == drv.DevPath {
-					t.Errorf("HandBrake --input is %s; want local mirror path", args[i+1])
-				}
+			if a == "--input" && i+1 < len(args) && args[i+1] == drv.DevPath {
+				t.Errorf("HandBrake --input is %s; want local mirror path", args[i+1])
 			}
+			if a == "--main-feature" {
+				hasMainFeature = true
+			}
+			if a == "--title" {
+				hasTitle = true
+			}
+		}
+		if !hasMainFeature {
+			t.Errorf("movie profile: HandBrake args missing --main-feature: %v", args)
+		}
+		if hasTitle {
+			t.Errorf("movie profile: HandBrake args should not include --title (let --main-feature pick): %v", args)
 		}
 	}
 
@@ -306,6 +320,26 @@ func TestDVD_Run_SeriesMultiTitle(t *testing.T) {
 	}
 	if len(hb.calls) != 3 {
 		t.Errorf("encode calls: want 3, got %d", len(hb.calls))
+	}
+	// Series profile: every encode call must pass --title N (NOT
+	// --main-feature, which would collapse the whole series into one
+	// encode of the longest title).
+	for i, call := range hb.calls {
+		var hasMainFeature, hasTitle bool
+		for _, a := range call.args {
+			if a == "--main-feature" {
+				hasMainFeature = true
+			}
+			if a == "--title" {
+				hasTitle = true
+			}
+		}
+		if hasMainFeature {
+			t.Errorf("series call[%d]: --main-feature should not be set on a series profile", i)
+		}
+		if !hasTitle {
+			t.Errorf("series call[%d]: --title required on a series profile, args=%v", i, call.args)
+		}
 	}
 
 	matches, _ := filepath.Glob(filepath.Join(libRoot, "Friends", "Season 01", "*.mkv"))

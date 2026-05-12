@@ -38,6 +38,7 @@ func (f *fakeTMDB) SearchTV(_ context.Context, _ string) ([]state.Candidate, err
 func (f *fakeTMDB) SearchBoth(_ context.Context, _ string) ([]state.Candidate, error) {
 	return f.cands, nil
 }
+func (f *fakeTMDB) MovieRuntime(_ context.Context, _ int) (int, error) { return 0, nil }
 
 type fakeMakeMKV struct {
 	titles   []tools.MakeMKVTitle
