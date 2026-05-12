@@ -14,6 +14,23 @@
   const dispatch = createEventDispatcher<{ select: string | null }>();
 
   $: stateColour = drive.state === 'idle' ? 'var(--text-3)' : 'var(--accent)';
+
+  // Caption shown below the model name. The disc-bound path always wins;
+  // otherwise we follow drive.state so the card never lies and says
+  // "Idle" while the daemon has flipped to ripping/identifying.
+  function captionFor(state: Drive['state']): string {
+    switch (state) {
+      case 'ripping':
+        return 'Ripping disc…';
+      case 'identifying':
+        return 'Identifying disc…';
+      case 'error':
+        return 'Drive error — see logs';
+      case 'idle':
+      default:
+        return 'Idle — insert a disc';
+    }
+  }
 </script>
 
 <button
@@ -46,10 +63,17 @@
   {#if disc}
     <div class="mt-3 flex flex-wrap items-center gap-2">
       <DiscTypeBadge type={disc.type} />
-      <span class="truncate text-[13px] text-text-2">{disc.title || 'Unknown disc'}</span>
+      <span class="truncate text-[13px] text-text-2">
+        {disc.title || disc.candidates?.[0]?.title || disc.id.slice(0, 8)}
+      </span>
     </div>
   {:else}
-    <div class="mt-3 text-[12px] text-text-3">Idle — insert a disc</div>
+    <div
+      class="mt-3 text-[12px]"
+      style="color: {drive.state === 'error' ? 'var(--error)' : 'var(--text-3)'}"
+    >
+      {captionFor(drive.state)}
+    </div>
   {/if}
 
   {#if job && (drive.state === 'ripping' || drive.state === 'identifying')}

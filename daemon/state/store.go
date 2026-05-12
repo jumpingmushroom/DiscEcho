@@ -229,6 +229,34 @@ func (s *Store) GetDisc(ctx context.Context, id string) (*Disc, error) {
 	return scanDisc(row)
 }
 
+// ListRecentDiscs returns the N most-recently-created discs across all
+// drives, newest first. Used by /api/state and the SSE bootstrap so the
+// UI can resolve disc titles for the active and recent jobs without an
+// extra round-trip per job.
+func (s *Store) ListRecentDiscs(ctx context.Context, limit int) ([]Disc, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	rows, err := s.db.Conn().QueryContext(ctx, `
+		SELECT id, COALESCE(drive_id, ''), type, title, year, runtime_seconds,
+		       size_bytes_raw, toc_hash, metadata_provider, metadata_id,
+		       candidates_json, created_at
+		FROM discs ORDER BY created_at DESC LIMIT ?`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	var out []Disc
+	for rows.Next() {
+		d, err := scanDisc(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, *d)
+	}
+	return out, rows.Err()
+}
+
 // ListDiscsForDrive returns discs that were inserted in the given drive,
 // most recent first.
 func (s *Store) ListDiscsForDrive(ctx context.Context, driveID string) ([]Disc, error) {
@@ -702,6 +730,17 @@ func (s *Store) ListActiveAndRecentJobs(ctx context.Context, recentLimit int) ([
 		if err := recentRows.Err(); err != nil {
 			return nil, err
 		}
+	}
+	// Hydrate steps for every job so the desktop pipeline stepper and
+	// the mobile job rows can render the correct dot colors without an
+	// extra round-trip. Without this, /api/state and the SSE snapshot
+	// always return step_count=0 and the stepper renders empty.
+	for i := range out {
+		steps, err := s.ListJobSteps(ctx, out[i].ID)
+		if err != nil {
+			return nil, fmt.Errorf("hydrate steps for %s: %w", out[i].ID, err)
+		}
+		out[i].Steps = steps
 	}
 	return out, nil
 }

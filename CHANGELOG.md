@@ -6,6 +6,35 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-05-12
+
+### Added
+
+- `/api/state` and the SSE `state.snapshot` event now include a `discs`
+  array of the 50 most-recently-created discs. The webui seeds its
+  `discs` cache from this on cold load so titles, candidates, and disc
+  types resolve immediately instead of waiting for a `disc.detected`
+  SSE event.
+- `Store.ListRecentDiscs(ctx, limit)` backs the new payload.
+
+### Fixed
+
+- `ListActiveAndRecentJobs` now hydrates each job's `Steps` slice from
+  the `job_steps` table. Previously every job returned with
+  `step_count: 0`, so the desktop pipeline stepper and queue dots
+  rendered empty for every row regardless of actual progress.
+- **Desktop dashboard now shows what's really happening.** The drive
+  hero card caption follows `drive.state` (`Ripping disc…` /
+  `Identifying disc…` / `Drive error — see logs`) instead of always
+  reading `Idle — insert a disc`. The queue table's `DRV` column
+  renders the drive's bus name (`sr0`) instead of the raw UUID, and
+  the `Title` column falls back through `disc.title →
+  candidates[0].title → disc.id[:8]` instead of hardcoding `Unknown`.
+- Drive hero card disc lookup now prefers the active job's `disc_id`
+  when the drive row doesn't carry `current_disc_id`, so a fresh
+  rip shows up immediately even before the disc-binding migration
+  lands.
+
 ## [0.1.2] - 2026-05-12
 
 ### Fixed

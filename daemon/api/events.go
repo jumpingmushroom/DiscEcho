@@ -68,11 +68,13 @@ func (h *Handlers) StreamEvents(w http.ResponseWriter, r *http.Request) {
 func (h *Handlers) writeSnapshot(ctx context.Context, w http.ResponseWriter, flusher http.Flusher) error {
 	drives, _ := h.Store.ListDrives(ctx)
 	jobs, _ := h.Store.ListActiveAndRecentJobs(ctx, 50)
+	discs, _ := h.Store.ListRecentDiscs(ctx, 50)
 	profiles, _ := h.Store.ListProfiles(ctx)
 	settings, _ := h.Store.GetAllSettings(ctx)
 	return writeSSE(w, flusher, "state.snapshot", map[string]any{
 		"drives":   drives,
 		"jobs":     jobs,
+		"discs":    discs,
 		"profiles": profiles,
 		"settings": settings,
 	})
