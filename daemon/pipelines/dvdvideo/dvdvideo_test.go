@@ -41,12 +41,15 @@ func (f *fakeTMDB) SearchBoth(_ context.Context, _ string) ([]state.Candidate, e
 	return f.cands, f.err
 }
 
-// fakeHandBrake satisfies tools.Tool for the transcode step. On Run:
-// writes a fake output file at args' --output path so the move step
-// has something to relocate.
+// fakeHandBrake satisfies tools.Tool for the transcode step AND
+// dvdvideo.HandBrakeScanner for the post-rip title enumeration.
+// On Run: writes a fake output file at args' --output path so the
+// move step has something to relocate.
 type fakeHandBrake struct {
-	encodeErr error
-	calls     []encodeCall
+	scanTitles []tools.HandBrakeTitle
+	scanErr    error
+	encodeErr  error
+	calls      []encodeCall
 }
 
 type encodeCall struct {
@@ -69,32 +72,35 @@ func (f *fakeHandBrake) Run(_ context.Context, args []string, _ map[string]strin
 	return nil
 }
 
-// fakeMakeMKV satisfies dvdvideo.MakeMKVScanner + MakeMKVRipper. On
-// Rip it writes a fake .mkv into the outDir, mirroring real makemkvcon
-// behaviour (one file per title in the per-title subdir).
-type fakeMakeMKV struct {
-	scanTitles []tools.MakeMKVTitle
-	scanErr    error
-	ripErr     error
-	ripCalls   []ripCall
-}
-
-type ripCall struct {
-	titleID int
-	outDir  string
-}
-
-func (f *fakeMakeMKV) Scan(_ context.Context, _ string) ([]tools.MakeMKVTitle, error) {
+func (f *fakeHandBrake) Scan(_ context.Context, _ string) ([]tools.HandBrakeTitle, error) {
 	return f.scanTitles, f.scanErr
 }
 
-func (f *fakeMakeMKV) Rip(_ context.Context, _ string, titleID int, outDir string, _ tools.Sink) error {
-	f.ripCalls = append(f.ripCalls, ripCall{titleID: titleID, outDir: outDir})
-	if f.ripErr != nil {
-		return f.ripErr
+// fakeDVDBackup satisfies dvdvideo.DVDMirror. On Mirror it creates an
+// `<outDir>/<label>/VIDEO_TS/` stub so the transcode step's input path
+// exists; the path it returns is the parent that HandBrake reads.
+type fakeDVDBackup struct {
+	label string
+	err   error
+	calls []string
+}
+
+func (f *fakeDVDBackup) Mirror(_ context.Context, _ string, outDir string, _ tools.Sink) (string, error) {
+	f.calls = append(f.calls, outDir)
+	if f.err != nil {
+		return "", f.err
 	}
-	mkvPath := filepath.Join(outDir, fmt.Sprintf("title_t%02d.mkv", titleID))
-	return os.WriteFile(mkvPath, []byte("fake-mkv"), 0o644)
+	label := f.label
+	if label == "" {
+		label = "DISC_LABEL"
+	}
+	dst := filepath.Join(outDir, label, "VIDEO_TS")
+	if err := os.MkdirAll(dst, 0o755); err != nil {
+		return "", err
+	}
+	// Touch one VOB so the dir feels real to anything that pokes it.
+	_ = os.WriteFile(filepath.Join(dst, "VTS_01_1.VOB"), []byte("stub"), 0o644)
+	return filepath.Join(outDir, label), nil
 }
 
 func TestDVD_DiscType(t *testing.T) {
@@ -180,10 +186,10 @@ func TestDVD_Plan(t *testing.T) {
 func TestDVD_Run_MovieEndToEnd(t *testing.T) {
 	libRoot := t.TempDir()
 
-	hb := &fakeHandBrake{}
-	mk := &fakeMakeMKV{scanTitles: []tools.MakeMKVTitle{
-		{ID: 1, DurationSec: 7000},
+	hb := &fakeHandBrake{scanTitles: []tools.HandBrakeTitle{
+		{Number: 1, DurationSeconds: 7000},
 	}}
+	bk := &fakeDVDBackup{label: "ARRIVAL"}
 	apprise := tools.NewMockTool("apprise", []tools.MockEvent{})
 	eject := tools.NewMockTool("eject", []tools.MockEvent{})
 	reg := tools.NewRegistry()
@@ -196,9 +202,9 @@ func TestDVD_Run_MovieEndToEnd(t *testing.T) {
 		LibraryRoot:              libRoot,
 		WorkRoot:                 t.TempDir(),
 		LibraryProbe:             func(string) error { return nil },
-		MakeMKVScanner:           mk,
-		MakeMKVRipper:            mk,
-		MinEncodedBytesPerSecond: -1, // disable size check; fake encoder writes a stub
+		DVDBackup:                bk,
+		HandBrakeScanner:         hb,
+		MinEncodedBytesPerSecond: -1, // fake encoder writes a stub byte
 	})
 
 	drv := &state.Drive{ID: "drv-1", DevPath: "/dev/sr0"}
@@ -220,8 +226,22 @@ func TestDVD_Run_MovieEndToEnd(t *testing.T) {
 		t.Fatalf("Run: %v", err)
 	}
 
+	if len(bk.calls) != 1 {
+		t.Errorf("dvdbackup calls: want 1, got %d", len(bk.calls))
+	}
 	if len(hb.calls) != 1 {
 		t.Errorf("encode calls: want 1, got %d", len(hb.calls))
+	}
+	// HandBrake's --input must point at the local mirror, not /dev/sr0.
+	if len(hb.calls) > 0 {
+		args := hb.calls[0].args
+		for i, a := range args {
+			if a == "--input" && i+1 < len(args) {
+				if args[i+1] == drv.DevPath {
+					t.Errorf("HandBrake --input is %s; want local mirror path", args[i+1])
+				}
+			}
+		}
 	}
 
 	expected := filepath.Join(libRoot, "Arrival (2016)", "Arrival (2016).mp4")
@@ -234,13 +254,13 @@ func TestDVD_Run_MovieEndToEnd(t *testing.T) {
 func TestDVD_Run_SeriesMultiTitle(t *testing.T) {
 	libRoot := t.TempDir()
 
-	hb := &fakeHandBrake{}
-	mk := &fakeMakeMKV{scanTitles: []tools.MakeMKVTitle{
-		{ID: 1, DurationSec: 1330},
-		{ID: 2, DurationSec: 1318},
-		{ID: 3, DurationSec: 42}, // < 5min — filtered
-		{ID: 4, DurationSec: 1384},
+	hb := &fakeHandBrake{scanTitles: []tools.HandBrakeTitle{
+		{Number: 1, DurationSeconds: 1330},
+		{Number: 2, DurationSeconds: 1318},
+		{Number: 3, DurationSeconds: 42}, // < 5min — filtered
+		{Number: 4, DurationSeconds: 1384},
 	}}
+	bk := &fakeDVDBackup{label: "FRIENDS_S01D1"}
 	apprise := tools.NewMockTool("apprise", []tools.MockEvent{})
 	eject := tools.NewMockTool("eject", []tools.MockEvent{})
 	reg := tools.NewRegistry()
@@ -253,8 +273,8 @@ func TestDVD_Run_SeriesMultiTitle(t *testing.T) {
 		LibraryRoot:              libRoot,
 		WorkRoot:                 t.TempDir(),
 		LibraryProbe:             func(string) error { return nil },
-		MakeMKVScanner:           mk,
-		MakeMKVRipper:            mk,
+		DVDBackup:                bk,
+		HandBrakeScanner:         hb,
 		MinEncodedBytesPerSecond: -1,
 	})
 
@@ -281,6 +301,9 @@ func TestDVD_Run_SeriesMultiTitle(t *testing.T) {
 		t.Fatalf("Run: %v", err)
 	}
 
+	if len(bk.calls) != 1 {
+		t.Errorf("dvdbackup calls: want 1, got %d", len(bk.calls))
+	}
 	if len(hb.calls) != 3 {
 		t.Errorf("encode calls: want 3, got %d", len(hb.calls))
 	}
@@ -300,8 +323,8 @@ func TestDVD_Run_SeriesMultiTitle(t *testing.T) {
 }
 
 func TestDVD_Run_LibraryNotWritable(t *testing.T) {
-	hb := &fakeHandBrake{}
-	mk := &fakeMakeMKV{scanTitles: []tools.MakeMKVTitle{{ID: 1, DurationSec: 7000}}}
+	hb := &fakeHandBrake{scanTitles: []tools.HandBrakeTitle{{Number: 1, DurationSeconds: 7000}}}
+	bk := &fakeDVDBackup{}
 	reg := tools.NewRegistry()
 	reg.Register(hb)
 	reg.Register(tools.NewMockTool("apprise", nil))
@@ -314,8 +337,8 @@ func TestDVD_Run_LibraryNotWritable(t *testing.T) {
 		LibraryProbe: func(_ string) error {
 			return errors.New("not writable")
 		},
-		MakeMKVScanner: mk,
-		MakeMKVRipper:  mk,
+		DVDBackup:        bk,
+		HandBrakeScanner: hb,
 	})
 
 	sink := testutil.NewRecordingSink()
