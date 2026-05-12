@@ -3,6 +3,7 @@
   import DriveHeroCard from './DriveHeroCard.svelte';
   import QueueTable from './QueueTable.svelte';
   import JobDetailPanel from './JobDetailPanel.svelte';
+  import AwaitingDecisionList from '../AwaitingDecisionList.svelte';
   import type { Job } from '$lib/wire';
 
   const TERMINAL_STATES: ReadonlyArray<Job['state']> = [
@@ -49,6 +50,11 @@
         No drives detected.
       </div>
     {/each}
+  </div>
+
+  <!-- Awaiting decision -->
+  <div class="mb-6">
+    <AwaitingDecisionList />
   </div>
 
   <!-- Queue + detail -->

@@ -36,6 +36,13 @@ type Deps struct {
 	LibraryProbe     func(string) error
 	URLsForTrigger   func(ctx context.Context, trigger string) []string
 	SubsLang         string // e.g. "eng"; empty → no --subtitle-lang-list flag
+
+	// MinEncodedBytesPerSecond is the lower-bound bytes-per-second the
+	// encoded output must hit for the transcode step to be considered
+	// successful. 0 → use the package default (37500, ≈ 300 kbps). A
+	// negative value disables the check (used by tests with stub
+	// encoders that don't write real-sized output).
+	MinEncodedBytesPerSecond int
 }
 
 // Handler implements pipelines.Handler for DVD-Video.
@@ -188,6 +195,10 @@ func (h *Handler) Run(ctx context.Context, drv *state.Drive, disc *state.Disc, p
 			sink.OnStepFailed(state.StepTranscode, err)
 			return fmt.Errorf("handbrake encode title %d: %w", t.Number, err)
 		}
+		if err := validateEncodedTitle(out, t.DurationSeconds, h.deps.MinEncodedBytesPerSecond); err != nil {
+			sink.OnStepFailed(state.StepTranscode, err)
+			return fmt.Errorf("handbrake encode title %d: %w", t.Number, err)
+		}
 	}
 	sink.OnStepDone(state.StepTranscode, nil)
 
@@ -223,6 +234,46 @@ func (h *Handler) Run(ctx context.Context, drv *state.Drive, disc *state.Disc, p
 	}
 	sink.OnStepDone(state.StepEject, nil)
 
+	return nil
+}
+
+// minEncodedBytesPerSecond is our lower-bound on the bytes-per-second
+// of a HandBrake x264 quality-20 encode. Real movies hover around 200
+// KB/s (≈ 1.5 Mbps); we use 37,500 (300 kbps) so the check rejects
+// truncated encodes (HandBrake exiting cleanly on a mid-rip drive
+// disturbance while only a fraction of the title was read) without
+// false-positives on extremely flat content.
+const minEncodedBytesPerSecond = 37_500
+
+// validateEncodedTitle errors out when the encoded file is missing, is
+// empty, or is below the expected lower-bound for its source duration.
+// HandBrakeCLI exits 0 in several end-of-stream failure modes, so we
+// can't rely on the exit code alone to know whether the title encoded
+// in full.
+//
+// minBytesPerSecond overrides the package default; 0 → default, < 0 →
+// disable the size check (only the empty-file branch applies).
+func validateEncodedTitle(path string, durationSeconds, minBytesPerSecond int) error {
+	fi, err := os.Stat(path)
+	if err != nil {
+		return fmt.Errorf("validate encode: %w", err)
+	}
+	if fi.Size() == 0 {
+		return fmt.Errorf("validate encode: empty output at %s", path)
+	}
+	if durationSeconds <= 0 || minBytesPerSecond < 0 {
+		return nil
+	}
+	if minBytesPerSecond == 0 {
+		minBytesPerSecond = minEncodedBytesPerSecond
+	}
+	minSize := int64(durationSeconds) * int64(minBytesPerSecond)
+	if fi.Size() < minSize {
+		return fmt.Errorf(
+			"validate encode: output %s is %d bytes, expected at least %d for a %ds title (likely truncated)",
+			path, fi.Size(), minSize, durationSeconds,
+		)
+	}
 	return nil
 }
 

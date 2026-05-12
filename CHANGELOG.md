@@ -6,6 +6,47 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.1.4] - 2026-05-12
+
+### Added
+
+- **Persistent "Awaiting decision" card** on both desktop and mobile
+  dashboards (`AwaitingDecisionCard` + `AwaitingDecisionList`).
+  Replaces the modal `DiscIdSheet` bottom sheet — refreshing the page
+  no longer makes the picker disappear, because the surface is
+  derived from `$discs ∩ $jobs` (any disc with candidates and no
+  live job is awaiting decision). The legacy `DiscIdSheet` component
+  remains in-tree for now; nothing mounts it.
+- `Store.HasActiveJobOnDrive(ctx, driveID)` query for the guard
+  below.
+- `dvdvideo.Deps.MinEncodedBytesPerSecond` to override the encode
+  size threshold (tests use `-1` to disable).
+
+### Fixed
+
+- **Mid-rip udev events no longer wreck the running job.** When
+  HandBrake / makemkvcon are hammering `/dev/sr0` the kernel emits
+  spurious media-change uevents; the daemon used to re-run the
+  classifier, race the running step for the device, fail, flip the
+  drive to Error, and kill the in-flight rip. `discFlow.handle`
+  now bails out early when `HasActiveJobOnDrive` is true.
+- **DVD pipeline rejects truncated encodes.** `HandBrakeCLI` exits
+  0 in several end-of-stream failure modes (e.g. the spurious
+  media-change above), and the orchestrator persisted the job as
+  `done` despite the output being a 170 MB fragment of a feature
+  film. The transcode step now validates the encoded file's size
+  against a 300 kbps × duration lower-bound and fails the step on
+  a truncated output.
+- **Drive returns to `idle` after `disc.identified`.** Previously
+  the daemon left the drive stuck in `identifying`, the dashboard
+  read "Identifying disc…" forever, and subsequent uevents from
+  the user ejecting the disc were ignored.
+- **`drive.changed` SSE handler honours the daemon payload.**
+  Daemon publishes `{drive_id, state}`; the handler used to read
+  `p.drive` (a full `Drive` object that the daemon never sends),
+  so drive state updates only surfaced on a full page reload. The
+  handler now patches the matching drive entry in place.
+
 ## [0.1.3] - 2026-05-12
 
 ### Added

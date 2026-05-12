@@ -90,9 +90,16 @@ export function handleSSEEvent(name: string, payload: unknown): void {
       break;
     }
 
-    case 'drive.changed':
-      drives.update((arr) => upsertById(arr, p.drive as Drive));
+    case 'drive.changed': {
+      // Daemon publishes the partial `{drive_id, state}` shape — never
+      // a full Drive object — so we patch the matching entry in place
+      // instead of upserting. Without this the dashboard only learned
+      // about state transitions on a full page reload.
+      const driveID = p.drive_id as string;
+      const newState = p.state as Drive['state'];
+      drives.update((arr) => arr.map((d) => (d.id === driveID ? { ...d, state: newState } : d)));
       break;
+    }
 
     case 'disc.detected': {
       const d = p.disc as Disc;

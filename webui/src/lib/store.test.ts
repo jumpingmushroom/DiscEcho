@@ -151,11 +151,15 @@ describe('handleSSEEvent', () => {
     expect(get(drives)).toEqual([seedDrive]);
   });
 
-  it('drive.changed upserts by id', () => {
+  it('drive.changed patches state on the matching drive (partial payload)', () => {
+    // Daemon publishes {drive_id, state}, NOT a full Drive. The handler
+    // must patch the existing row, not upsert a (partially-typed) row.
     drives.set([seedDrive]);
-    handleSSEEvent('drive.changed', { drive: { ...seedDrive, state: 'ripping' } });
+    handleSSEEvent('drive.changed', { drive_id: seedDrive.id, state: 'ripping' });
     expect(get(drives)[0].state).toBe('ripping');
     expect(get(drives)).toHaveLength(1);
+    // Unrelated fields preserved.
+    expect(get(drives)[0].model).toBe(seedDrive.model);
   });
 
   it('disc.detected stores disc and sets pendingDiscID', () => {
