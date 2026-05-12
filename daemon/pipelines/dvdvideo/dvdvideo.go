@@ -18,31 +18,33 @@ import (
 	"github.com/jumpingmushroom/DiscEcho/daemon/tools"
 )
 
-// MakeMKVScanner is the slice of tools.MakeMKV used by the rip step to
-// list titles. Substitutable so tests can supply a fake without a real
-// makemkvcon binary.
-type MakeMKVScanner interface {
-	Scan(ctx context.Context, devPath string) ([]tools.MakeMKVTitle, error)
+// DVDMirror mirrors a CSS-protected DVD-Video disc's VIDEO_TS to a
+// local directory using dvdbackup + libdvdcss. Returns the path to
+// the produced `<VOLUME_LABEL>/` directory (one level above
+// VIDEO_TS/), which HandBrake's `--input` can read directly.
+type DVDMirror interface {
+	Mirror(ctx context.Context, devPath, outDir string, sink tools.Sink) (string, error)
 }
 
-// MakeMKVRipper is the slice of tools.MakeMKV that performs the actual
-// CSS-decrypted read into a workdir.
-type MakeMKVRipper interface {
-	Rip(ctx context.Context, devPath string, titleID int, outDir string, sink tools.Sink) error
+// HandBrakeScanner enumerates titles in a local VIDEO_TS tree. The
+// transcode step uses it (after the rip step has produced the local
+// copy) to discover title durations for movie / series selection.
+type HandBrakeScanner interface {
+	Scan(ctx context.Context, source string) ([]tools.HandBrakeTitle, error)
 }
 
 // Deps bundles the handler's dependencies for mock injection.
 type Deps struct {
-	Prober         identify.DVDProber
-	TMDB           identify.TMDBClient
-	MakeMKVScanner MakeMKVScanner
-	MakeMKVRipper  MakeMKVRipper
-	Tools          *tools.Registry
-	LibraryRoot    string
-	WorkRoot       string
-	LibraryProbe   func(string) error
-	URLsForTrigger func(ctx context.Context, trigger string) []string
-	SubsLang       string // e.g. "eng"; empty → no --subtitle-lang-list flag
+	Prober           identify.DVDProber
+	TMDB             identify.TMDBClient
+	DVDBackup        DVDMirror
+	HandBrakeScanner HandBrakeScanner
+	Tools            *tools.Registry
+	LibraryRoot      string
+	WorkRoot         string
+	LibraryProbe     func(string) error
+	URLsForTrigger   func(ctx context.Context, trigger string) []string
+	SubsLang         string // e.g. "eng"; empty → no --subtitle-lang-list flag
 
 	// MinEncodedBytesPerSecond is the lower-bound bytes-per-second the
 	// encoded output must hit for the transcode step to be considered
@@ -123,20 +125,22 @@ func (h *Handler) Plan(_ *state.Disc, _ *state.Profile) []pipelines.StepPlan {
 	return out
 }
 
-// Run executes the DVD-Video pipeline. Architecture mirrors BDMV:
-// MakeMKV reads the encrypted disc and writes one MKV per selected
-// title into the workdir; HandBrake then transcodes each MKV from
-// the local filesystem. HandBrake never touches /dev/sr0 — the old
-// "HandBrake --input /dev/sr0" path was brittle in the face of
-// mid-rip kernel media-change uevents, which produced truncated mp4s
-// that HandBrake exit-0'd into the library.
+// Run executes the DVD-Video pipeline. The rip step uses dvdbackup
+// (GPL, libdvdcss-backed) to mirror the disc's VIDEO_TS into a local
+// workdir; the transcode step then asks HandBrake to scan the local
+// tree, picks titles by profile, and encodes each one from the
+// filesystem. HandBrake never touches /dev/sr0, so a spurious kernel
+// media-change uevent during a long read can't truncate the output.
+// MakeMKV is no longer needed for DVD — the rolling beta-key dance
+// is restricted to BDMV / UHD where MakeMKV is the only viable
+// decoder.
 func (h *Handler) Run(ctx context.Context, drv *state.Drive, disc *state.Disc, prof *state.Profile, sink pipelines.EventSink) error {
 	sink.OnStepStart(state.StepDetect)
 	sink.OnStepDone(state.StepDetect, nil)
 	sink.OnStepStart(state.StepIdentify)
 	sink.OnStepDone(state.StepIdentify, nil)
 
-	// rip — MakeMKV scan + decrypt+demux of the selected titles.
+	// rip — dvdbackup mirror of the entire DVD-Video tree.
 	sink.OnStepStart(state.StepRip)
 	tmpdir, err := h.createWorkDir(disc.ID)
 	if err != nil {
@@ -149,48 +153,44 @@ func (h *Handler) Run(ctx context.Context, drv *state.Drive, disc *state.Disc, p
 		sink.OnStepFailed(state.StepRip, err)
 		return fmt.Errorf("library probe: %w", err)
 	}
-
-	if h.deps.MakeMKVScanner == nil || h.deps.MakeMKVRipper == nil {
-		err := errors.New("dvdvideo: MakeMKV not configured")
+	if h.deps.DVDBackup == nil {
+		err := errors.New("dvdvideo: DVDBackup not configured")
 		sink.OnStepFailed(state.StepRip, err)
 		return err
 	}
-	titles, err := h.deps.MakeMKVScanner.Scan(ctx, drv.DevPath)
-	if err != nil {
+	if h.deps.HandBrakeScanner == nil {
+		err := errors.New("dvdvideo: HandBrakeScanner not configured")
 		sink.OnStepFailed(state.StepRip, err)
-		return fmt.Errorf("makemkv scan: %w", err)
+		return err
 	}
 
+	ripDir := filepath.Join(tmpdir, "rip")
+	if err := os.MkdirAll(ripDir, 0o755); err != nil {
+		sink.OnStepFailed(state.StepRip, err)
+		return fmt.Errorf("create rip dir: %w", err)
+	}
+	source, err := h.deps.DVDBackup.Mirror(ctx, drv.DevPath, ripDir, newStepSink(sink, state.StepRip))
+	if err != nil {
+		sink.OnStepFailed(state.StepRip, err)
+		return fmt.Errorf("dvdbackup mirror: %w", err)
+	}
+	sink.OnStepDone(state.StepRip, map[string]any{"source": source})
+
+	// transcode — HandBrake scans the local VIDEO_TS, we pick titles
+	// by profile, then HandBrake encodes each one from the local mirror.
+	sink.OnStepStart(state.StepTranscode)
+	titles, err := h.deps.HandBrakeScanner.Scan(ctx, source)
+	if err != nil {
+		sink.OnStepFailed(state.StepTranscode, err)
+		return fmt.Errorf("handbrake scan: %w", err)
+	}
 	encodeTitles := selectEncodeTitles(titles, prof)
 	if len(encodeTitles) == 0 {
 		err := errors.New("no titles to encode")
-		sink.OnStepFailed(state.StepRip, err)
+		sink.OnStepFailed(state.StepTranscode, err)
 		return err
 	}
 
-	rips := make([]rippedTitle, 0, len(encodeTitles))
-	for _, t := range encodeTitles {
-		ripDir := filepath.Join(tmpdir, "rip", fmt.Sprintf("title%02d", t.ID))
-		if err := os.MkdirAll(ripDir, 0o755); err != nil {
-			sink.OnStepFailed(state.StepRip, err)
-			return fmt.Errorf("create rip dir: %w", err)
-		}
-		if err := h.deps.MakeMKVRipper.Rip(ctx, drv.DevPath, t.ID, ripDir, newStepSink(sink, state.StepRip)); err != nil {
-			sink.OnStepFailed(state.StepRip, err)
-			return fmt.Errorf("makemkv rip title %d: %w", t.ID, err)
-		}
-		mkv, err := singleMKVIn(ripDir)
-		if err != nil {
-			sink.OnStepFailed(state.StepRip, err)
-			return fmt.Errorf("makemkv rip title %d: %w", t.ID, err)
-		}
-		rips = append(rips, rippedTitle{title: t, mkv: mkv})
-	}
-	sink.OnStepDone(state.StepRip, map[string]any{"title_count": len(encodeTitles)})
-
-	// transcode — one HandBrake encode per ripped MKV. Reads from the
-	// local filesystem; /dev/sr0 is no longer involved.
-	sink.OnStepStart(state.StepTranscode)
 	whb, ok := h.deps.Tools.Get("handbrake")
 	if !ok {
 		err := errors.New("dvdvideo: handbrake tool not registered")
@@ -201,12 +201,13 @@ func (h *Handler) Run(ctx context.Context, drv *state.Drive, disc *state.Disc, p
 	if ext != "mp4" && ext != "mkv" {
 		ext = "mkv"
 	}
-	transcoded := make([]string, 0, len(rips))
-	for i, r := range rips {
+	transcoded := make([]string, 0, len(encodeTitles))
+	for i, t := range encodeTitles {
 		titleIdx := i + 1
-		out := filepath.Join(tmpdir, fmt.Sprintf("title%02d.%s", r.title.ID, ext))
+		out := filepath.Join(tmpdir, fmt.Sprintf("title%02d.%s", t.Number, ext))
 		args := []string{
-			"--input", r.mkv,
+			"--input", source,
+			"--title", strconv.Itoa(t.Number),
 			"--output", out,
 			"--quality", "20",
 			"--encoder", "x264",
@@ -221,16 +222,16 @@ func (h *Handler) Run(ctx context.Context, drv *state.Drive, disc *state.Disc, p
 		}
 		env := map[string]string{
 			"HB_TITLE_IDX":    strconv.Itoa(titleIdx),
-			"HB_TOTAL_TITLES": strconv.Itoa(len(rips)),
+			"HB_TOTAL_TITLES": strconv.Itoa(len(encodeTitles)),
 		}
 		stepSink := newStepSink(sink, state.StepTranscode)
 		if err := whb.Run(ctx, args, env, tmpdir, stepSink); err != nil {
 			sink.OnStepFailed(state.StepTranscode, err)
-			return fmt.Errorf("handbrake encode title %d: %w", r.title.ID, err)
+			return fmt.Errorf("handbrake encode title %d: %w", t.Number, err)
 		}
-		if err := validateEncodedTitle(out, r.title.DurationSec, h.deps.MinEncodedBytesPerSecond); err != nil {
+		if err := validateEncodedTitle(out, t.DurationSeconds, h.deps.MinEncodedBytesPerSecond); err != nil {
 			sink.OnStepFailed(state.StepTranscode, err)
-			return fmt.Errorf("handbrake encode title %d: %w", r.title.ID, err)
+			return fmt.Errorf("handbrake encode title %d: %w", t.Number, err)
 		}
 		transcoded = append(transcoded, out)
 	}
@@ -238,7 +239,7 @@ func (h *Handler) Run(ctx context.Context, drv *state.Drive, disc *state.Disc, p
 
 	// move
 	sink.OnStepStart(state.StepMove)
-	moved, err := h.moveOutputs(transcoded, rips, disc, prof)
+	moved, err := h.moveOutputs(transcoded, encodeTitles, disc, prof)
 	if err != nil {
 		sink.OnStepFailed(state.StepMove, err)
 		return fmt.Errorf("move: %w", err)
@@ -271,36 +272,12 @@ func (h *Handler) Run(ctx context.Context, drv *state.Drive, disc *state.Disc, p
 	return nil
 }
 
-// rippedTitle pairs a MakeMKV title with the path of its produced .mkv
-// in the workdir, so the transcode step can find the right input file
-// and the move step still knows the original title metadata for
-// series-episode naming.
-type rippedTitle struct {
-	title tools.MakeMKVTitle
-	mkv   string
-}
-
 // minEncodedBytesPerSecond is our lower-bound on the bytes-per-second
 // of a HandBrake x264 quality-20 encode. Real movies hover around
-// 200 KB/s (≈ 1.5 Mbps). Pre-v0.2.0 we used 37 500 (≈ 300 kbps),
-// which let a 170 MB truncated 85-min mp4 (≈ 270 kbps) slip through
-// during the homelab test. Bumping to 93 750 (≈ 750 kbps) keeps
-// enough headroom for flat content while rejecting the truncations
-// we actually saw.
+// 200 KB/s (≈ 1.5 Mbps); we use 93 750 (≈ 750 kbps) so the check
+// rejects truncated encodes (HandBrake exiting cleanly mid-stream)
+// without false-positives on extremely flat content.
 const minEncodedBytesPerSecond = 93_750
-
-func singleMKVIn(dir string) (string, error) {
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return "", err
-	}
-	for _, e := range entries {
-		if !e.IsDir() && strings.EqualFold(filepath.Ext(e.Name()), ".mkv") {
-			return filepath.Join(dir, e.Name()), nil
-		}
-	}
-	return "", fmt.Errorf("no .mkv produced in %s", dir)
-}
 
 // validateEncodedTitle errors out when the encoded file is missing, is
 // empty, or is below the expected lower-bound for its source duration.
@@ -349,18 +326,18 @@ func (h *Handler) createWorkDir(discID string) (string, error) {
 // selectEncodeTitles picks which titles to encode based on profile.
 // Movie (MP4) profile: longest title only.
 // Series (MKV) profile: every title >= options.min_title_seconds (default 300).
-func selectEncodeTitles(titles []tools.MakeMKVTitle, prof *state.Profile) []tools.MakeMKVTitle {
+func selectEncodeTitles(titles []tools.HandBrakeTitle, prof *state.Profile) []tools.HandBrakeTitle {
 	if strings.ToLower(prof.Format) == "mp4" {
 		if len(titles) == 0 {
 			return nil
 		}
 		best := titles[0]
 		for _, t := range titles[1:] {
-			if t.DurationSec > best.DurationSec {
+			if t.DurationSeconds > best.DurationSeconds {
 				best = t
 			}
 		}
-		return []tools.MakeMKVTitle{best}
+		return []tools.HandBrakeTitle{best}
 	}
 
 	minSec := 300
@@ -372,16 +349,16 @@ func selectEncodeTitles(titles []tools.MakeMKVTitle, prof *state.Profile) []tool
 			minSec = int(n)
 		}
 	}
-	var out []tools.MakeMKVTitle
+	var out []tools.HandBrakeTitle
 	for _, t := range titles {
-		if t.DurationSec >= minSec {
+		if t.DurationSeconds >= minSec {
 			out = append(out, t)
 		}
 	}
 	return out
 }
 
-func (h *Handler) moveOutputs(transcoded []string, rips []rippedTitle,
+func (h *Handler) moveOutputs(transcoded []string, _ []tools.HandBrakeTitle,
 	disc *state.Disc, prof *state.Profile) ([]string, error) {
 	season := 1
 	if v, ok := prof.Options["season"]; ok {
@@ -419,7 +396,6 @@ func (h *Handler) moveOutputs(transcoded []string, rips []rippedTitle,
 		}
 		moved = append(moved, dst)
 	}
-	_ = rips // future: per-title overrides; for now structure is symmetric with transcoded.
 	return moved, nil
 }
 

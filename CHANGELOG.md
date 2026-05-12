@@ -6,6 +6,37 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.2.2] - 2026-05-12
+
+### Changed
+
+- **DVD-Video rip step now uses dvdbackup, not MakeMKV.** MakeMKV's
+  rolling 60-day beta-key cycle plus the late-cycle stall we hit
+  (1.18.3 from 2026-01 expired ~Mar 26, no 1.18.4 from upstream as
+  of mid-May) made it a poor fit for DVDs. dvdbackup is GPL,
+  ships in Debian apt, uses libdvdcss for CSS decryption, and
+  needs no registration. The new flow:
+  1. `dvdbackup -M -i /dev/sr0 -o <work>/rip -p` mirrors VIDEO_TS
+     into `<work>/rip/<volume_label>/VIDEO_TS/`.
+  2. `HandBrakeCLI --input <work>/rip/<volume_label> --scan`
+     enumerates titles.
+  3. `HandBrakeCLI --input <work>/rip/<volume_label> --title N
+     --output …` encodes each selected title from the local mirror.
+  HandBrake still never touches `/dev/sr0`. The MakeMKV pipeline
+  stays for BDMV and UHD, where it remains the only viable decoder.
+- The DVD pipeline no longer requires `DISCECHO_MAKEMKV_BETA_KEY`.
+  The env var is still consumed for BDMV / UHD; without it those
+  pipelines fail at scan-time as before.
+- Runtime image gains the `dvdbackup` apt package.
+
+### Added
+
+- `tools.DVDBackup` wrapper exposing `Mirror(ctx, devPath, outDir,
+  sink)` over the `dvdbackup` binary. Streams `*.VOB` mentions to
+  the sink as coarse progress ticks.
+- `dvdvideo.DVDMirror` + `dvdvideo.HandBrakeScanner` interfaces on
+  the pipeline so tests can substitute fakes.
+
 ## [0.2.1] - 2026-05-12
 
 ### Fixed

@@ -140,10 +140,12 @@ func main() {
 	handBrake := tools.NewHandBrake(cfg.HandBrakeBin)
 	toolReg.Register(handBrake)
 
-	// MakeMKV is shared by DVD-Video, BDMV, and UHD. DVD now uses it
-	// for the rip step (v0.2.0) to bypass HandBrake's brittle direct
-	// /dev/sr0 reads — see CHANGELOG and the dvdvideo handler.
+	// MakeMKV is shared by BDMV and UHD (DVD uses dvdbackup since
+	// v0.2.2 — see CHANGELOG; MakeMKV's rolling beta key plus the
+	// upstream-expiration behaviour made it a poor fit for DVDs,
+	// which libdvdcss handles fine).
 	makeMKV := tools.NewMakeMKV(cfg.MakeMKVBin, cfg.MakeMKVDataDir)
+	dvdBackup := tools.NewDVDBackup("")
 
 	// DVD pipeline shares one root for movies and series. The
 	// orchestrator can't yet differentiate at job time, so series land
@@ -151,15 +153,15 @@ func main() {
 	// library.tv requires per-job profile lookup in the dispatcher —
 	// tracked for branch 3.
 	pipeReg.Register(dvdvideo.New(dvdvideo.Deps{
-		Prober:         dvdProber,
-		TMDB:           tmdbClient,
-		MakeMKVScanner: makeMKV,
-		MakeMKVRipper:  makeMKV,
-		Tools:          toolReg,
-		LibraryRoot:    cfg.LibraryMovies,
-		WorkRoot:       filepath.Join(cfg.DataPath, "work"),
-		SubsLang:       cfg.SubsLang,
-		URLsForTrigger: urlsForTrigger,
+		Prober:           dvdProber,
+		TMDB:             tmdbClient,
+		DVDBackup:        dvdBackup,
+		HandBrakeScanner: handBrake,
+		Tools:            toolReg,
+		LibraryRoot:      cfg.LibraryMovies,
+		WorkRoot:         filepath.Join(cfg.DataPath, "work"),
+		SubsLang:         cfg.SubsLang,
+		URLsForTrigger:   urlsForTrigger,
 	}))
 
 	// BDMV + UHD pipelines (M3.1).

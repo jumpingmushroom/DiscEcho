@@ -76,7 +76,7 @@ RUN echo "deb http://deb.debian.org/debian bookworm main contrib" \
  && apt-get update \
  && apt-get install -y --no-install-recommends \
         ca-certificates eject cdparanoia libcdio-utils whipper \
-        handbrake-cli libdvd-pkg genisoimage \
+        handbrake-cli libdvd-pkg dvdbackup genisoimage \
         libbluray-bdj libbluray2 libbluray-bin \
         libssl3 libexpat1 libavcodec59 \
         mame-tools \
