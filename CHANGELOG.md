@@ -6,6 +6,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-05-12
+
+### Fixed
+
+- **Classifier no longer races the drive spin-up.** `cd-info` is now
+  retried with backoff (~13 s total: 0.5 s, 1 s, then 2 s × 5)
+  whenever it returns a non-zero exit. Without this, the first
+  classify attempt landed 60–100 ms after the udev media-change
+  event — well before the drive could answer a SCSI INQUIRY — and
+  the drive flipped to **Error** with `cd-info: exit status 1`.
+- **Identify sheet no longer auto-rips a low-confidence guess.**
+  When the top candidate's confidence is below 50, the 8-second
+  auto-confirm countdown is suppressed; the sheet now reads
+  `No confident match · pick a title or search`. Empty candidate
+  lists render `No match found · search manually`. Previously the
+  sheet would auto-start a rip on whatever first candidate
+  TMDB / MusicBrainz returned, even at 0 % confidence.
+
 ## [0.1.1] - 2026-05-12
 
 ### Fixed

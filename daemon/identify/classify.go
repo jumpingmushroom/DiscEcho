@@ -7,9 +7,31 @@ import (
 	"log/slog"
 	"os/exec"
 	"strings"
+	"time"
 
 	"github.com/jumpingmushroom/DiscEcho/daemon/state"
 )
+
+// cdInfoRunner runs the cd-info binary and returns its combined output.
+// Exposed for tests; real callers use defaultCDInfoRunner.
+type cdInfoRunner func(ctx context.Context, bin, devPath string) ([]byte, error)
+
+func defaultCDInfoRunner(ctx context.Context, bin, devPath string) ([]byte, error) {
+	return exec.CommandContext(ctx, bin, devPath).CombinedOutput() //nolint:gosec // bin path is configured by the operator.
+}
+
+// cdInfoBackoff is the wait between cd-info retries. Exposed for tests
+// so the table-driven retry test can shrink it to a few microseconds
+// without coupling to the production schedule.
+var cdInfoBackoff = []time.Duration{
+	500 * time.Millisecond,
+	1 * time.Second,
+	2 * time.Second,
+	2 * time.Second,
+	2 * time.Second,
+	2 * time.Second,
+	2 * time.Second,
+}
 
 // ErrUnknownDiscType is returned when none of the probes recognise the
 // disc. The orchestrator turns this into a job-state failure with a
@@ -50,6 +72,11 @@ type ClassifierConfig struct {
 	SaturnProber    SaturnProber    // optional — detects Sega Saturn via IP.BIN
 	XboxProber      XboxProber      // optional — detects Xbox via default.xbe
 	DCProber        DCProber        // optional — detects Dreamcast via GD-ROM TOC heuristic
+
+	// CDInfoBackoff overrides the per-attempt wait schedule between
+	// retries. nil → use the production schedule (~13 s total). A
+	// non-nil empty slice disables retries entirely (useful in tests).
+	CDInfoBackoff []time.Duration
 }
 
 // NewClassifier returns a Classifier that runs the multi-probe pipeline.
@@ -66,6 +93,10 @@ func NewClassifier(c ClassifierConfig) Classifier {
 	if c.SystemCNFProber == nil {
 		c.SystemCNFProber = NewSystemCNFProber("")
 	}
+	backoff := cdInfoBackoff
+	if c.CDInfoBackoff != nil {
+		backoff = c.CDInfoBackoff
+	}
 	return &multiProbeClassifier{
 		cdInfoBin: c.CDInfoBin,
 		fs:        c.FSProber,
@@ -74,6 +105,8 @@ func NewClassifier(c ClassifierConfig) Classifier {
 		saturn:    c.SaturnProber,
 		xbox:      c.XboxProber,
 		dc:        c.DCProber,
+		runner:    defaultCDInfoRunner,
+		backoff:   backoff,
 	}
 }
 
@@ -85,19 +118,50 @@ type multiProbeClassifier struct {
 	saturn    SaturnProber
 	xbox      XboxProber
 	dc        DCProber
+	runner    cdInfoRunner
+	backoff   []time.Duration
 }
 
+// Classify shells out to cd-info, with retry-with-backoff to absorb the
+// 1–8 s spin-up window after a disc insertion. Without the retry, the
+// first cd-info call lands 60–100 ms after the udev event and fails
+// with "exit status 1" on most drives.
 func (c *multiProbeClassifier) Classify(ctx context.Context, devPath string) (state.DiscType, error) {
-	cmd := exec.CommandContext(ctx, c.cdInfoBin, devPath)
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		return "", fmt.Errorf("cd-info: %w", err)
+	out, lastErr := c.runCDInfo(ctx, devPath)
+	if lastErr != nil {
+		return "", fmt.Errorf("cd-info: %w", lastErr)
 	}
 	base, err := ClassifyFromCDInfo(string(out))
 	if err != nil {
 		return "", err
 	}
 	return RefineDiscType(ctx, base, c.fs, c.bd, c.sysCNF, c.saturn, c.xbox, c.dc, devPath), nil
+}
+
+func (c *multiProbeClassifier) runCDInfo(ctx context.Context, devPath string) ([]byte, error) {
+	var lastErr error
+	for attempt := 0; attempt <= len(c.backoff); attempt++ {
+		out, err := c.runner(ctx, c.cdInfoBin, devPath)
+		if err == nil {
+			if attempt > 0 {
+				slog.Info("cd-info succeeded after retry", "dev", devPath, "attempts", attempt+1)
+			}
+			return out, nil
+		}
+		lastErr = err
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		if attempt == len(c.backoff) {
+			break
+		}
+		select {
+		case <-time.After(c.backoff[attempt]):
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
+	return nil, lastErr
 }
 
 // ClassifyFromCDInfo parses cd-info stdout/stderr and returns the

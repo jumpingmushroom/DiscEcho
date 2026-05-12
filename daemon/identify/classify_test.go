@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/jumpingmushroom/DiscEcho/daemon/identify"
 	"github.com/jumpingmushroom/DiscEcho/daemon/state"
@@ -325,14 +326,17 @@ func TestRefineDiscType_ProbeErrorsFallthrough(t *testing.T) {
 }
 
 func TestClassifier_Interface(t *testing.T) {
-	c := identify.NewClassifier(identify.ClassifierConfig{})
+	c := identify.NewClassifier(identify.ClassifierConfig{
+		CDInfoBackoff: []time.Duration{}, // disable retries to keep test fast
+	})
 	if c == nil {
 		t.Fatal("nil classifier")
 	}
 	_, _ = c.Classify(context.Background(), "/dev/null")
 
 	_, err := identify.NewClassifier(identify.ClassifierConfig{
-		CDInfoBin: "/usr/bin/false",
+		CDInfoBin:     "/usr/bin/false",
+		CDInfoBackoff: []time.Duration{},
 	}).Classify(context.Background(), "/dev/null")
 	if err == nil {
 		t.Errorf("want error from /usr/bin/false")

@@ -8,6 +8,10 @@
   export let disc: Disc;
 
   const COUNTDOWN_SEC = 8;
+  // Below this confidence we don't auto-confirm — the top candidate
+  // is too speculative to start a rip without explicit user action.
+  // Identification still surfaces; the user picks or searches manually.
+  const AUTO_CONFIRM_MIN_CONFIDENCE = 50;
 
   let countdownSec = COUNTDOWN_SEC;
   let cancelled = false;
@@ -16,6 +20,8 @@
   // flow through. The export is a one-shot seed.
   $: liveDisc = $discs[disc.id] ?? disc;
   $: candidates = liveDisc.candidates ?? [];
+  $: topConfidence = candidates[0]?.confidence ?? 0;
+  $: autoConfirmAllowed = topConfidence >= AUTO_CONFIRM_MIN_CONFIDENCE;
 
   function profileForCandidate(c: Candidate): string {
     const enabled = $profiles.filter((p) => p.enabled);
@@ -31,8 +37,10 @@
 
   // The interval is started synchronously during component init so tests
   // using `vi.useFakeTimers()` can advance time immediately after `render()`.
+  // The tick itself checks autoConfirmAllowed so the timer no-ops for
+  // low-confidence matches even when candidates land after mount.
   const timer: ReturnType<typeof setInterval> = setInterval(() => {
-    if (cancelled) return;
+    if (cancelled || !autoConfirmAllowed) return;
     countdownSec--;
     if (countdownSec <= 0) {
       clearInterval(timer);
@@ -53,7 +61,7 @@
   }
 
   async function autoConfirm(): Promise<void> {
-    if (cancelled) return;
+    if (cancelled || !autoConfirmAllowed) return;
     cancelled = true;
     const c = candidates[0];
     if (!c) return;
@@ -125,9 +133,19 @@
             : 'es'}
         </div>
         {#if !searching}
-          <div class="mt-1 font-mono text-[11px] text-text-3">
-            {`Auto-rip in ${countdownSec}s`}
-          </div>
+          {#if autoConfirmAllowed}
+            <div class="mt-1 font-mono text-[11px] text-text-3">
+              {`Auto-rip in ${countdownSec}s`}
+            </div>
+          {:else if candidates.length > 0}
+            <div class="mt-1 text-[11px] text-warn">
+              No confident match · pick a title or search
+            </div>
+          {:else}
+            <div class="mt-1 text-[11px] text-warn">
+              No match found · search manually
+            </div>
+          {/if}
         {/if}
       </div>
     </div>
