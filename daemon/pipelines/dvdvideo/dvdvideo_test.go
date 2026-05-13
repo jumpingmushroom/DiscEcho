@@ -615,6 +615,116 @@ func TestDVDPipeline_PersistsScanTitlesToMetadataBlob(t *testing.T) {
 	}
 }
 
+func TestDVD_Run_NVENCSelectsHardwareEncoder(t *testing.T) {
+	libRoot := t.TempDir()
+
+	hb := &fakeHandBrake{scanTitles: []tools.HandBrakeTitle{
+		{Number: 1, DurationSeconds: 7000},
+	}}
+	bk := &fakeDVDBackup{label: "ARRIVAL"}
+	apprise := tools.NewMockTool("apprise", []tools.MockEvent{})
+	eject := tools.NewMockTool("eject", []tools.MockEvent{})
+	reg := tools.NewRegistry()
+	reg.Register(hb)
+	reg.Register(apprise)
+	reg.Register(eject)
+
+	h := dvdvideo.New(dvdvideo.Deps{
+		Tools:                    reg,
+		LibraryRoot:              libRoot,
+		WorkRoot:                 t.TempDir(),
+		LibraryProbe:             func(string) error { return nil },
+		DVDBackup:                bk,
+		HandBrakeScanner:         hb,
+		MinEncodedBytesPerSecond: -1,
+		NVENCAvailable:           true,
+	})
+
+	drv := &state.Drive{ID: "drv-1", DevPath: "/dev/sr0"}
+	disc := &state.Disc{
+		ID: "disc-1", Type: state.DiscTypeDVD, DriveID: "drv-1",
+		Title: "Arrival", Year: 2016,
+		MetadataID: "329865", MetadataProvider: "TMDB",
+		Candidates: []state.Candidate{
+			{Source: "TMDB", Title: "Arrival", Year: 2016, MediaType: "movie", TMDBID: 329865, Confidence: 80},
+		},
+	}
+	prof := &state.Profile{
+		DiscType: state.DiscTypeDVD, Engine: "HandBrake", Format: "MP4",
+		VideoCodec:         "nvenc_h265",
+		OutputPathTemplate: `{{.Title}} ({{.Year}})/{{.Title}} ({{.Year}}).mp4`,
+	}
+
+	sink := testutil.NewRecordingSink()
+	if err := h.Run(context.Background(), drv, disc, prof, sink); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if len(hb.calls) != 1 {
+		t.Fatalf("encode calls: want 1, got %d", len(hb.calls))
+	}
+	if gotEncoder := encoderFlag(hb.calls[0].args); gotEncoder != "nvenc_h265" {
+		t.Errorf("--encoder: got %q, want nvenc_h265", gotEncoder)
+	}
+}
+
+func TestDVD_Run_NVENCFallsBackWhenGPUMissing(t *testing.T) {
+	libRoot := t.TempDir()
+
+	hb := &fakeHandBrake{scanTitles: []tools.HandBrakeTitle{
+		{Number: 1, DurationSeconds: 7000},
+	}}
+	bk := &fakeDVDBackup{label: "ARRIVAL"}
+	apprise := tools.NewMockTool("apprise", []tools.MockEvent{})
+	eject := tools.NewMockTool("eject", []tools.MockEvent{})
+	reg := tools.NewRegistry()
+	reg.Register(hb)
+	reg.Register(apprise)
+	reg.Register(eject)
+
+	h := dvdvideo.New(dvdvideo.Deps{
+		Tools:                    reg,
+		LibraryRoot:              libRoot,
+		WorkRoot:                 t.TempDir(),
+		LibraryProbe:             func(string) error { return nil },
+		DVDBackup:                bk,
+		HandBrakeScanner:         hb,
+		MinEncodedBytesPerSecond: -1,
+		NVENCAvailable:           false,
+	})
+
+	drv := &state.Drive{ID: "drv-1", DevPath: "/dev/sr0"}
+	disc := &state.Disc{
+		ID: "disc-1", Type: state.DiscTypeDVD, DriveID: "drv-1",
+		Title: "Arrival", Year: 2016,
+		MetadataID: "329865", MetadataProvider: "TMDB",
+		Candidates: []state.Candidate{
+			{Source: "TMDB", Title: "Arrival", Year: 2016, MediaType: "movie", TMDBID: 329865, Confidence: 80},
+		},
+	}
+	prof := &state.Profile{
+		DiscType: state.DiscTypeDVD, Engine: "HandBrake", Format: "MP4",
+		VideoCodec:         "nvenc_h265",
+		OutputPathTemplate: `{{.Title}} ({{.Year}})/{{.Title}} ({{.Year}}).mp4`,
+	}
+
+	sink := testutil.NewRecordingSink()
+	if err := h.Run(context.Background(), drv, disc, prof, sink); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if gotEncoder := encoderFlag(hb.calls[0].args); gotEncoder != "x265" {
+		t.Errorf("--encoder: got %q, want x265 (fallback)", gotEncoder)
+	}
+}
+
+func encoderFlag(args []string) string {
+	for i, a := range args {
+		if a == "--encoder" && i+1 < len(args) {
+			return args[i+1]
+		}
+	}
+	return ""
+}
+
 func TestDVDPipeline_EmitsMilestoneLogs(t *testing.T) {
 	libRoot := t.TempDir()
 	hb := &fakeHandBrake{scanTitles: []tools.HandBrakeTitle{
