@@ -38,6 +38,7 @@ func NewRouter(h *Handlers, static http.Handler) http.Handler {
 			authed.Use(withTimeout)
 
 			authed.Get("/state", h.GetState)
+			authed.Get("/stats", h.Stats)
 
 			authed.Get("/drives", h.ListDrives)
 			authed.Get("/drives/{id}", h.GetDrive)

@@ -277,8 +277,9 @@ func main() {
 		TMDB:         tmdbClient,
 		MusicBrainz:  mbClient,
 		Token:        cfg.Token,
-		Apprise:      appriseTool,
-		Settings:     cfg,
+		// ActiveSampler is started after the orchestrator's ctx is built (below).
+		Apprise:  appriseTool,
+		Settings: cfg,
 	}
 
 	embedFS, err := embed.FS()
@@ -293,6 +294,12 @@ func main() {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+
+	// Active-jobs sampler maintains a 24-hour ring of active-job counts
+	// in memory for the ACTIVE JOBS widget's delta + sparkline. Restart
+	// loses history; acceptable for a dashboard widget.
+	apiH.ActiveSampler = api.NewActiveJobsSampler(store)
+	apiH.ActiveSampler.Start(ctx)
 
 	// disc-flow: listen for udev optical-media-change events and run
 	// classify → identify → persist.

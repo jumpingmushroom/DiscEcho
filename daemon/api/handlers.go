@@ -13,14 +13,15 @@ import (
 // individual endpoints; auth middleware sits in front of the protected
 // subset.
 type Handlers struct {
-	Store        *state.Store
-	Broadcaster  *state.Broadcaster
-	Orchestrator *jobs.Orchestrator
-	Pipelines    *pipelines.Registry
-	Classifier   identify.Classifier
-	TMDB         identify.TMDBClient
-	MusicBrainz  identify.MusicBrainzClient
-	Token        string
-	Apprise      Apprise // defined in notifications.go; nil-safe in handlers
-	Settings     *settings.Settings
+	Store         *state.Store
+	Broadcaster   *state.Broadcaster
+	Orchestrator  *jobs.Orchestrator
+	Pipelines     *pipelines.Registry
+	Classifier    identify.Classifier
+	TMDB          identify.TMDBClient
+	MusicBrainz   identify.MusicBrainzClient
+	ActiveSampler *ActiveJobsSampler
+	Token         string
+	Apprise       Apprise // defined in notifications.go; nil-safe in handlers
+	Settings      *settings.Settings
 }

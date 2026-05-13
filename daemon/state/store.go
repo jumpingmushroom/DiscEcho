@@ -1593,3 +1593,195 @@ func (s *Store) PruneHistoryBefore(ctx context.Context, cutoff time.Time) (int, 
 	}
 	return int(deleted), nil
 }
+
+// Stats computes the dashboard's top-widgets payload. Library
+// total_bytes is left zero — that's filled in by the API layer via
+// statfs against the library roots (the daemon's state package
+// shouldn't reach for the OS filesystem). ActiveJobs.Delta1h and
+// Spark24h are similarly zero-filled here and stitched in by the API
+// layer's in-memory active-jobs sampler.
+func (s *Store) Stats(ctx context.Context, now time.Time) (Stats, error) {
+	var out Stats
+	if err := s.statsActive(ctx, &out.ActiveJobs); err != nil {
+		return out, err
+	}
+	if err := s.statsTodayRipped(ctx, now, &out.TodayRipped); err != nil {
+		return out, err
+	}
+	if err := s.statsLibrary(ctx, now, &out.Library); err != nil {
+		return out, err
+	}
+	if err := s.statsFailures(ctx, now, &out.Failures7d); err != nil {
+		return out, err
+	}
+	return out, nil
+}
+
+func (s *Store) statsActive(ctx context.Context, out *ActiveJobsStat) error {
+	row := s.db.Conn().QueryRowContext(ctx, `
+		SELECT COUNT(*) FROM jobs
+		WHERE state NOT IN ('done','failed','cancelled','interrupted')`)
+	if err := row.Scan(&out.Value); err != nil {
+		return err
+	}
+	out.Spark24h = make([]int, 24)
+	return nil
+}
+
+func (s *Store) statsTodayRipped(ctx context.Context, now time.Time, out *TodayRippedStat) error {
+	startOfToday := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location()).Format(time.RFC3339)
+	row := s.db.Conn().QueryRowContext(ctx, `
+		SELECT COALESCE(SUM(output_bytes), 0), COUNT(*)
+		FROM jobs WHERE state='done' AND finished_at >= ?`, startOfToday)
+	if err := row.Scan(&out.Bytes, &out.Titles); err != nil {
+		return err
+	}
+	spark, err := s.dailyByteSeries(ctx, now, 7)
+	if err != nil {
+		return err
+	}
+	out.Spark7dBytes = spark
+	return nil
+}
+
+func (s *Store) statsLibrary(ctx context.Context, now time.Time, out *LibraryStat) error {
+	row := s.db.Conn().QueryRowContext(ctx, `
+		SELECT COALESCE(SUM(output_bytes), 0)
+		FROM jobs WHERE state='done'`)
+	if err := row.Scan(&out.UsedBytes); err != nil {
+		return err
+	}
+	// Build a cumulative-at-end-of-day series for the last 30 days.
+	rows, err := s.db.Conn().QueryContext(ctx, `
+		SELECT finished_at, output_bytes
+		FROM jobs WHERE state='done' ORDER BY finished_at ASC`)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = rows.Close() }()
+	type pt struct {
+		t time.Time
+		b int64
+	}
+	var all []pt
+	for rows.Next() {
+		var ts string
+		var b int64
+		if err := rows.Scan(&ts, &b); err != nil {
+			return err
+		}
+		t, _ := time.Parse(time.RFC3339, ts)
+		all = append(all, pt{t, b})
+	}
+	out.Spark30dUsed = make([]int64, 30)
+	dayEnd := time.Date(now.Year(), now.Month(), now.Day(), 23, 59, 59, 0, now.Location())
+	for i := 0; i < 30; i++ {
+		thisDayEnd := dayEnd.AddDate(0, 0, -(29 - i))
+		var sum int64
+		for _, p := range all {
+			if !p.t.After(thisDayEnd) {
+				sum += p.b
+			}
+		}
+		out.Spark30dUsed[i] = sum
+	}
+	return nil
+}
+
+func (s *Store) statsFailures(ctx context.Context, now time.Time, out *Failures7dStat) error {
+	cutCurr := now.AddDate(0, 0, -7).Format(time.RFC3339)
+	cutPrev := now.AddDate(0, 0, -14).Format(time.RFC3339)
+
+	row := s.db.Conn().QueryRowContext(ctx, `
+		SELECT COUNT(*) FROM jobs
+		WHERE state IN ('failed','cancelled','interrupted')
+		  AND finished_at >= ?`, cutCurr)
+	if err := row.Scan(&out.Value); err != nil {
+		return err
+	}
+	row = s.db.Conn().QueryRowContext(ctx, `
+		SELECT COUNT(*) FROM jobs
+		WHERE state IN ('failed','cancelled','interrupted')
+		  AND finished_at >= ? AND finished_at < ?`, cutPrev, cutCurr)
+	if err := row.Scan(&out.Previous); err != nil {
+		return err
+	}
+
+	out.Spark30d = make([]int, 30)
+	cut30 := now.AddDate(0, 0, -30).Format(time.RFC3339)
+	rows, err := s.db.Conn().QueryContext(ctx, `
+		SELECT date(finished_at), COUNT(*)
+		FROM jobs WHERE state IN ('failed','cancelled','interrupted')
+		  AND finished_at >= ?
+		GROUP BY date(finished_at)`, cut30)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = rows.Close() }()
+	for rows.Next() {
+		var day string
+		var n int
+		if err := rows.Scan(&day, &n); err != nil {
+			return err
+		}
+		idx := dayOffsetIndex(now, day, 30)
+		if idx >= 0 && idx < 30 {
+			out.Spark30d[idx] = n
+		}
+	}
+	return nil
+}
+
+// dailyByteSeries returns the per-day SUM(output_bytes) over the last
+// `days` calendar days as a slice of length `days` (oldest first).
+// Missing days are zero-filled.
+func (s *Store) dailyByteSeries(ctx context.Context, now time.Time, days int) ([]int64, error) {
+	cut := now.AddDate(0, 0, -days).Format(time.RFC3339)
+	rows, err := s.db.Conn().QueryContext(ctx, `
+		SELECT date(finished_at), SUM(output_bytes)
+		FROM jobs WHERE state='done' AND finished_at >= ?
+		GROUP BY date(finished_at)`, cut)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	out := make([]int64, days)
+	for rows.Next() {
+		var day string
+		var n int64
+		if err := rows.Scan(&day, &n); err != nil {
+			return nil, err
+		}
+		idx := dayOffsetIndex(now, day, days)
+		if idx >= 0 && idx < days {
+			out[idx] = n
+		}
+	}
+	return out, nil
+}
+
+// dayOffsetIndex maps a 'YYYY-MM-DD' day string to its bucket index in
+// a window of `days` days ending today. days-1 is today; 0 is the
+// oldest day in the window. Returns -1 if the day is outside the
+// window or unparseable.
+func dayOffsetIndex(now time.Time, ymd string, days int) int {
+	t, err := time.Parse("2006-01-02", ymd)
+	if err != nil {
+		return -1
+	}
+	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+	bucket := time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, now.Location())
+	diff := int(today.Sub(bucket).Hours() / 24)
+	idx := (days - 1) - diff
+	if idx < 0 || idx >= days {
+		return -1
+	}
+	return idx
+}
+
+// Conn exposes the underlying *sql.DB. Used by the API layer's
+// active-jobs sampler, which needs a single COUNT query without going
+// through the full Stats aggregator.
+func (s *Store) Conn() *sql.DB {
+	return s.db.Conn()
+}

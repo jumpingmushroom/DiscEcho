@@ -77,6 +77,7 @@ func (h *Handlers) writeSnapshot(ctx context.Context, w http.ResponseWriter, flu
 		"discs":    discs,
 		"profiles": profiles,
 		"settings": settings,
+		"stats":    h.computeStats(ctx),
 	})
 }
 
