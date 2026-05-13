@@ -274,6 +274,7 @@ func main() {
 		Pipelines:    pipeReg,
 		Classifier:   classifier,
 		TMDB:         tmdbClient,
+		MusicBrainz:  mbClient,
 		Token:        cfg.Token,
 		Apprise:      appriseTool,
 		Settings:     cfg,

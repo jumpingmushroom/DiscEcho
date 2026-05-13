@@ -19,6 +19,7 @@ type Handlers struct {
 	Pipelines    *pipelines.Registry
 	Classifier   identify.Classifier
 	TMDB         identify.TMDBClient
+	MusicBrainz  identify.MusicBrainzClient
 	Token        string
 	Apprise      Apprise // defined in notifications.go; nil-safe in handlers
 	Settings     *settings.Settings
