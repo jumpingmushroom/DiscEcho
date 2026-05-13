@@ -268,3 +268,30 @@ func TestProbeNVENC_BinaryMissing(t *testing.T) {
 		t.Error("expected ProbeNVENC to return false for missing binary")
 	}
 }
+
+func TestProbeNVENC_LibraryLoadFailure(t *testing.T) {
+	// HandBrake 1.11+ lists NVENC presets at compile time, so the
+	// preset list itself is not enough to confirm NVENC is usable.
+	// The probe must also key on the "Cannot load libnvidia-encode"
+	// runtime error.
+	dir := t.TempDir()
+	stub := filepath.Join(dir, "HandBrakeCLI")
+	script := `#!/bin/sh
+echo "[12:00:00] Compile-time hardening features are enabled"
+echo "Cannot load libnvidia-encode.so.1"
+echo "[12:00:00] hb_init: starting libhb thread"
+echo "Available --encoder-preset values for 'nvenc_h265' encoder:"
+echo "    fastest"
+echo "    faster"
+echo "    fast"
+echo "    medium"
+echo "    slow"
+exit 0
+`
+	if err := os.WriteFile(stub, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if tools.ProbeNVENC(stub) {
+		t.Error("expected ProbeNVENC to return false when output reports library load failure")
+	}
+}

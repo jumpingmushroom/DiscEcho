@@ -242,11 +242,20 @@ func parseHandBrakeEncodeLines(scanner *bufio.Scanner, titleIdx, totalTitles int
 	}
 }
 
-// ProbeNVENC returns true when the bundled HandBrake-CLI lists at
-// least one NVENC preset. The query fails fast on systems without
-// the NVIDIA driver / NVENC userland, so a successful response means
-// we can actually use the encoder. Cheap: one subprocess fork,
-// ~50–150 ms on a configured host.
+// ProbeNVENC returns true when the bundled HandBrake-CLI can actually
+// use NVENC on this host. Modern HandBrake builds (1.11+) link NVENC
+// at compile-time and `--encoder-preset-list nvenc_h265` succeeds and
+// lists presets unconditionally — even when the runtime
+// libnvidia-encode.so.1 is missing. The probe handles this by:
+//
+//  1. Failing on non-zero exit (binary missing, totally broken).
+//  2. Returning false if HandBrake reported "Cannot load
+//     libnvidia-encode.so.1" — that line signals the NVENC userland
+//     is missing on the host, so any encode would dlopen-fail.
+//  3. Returning true only when at least one preset name appears in
+//     the output AND no library-load failure was reported.
+//
+// Cheap: one subprocess fork, ~50–150 ms on a configured host.
 func ProbeNVENC(handBrakeBin string) bool {
 	if handBrakeBin == "" {
 		handBrakeBin = "HandBrakeCLI"
@@ -258,11 +267,10 @@ func ProbeNVENC(handBrakeBin string) bool {
 	if err != nil {
 		return false
 	}
-	// A successful probe lists at least one preset name. On hosts
-	// without NVENC userland HandBrake errors out before printing
-	// any preset; we keyword-match on common preset names to avoid
-	// false positives from stray stderr noise.
 	low := strings.ToLower(string(out))
+	if strings.Contains(low, "cannot load libnvidia-encode") {
+		return false
+	}
 	for _, p := range []string{"fast", "medium", "slow", "quality", "default"} {
 		if strings.Contains(low, p) {
 			return true
