@@ -85,6 +85,7 @@ export interface Disc {
   toc_hash?: string;
   metadata_provider?: string;
   metadata_id?: string;
+  metadata_json?: string; // raw JSON blob with per-disc-type extended fields
   candidates: Candidate[];
   created_at: string;
 }
