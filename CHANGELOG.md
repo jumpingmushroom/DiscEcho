@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+- Sidebar opens a per-disc-type **metadata pane** instead of repeating the hero RipCard. Movies show plot / director / cast / studio / genres / rating; audio CDs show label + track list; games show system / region / serial / Redump MD5; data discs show filesystem inventory.
+- Poster and cover art are pulled from TMDB / CoverArtArchive at identify time and shown in the hero RipCard, awaiting-decision card, and sidebar metadata pane via a new shared `DiscArt` component.
+
+### Changed
+- Dashboard hero band's minimum column width raised from 280px to 380px so the pipeline stepper labels never clip.
+
 ## [0.4.1] - 2026-05-13
 
 ### Fixed
