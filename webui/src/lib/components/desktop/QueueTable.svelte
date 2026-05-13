@@ -4,6 +4,7 @@
   import DiscTypeBadge from '$lib/components/DiscTypeBadge.svelte';
   import PipelineStepperMini from '$lib/components/PipelineStepperMini.svelte';
   import { createEventDispatcher } from 'svelte';
+  import { formatDuration } from '$lib/time';
 
   export let jobs: Job[];
   export let selectedJobID: string | null = null;
@@ -79,7 +80,7 @@
               {/if}
             </td>
             <td class="px-4 py-2 text-right font-mono text-[12px] text-text-3">
-              {j.eta_seconds ? `${j.eta_seconds}s` : '—'}
+              {j.eta_seconds ? formatDuration(j.eta_seconds) : '—'}
             </td>
           </tr>
         {/each}
