@@ -158,6 +158,7 @@ func (h *Handler) Run(ctx context.Context, drv *state.Drive, disc *state.Disc, p
 		sink.OnStepFailed(state.StepRip, err)
 		return err
 	}
+	sink.OnLog(state.LogLevelInfo, "MakeMKV: scanning %s (UHD)", drv.DevPath)
 	titles, err := h.deps.MakeMKVScanner.Scan(ctx, drv.DevPath)
 	if err != nil {
 		sink.OnStepFailed(state.StepRip, err)
@@ -168,11 +169,14 @@ func (h *Handler) Run(ctx context.Context, drv *state.Drive, disc *state.Disc, p
 		sink.OnStepFailed(state.StepRip, err)
 		return err
 	}
+	sink.OnLog(state.LogLevelInfo, "MakeMKV: scan complete, picked title %d (longest %s)",
+		picked.ID, pipelines.HumanDuration(time.Duration(picked.DurationSec)*time.Second))
 	ripDir := filepath.Join(tmpdir, "rip")
 	if err := os.MkdirAll(ripDir, 0o755); err != nil {
 		sink.OnStepFailed(state.StepRip, err)
 		return err
 	}
+	ripStart := time.Now()
 	if err := h.deps.MakeMKVRipper.Rip(ctx, drv.DevPath, picked.ID, ripDir, newStepSink(sink, state.StepRip)); err != nil {
 		sink.OnStepFailed(state.StepRip, err)
 		return fmt.Errorf("makemkv rip: %w", err)
@@ -182,6 +186,12 @@ func (h *Handler) Run(ctx context.Context, drv *state.Drive, disc *state.Disc, p
 		sink.OnStepFailed(state.StepRip, err)
 		return err
 	}
+	var ripSize int64
+	if fi, statErr := os.Stat(rippedFile); statErr == nil {
+		ripSize = fi.Size()
+	}
+	sink.OnLog(state.LogLevelInfo, "MakeMKV: rip complete, %s in %s",
+		pipelines.HumanBytes(ripSize), pipelines.HumanDuration(time.Since(ripStart)))
 	sink.OnStepDone(state.StepRip, map[string]any{"title_id": picked.ID, "duration_sec": picked.DurationSec})
 
 	// move — atomic rename of the MakeMKV output directly into the library.
@@ -198,6 +208,7 @@ func (h *Handler) Run(ctx context.Context, drv *state.Drive, disc *state.Disc, p
 		sink.OnStepFailed(state.StepMove, err)
 		return err
 	}
+	sink.OnLog(state.LogLevelInfo, "move: → %s", dst)
 	sink.OnStepDone(state.StepMove, map[string]any{"path": dst})
 
 	// notify

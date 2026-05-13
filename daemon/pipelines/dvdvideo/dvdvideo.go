@@ -180,22 +180,34 @@ func (h *Handler) Run(ctx context.Context, drv *state.Drive, disc *state.Disc, p
 		sink.OnStepFailed(state.StepRip, err)
 		return fmt.Errorf("create rip dir: %w", err)
 	}
+	sink.OnLog(state.LogLevelInfo, "dvdbackup: mirroring %s → workdir", drv.DevPath)
+	mirrorStart := time.Now()
 	source, err := h.deps.DVDBackup.Mirror(ctx, drv.DevPath, ripDir, newStepSink(sink, state.StepRip))
 	if err != nil {
 		sink.OnStepFailed(state.StepRip, err)
 		return fmt.Errorf("dvdbackup mirror: %w", err)
 	}
+	sink.OnLog(state.LogLevelInfo, "dvdbackup: complete in %s",
+		pipelines.HumanDuration(time.Since(mirrorStart)))
 	sink.OnStepDone(state.StepRip, map[string]any{"source": source})
 
 	// transcode — HandBrake scans the local VIDEO_TS, we pick titles
 	// by profile, then HandBrake encodes each one from the local mirror.
 	sink.OnStepStart(state.StepTranscode)
+	sink.OnLog(state.LogLevelInfo, "HandBrake: scanning titles")
 	titles, err := h.deps.HandBrakeScanner.Scan(ctx, source)
 	if err != nil {
 		sink.OnStepFailed(state.StepTranscode, err)
 		return fmt.Errorf("handbrake scan: %w", err)
 	}
 	logScannedTitles(disc.ID, titles)
+	if longest := longestTitle(titles); longest.DurationSeconds > 0 {
+		sink.OnLog(state.LogLevelInfo, "HandBrake: scan complete, %d title(s), longest %s",
+			len(titles),
+			pipelines.HumanDuration(time.Duration(longest.DurationSeconds)*time.Second))
+	} else {
+		sink.OnLog(state.LogLevelInfo, "HandBrake: scan complete, %d title(s)", len(titles))
+	}
 	warnOnRuntimeMismatch(disc, titles)
 	if h.deps.MetadataStore != nil {
 		_ = mergeMetadataField(ctx, h.deps.MetadataStore, disc.ID, disc.MetadataJSON, "dvd_titles", titles)
@@ -262,6 +274,8 @@ func (h *Handler) Run(ctx context.Context, drv *state.Drive, disc *state.Disc, p
 			"HB_TOTAL_TITLES": strconv.Itoa(len(encodeTitles)),
 		}
 		stepSink := newStepSink(sink, state.StepTranscode)
+		sink.OnLog(state.LogLevelInfo, "HandBrake: encoding title %d → %s", t.Number, filepath.Base(out))
+		encStart := time.Now()
 		if err := whb.Run(ctx, args, env, tmpdir, stepSink); err != nil {
 			sink.OnStepFailed(state.StepTranscode, err)
 			return fmt.Errorf("handbrake encode title %d: %w", t.Number, err)
@@ -270,6 +284,12 @@ func (h *Handler) Run(ctx context.Context, drv *state.Drive, disc *state.Disc, p
 			sink.OnStepFailed(state.StepTranscode, err)
 			return fmt.Errorf("handbrake encode title %d: %w", t.Number, err)
 		}
+		var encSize int64
+		if fi, statErr := os.Stat(out); statErr == nil {
+			encSize = fi.Size()
+		}
+		sink.OnLog(state.LogLevelInfo, "HandBrake: title %d complete, %s in %s",
+			t.Number, pipelines.HumanBytes(encSize), pipelines.HumanDuration(time.Since(encStart)))
 		transcoded = append(transcoded, out)
 	}
 	sink.OnStepDone(state.StepTranscode, nil)
@@ -280,6 +300,9 @@ func (h *Handler) Run(ctx context.Context, drv *state.Drive, disc *state.Disc, p
 	if err != nil {
 		sink.OnStepFailed(state.StepMove, err)
 		return fmt.Errorf("move: %w", err)
+	}
+	for _, p := range moved {
+		sink.OnLog(state.LogLevelInfo, "move: → %s", p)
 	}
 	sink.OnStepDone(state.StepMove, map[string]any{"paths": moved})
 

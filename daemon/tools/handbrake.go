@@ -10,6 +10,8 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+
+	"github.com/jumpingmushroom/DiscEcho/daemon/state"
 )
 
 // HandBrakeTitle is one title from a `HandBrakeCLI --scan` output.
@@ -188,27 +190,53 @@ func ParseHandBrakeEncodeStream(r io.Reader, titleIdx, totalTitles int, sink Sin
 }
 
 func parseHandBrakeEncodeLines(scanner *bufio.Scanner, titleIdx, totalTitles int, sink Sink) {
+	const stderrCap = 200
+	stderrSeen := 0
+	capWarned := false
+
 	for scanner.Scan() {
 		line := scanner.Text()
 		m := hbEncodingRE.FindStringSubmatch(line)
-		if m == nil {
+		if m != nil {
+			intra, _ := strconv.ParseFloat(m[3], 64)
+			overall := (float64(titleIdx-1) + intra/100) / float64(totalTitles) * 100
+
+			// fps/ETA group is optional; m[4]…m[7] are empty when the tail
+			// wasn't in the line (HandBrake 1.6.x on a pipe).
+			var speed string
+			var etaSeconds int
+			if m[4] != "" {
+				fps, _ := strconv.ParseFloat(m[4], 64)
+				etaH, _ := strconv.Atoi(m[5])
+				etaM, _ := strconv.Atoi(m[6])
+				etaS, _ := strconv.Atoi(m[7])
+				etaSeconds = etaH*3600 + etaM*60 + etaS
+				speed = fmt.Sprintf("%.1ffps", fps)
+			}
+			sink.Progress(overall, speed, etaSeconds)
 			continue
 		}
-		intra, _ := strconv.ParseFloat(m[3], 64)
-		overall := (float64(titleIdx-1) + intra/100) / float64(totalTitles) * 100
 
-		// fps/ETA group is optional; m[4]…m[7] are empty when the tail
-		// wasn't in the line (HandBrake 1.6.x on a pipe).
-		var speed string
-		var etaSeconds int
-		if m[4] != "" {
-			fps, _ := strconv.ParseFloat(m[4], 64)
-			etaH, _ := strconv.Atoi(m[5])
-			etaM, _ := strconv.Atoi(m[6])
-			etaS, _ := strconv.Atoi(m[7])
-			etaSeconds = etaH*3600 + etaM*60 + etaS
-			speed = fmt.Sprintf("%.1ffps", fps)
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			continue
 		}
-		sink.Progress(overall, speed, etaSeconds)
+		// HandBrake's `[hh:mm:ss] ...` config-dump lines are voluminous
+		// and not actionable for end users — skip unless they contain
+		// an error keyword. Real warnings/errors usually surface as
+		// `x264 [error]: ...` or `[hh:mm:ss] err: ...`.
+		if strings.HasPrefix(trimmed, "[") && !strings.Contains(strings.ToLower(trimmed), "error") {
+			continue
+		}
+
+		if stderrSeen >= stderrCap {
+			if !capWarned {
+				sink.Log(state.LogLevelWarn, "HandBrake: stderr cap reached, dropping further lines")
+				capWarned = true
+			}
+			continue
+		}
+		stderrSeen++
+		sink.Log(state.LogLevelWarn, "HandBrake: %s", trimmed)
 	}
 }

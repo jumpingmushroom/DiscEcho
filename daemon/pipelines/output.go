@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"text/template"
+	"time"
 )
 
 // OutputFields is the data passed to a profile's output_path_template.
@@ -190,4 +191,41 @@ func copyFile(src, dst string) error {
 		return fmt.Errorf("copy: close dst: %w", err)
 	}
 	return nil
+}
+
+// HumanBytes renders bytes as "X.X MB" / "X.X GB" etc. Used by
+// pipeline milestone log lines emitted via sink.OnLog.
+func HumanBytes(n int64) string {
+	const k = 1024
+	if n < k {
+		return fmt.Sprintf("%d B", n)
+	}
+	units := []string{"KB", "MB", "GB", "TB"}
+	v := float64(n) / k
+	for _, u := range units {
+		if v < k {
+			return fmt.Sprintf("%.1f %s", v, u)
+		}
+		v /= k
+	}
+	return fmt.Sprintf("%.1f PB", v)
+}
+
+// HumanDuration renders a duration as "Hh Mm Ss" / "Mm Ss" / "Ss".
+func HumanDuration(d time.Duration) string {
+	total := int(d.Seconds())
+	if total <= 0 {
+		return "0s"
+	}
+	h := total / 3600
+	m := (total % 3600) / 60
+	s := total % 60
+	switch {
+	case h > 0:
+		return fmt.Sprintf("%dh %dm %ds", h, m, s)
+	case m > 0:
+		return fmt.Sprintf("%dm %ds", m, s)
+	default:
+		return fmt.Sprintf("%ds", s)
+	}
 }

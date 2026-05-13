@@ -13,6 +13,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Changed
 - Dashboard hero band's minimum column width raised from 280px to 380px so the pipeline stepper labels never clip.
 
+### Fixed
+- Log tail now populates during DVD / BD / UHD rips: pipelines emit milestone log lines at each step boundary (dvdbackup or MakeMKV start/complete, HandBrake scan/encode start/complete, move). Stream parsers forward unrecognised non-progress lines so warnings and errors are visible instead of silently dropped, capped at 200 lines per step.
+
 ## [0.4.1] - 2026-05-13
 
 ### Fixed

@@ -614,3 +614,55 @@ func TestDVDPipeline_PersistsScanTitlesToMetadataBlob(t *testing.T) {
 		t.Errorf("blob missing dvd_titles key: %s", store.calls[0].blob)
 	}
 }
+
+func TestDVDPipeline_EmitsMilestoneLogs(t *testing.T) {
+	libRoot := t.TempDir()
+	hb := &fakeHandBrake{scanTitles: []tools.HandBrakeTitle{
+		{Number: 1, DurationSeconds: 5099},
+	}}
+	bk := &fakeDVDBackup{label: "TEST"}
+	reg := tools.NewRegistry()
+	reg.Register(hb)
+	reg.Register(tools.NewMockTool("apprise", []tools.MockEvent{}))
+	reg.Register(tools.NewMockTool("eject", []tools.MockEvent{}))
+
+	h := dvdvideo.New(dvdvideo.Deps{
+		Tools:                    reg,
+		LibraryRoot:              libRoot,
+		WorkRoot:                 t.TempDir(),
+		DVDBackup:                bk,
+		HandBrakeScanner:         hb,
+		MinEncodedBytesPerSecond: -1,
+	})
+
+	disc := &state.Disc{ID: "disc-1", Type: state.DiscTypeDVD, Title: "Test Movie", Year: 2024}
+	prof := &state.Profile{
+		Format:             "MKV",
+		OutputPathTemplate: `{{.Title}}.mkv`,
+		Options:            map[string]any{"dvd_selection_mode": "main_feature"},
+	}
+	sink := testutil.NewRecordingSink()
+	_ = h.Run(context.Background(), &state.Drive{DevPath: "/dev/sr0"}, disc, prof, sink)
+
+	wantSubstrings := []string{
+		"dvdbackup: mirroring",
+		"dvdbackup: complete",
+		"HandBrake: scanning titles",
+		"HandBrake: scan complete",
+		"HandBrake: encoding title",
+		"HandBrake: title 1 complete",
+		"move: →",
+	}
+	for _, want := range wantSubstrings {
+		found := false
+		for _, e := range sink.Snapshot() {
+			if e.Kind == testutil.EventLog && strings.Contains(e.Message, want) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("missing milestone log containing %q", want)
+		}
+	}
+}
