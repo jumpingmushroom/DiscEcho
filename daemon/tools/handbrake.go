@@ -87,7 +87,7 @@ func (h *HandBrake) Run(ctx context.Context, args []string, env map[string]strin
 
 // Scan runs HandBrakeCLI with --scan and parses the title list.
 func (h *HandBrake) Scan(ctx context.Context, devPath string) ([]HandBrakeTitle, error) {
-	cmd := exec.CommandContext(ctx, h.bin, "--input", devPath, "--scan")
+	cmd := exec.CommandContext(ctx, h.bin, scanArgs(devPath)...)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		titles, perr := ParseHandBrakeScan(string(out))
@@ -97,6 +97,16 @@ func (h *HandBrake) Scan(ctx context.Context, devPath string) ([]HandBrakeTitle,
 		return nil, fmt.Errorf("handbrake --scan: %w (output: %s)", err, strings.TrimSpace(string(out)))
 	}
 	return ParseHandBrakeScan(string(out))
+}
+
+// scanArgs builds the argv for a full-title-list HandBrakeCLI scan.
+// `--title 0` is the critical bit — without it, HandBrakeCLI defaults
+// to title_index=1 and only ever enumerates title 1, which left every
+// multi-title DVD (Jackass: The Movie, season-set TV discs, anything
+// with menu-driven structure) reporting a single short preview title
+// instead of the real feature.
+func scanArgs(devPath string) []string {
+	return []string{"--input", devPath, "--title", "0", "--scan"}
 }
 
 func envInt(env map[string]string, key string, fallback int) int {
