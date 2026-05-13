@@ -161,6 +161,58 @@ the title; falls back to `data-disc-YYYYMMDD-HHMMSS` when no label
 is present. SHA-256 of the produced ISO and total byte count are
 stored on the disc record for verification later.
 
+### Enabling GPU transcoding (NVIDIA NVENC)
+
+DiscEcho can use NVIDIA NVENC for HandBrake-based transcodes (DVD and
+Blu-ray pipelines). Encodes run 5–10× faster than software x264/x265
+at a small visual-quality cost — acceptable for media-server use.
+
+**Requirements**
+
+- An NVIDIA GPU with NVENC support (any modern card; Quadro P-series,
+  GeForce GTX 1050+, RTX, etc).
+- NVIDIA driver installed on the host.
+- [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html)
+  configured on the Docker daemon so `runtime: nvidia` is recognised.
+
+**Compose**
+
+DiscEcho's bundled `docker-compose.yml` stays CPU-only by default —
+adding `runtime: nvidia` there would break the container on hosts
+without an NVIDIA GPU. Layer a per-host override:
+
+```yaml
+# docker-compose.override.yml
+services:
+  discecho:
+    runtime: nvidia
+    environment:
+      NVIDIA_VISIBLE_DEVICES: all
+      NVIDIA_DRIVER_CAPABILITIES: 'compute,video,utility'
+```
+
+`docker compose up -d` reads `docker-compose.yml` and any
+`docker-compose.override.yml` automatically.
+
+**Unraid**
+
+Edit the DiscEcho container in the Unraid GUI:
+
+- Extra parameters: `--runtime=nvidia`
+- Variable: `NVIDIA_VISIBLE_DEVICES` = `all`
+- Variable: `NVIDIA_DRIVER_CAPABILITIES` = `compute,video,utility`
+
+**Configuring profiles**
+
+In the webui → Profiles, edit a HandBrake or MakeMKV+HandBrake
+profile and set `video_codec` to `nvenc_h264` or `nvenc_h265`. The
+daemon detects NVENC availability at boot — visible in **Settings →
+Integrations → GPU transcoding**. When `connected`, profiles
+requesting NVENC use the hardware encoder. When `not configured`,
+NVENC profiles silently fall back to the matching software encoder
+(`x264` / `x265` / `x265_10bit` for BDMV) with a `WARN` line in the
+job log.
+
 ## Dev setup
 
 You need:
