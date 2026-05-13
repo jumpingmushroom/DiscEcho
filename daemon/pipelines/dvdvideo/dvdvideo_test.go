@@ -17,6 +17,48 @@ import (
 	"github.com/jumpingmushroom/DiscEcho/daemon/tools"
 )
 
+func TestIsMovieProfile_SelectionMode(t *testing.T) {
+	cases := []struct {
+		name     string
+		profile  *state.Profile
+		wantMain bool
+	}{
+		{
+			name: "explicit main_feature wins regardless of format",
+			profile: &state.Profile{
+				Format:  "MKV",
+				Options: map[string]any{"dvd_selection_mode": "main_feature"},
+			},
+			wantMain: true,
+		},
+		{
+			name: "explicit per_title wins regardless of format",
+			profile: &state.Profile{
+				Format:  "MP4",
+				Options: map[string]any{"dvd_selection_mode": "per_title"},
+			},
+			wantMain: false,
+		},
+		{
+			name:     "legacy fallback: MP4 format with no option → main_feature",
+			profile:  &state.Profile{Format: "MP4", Options: map[string]any{}},
+			wantMain: true,
+		},
+		{
+			name:     "legacy fallback: MKV format with no option → per_title",
+			profile:  &state.Profile{Format: "MKV", Options: map[string]any{}},
+			wantMain: false,
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := dvdvideo.IsMovieProfile(c.profile); got != c.wantMain {
+				t.Errorf("IsMovieProfile = %v, want %v", got, c.wantMain)
+			}
+		})
+	}
+}
+
 type fakeProber struct {
 	info *identify.DVDInfo
 	err  error
