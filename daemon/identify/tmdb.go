@@ -101,15 +101,31 @@ func (c *tmdbClient) MovieRuntime(ctx context.Context, tmdbID int) (int, error) 
 }
 
 func (c *tmdbClient) SearchMovie(ctx context.Context, query string) ([]state.Candidate, error) {
-	return c.search(ctx, "/search/movie", "movie", query, parseTMDBMovie)
+	out, err := c.search(ctx, "/search/movie", "movie", query, parseTMDBMovie)
+	if err != nil {
+		return nil, err
+	}
+	applyRankConfidence(out)
+	return out, nil
 }
 
 func (c *tmdbClient) SearchTV(ctx context.Context, query string) ([]state.Candidate, error) {
-	return c.search(ctx, "/search/tv", "tv", query, parseTMDBTV)
+	out, err := c.search(ctx, "/search/tv", "tv", query, parseTMDBTV)
+	if err != nil {
+		return nil, err
+	}
+	applyRankConfidence(out)
+	return out, nil
 }
 
-// SearchBoth runs movie + tv searches in parallel, merges, sorts by
-// confidence DESC, caps at 5.
+// SearchBoth runs movie + tv searches in parallel, merges them by
+// popularity-derived sort key (kept in Confidence at this stage),
+// caps at 5, then assigns final rank-based confidence.
+//
+// It calls c.search() directly rather than c.SearchMovie / c.SearchTV
+// because the public methods apply rankConfidence per endpoint, which
+// would erase the popularity signal needed for the cross-endpoint
+// merge.
 func (c *tmdbClient) SearchBoth(ctx context.Context, query string) ([]state.Candidate, error) {
 	if c.cfg.APIKey == "" {
 		return nil, nil
@@ -124,7 +140,7 @@ func (c *tmdbClient) SearchBoth(ctx context.Context, query string) ([]state.Cand
 	wg.Add(2)
 	go func() {
 		defer wg.Done()
-		cands, err := c.SearchMovie(ctx, query)
+		cands, err := c.search(ctx, "/search/movie", "movie", query, parseTMDBMovie)
 		mu.Lock()
 		out = append(out, cands...)
 		movieErr = err
@@ -132,7 +148,7 @@ func (c *tmdbClient) SearchBoth(ctx context.Context, query string) ([]state.Cand
 	}()
 	go func() {
 		defer wg.Done()
-		cands, err := c.SearchTV(ctx, query)
+		cands, err := c.search(ctx, "/search/tv", "tv", query, parseTMDBTV)
 		mu.Lock()
 		out = append(out, cands...)
 		tvErr = err
@@ -150,7 +166,41 @@ func (c *tmdbClient) SearchBoth(ctx context.Context, query string) ([]state.Cand
 	if len(out) > tmdbCandidateCap {
 		out = out[:tmdbCandidateCap]
 	}
+	applyRankConfidence(out)
 	return out, nil
+}
+
+// rankConfidence maps a candidate's rank position to a confidence
+// value. Top match gets 100; subsequent matches step down in 20-point
+// increments with a floor of 20. This replaces the older popularity/10
+// mapping, which rendered every real result as 0-15% because TMDB's
+// popularity field is typically 1-30 for non-blockbuster titles.
+func rankConfidence(rank int) int {
+	switch {
+	case rank <= 0:
+		return 100
+	case rank == 1:
+		return 80
+	case rank == 2:
+		return 60
+	case rank == 3:
+		return 40
+	default:
+		return 20
+	}
+}
+
+// applyRankConfidence sorts cands by their existing Confidence (treated
+// as the popularity-derived sort key) descending, then overwrites each
+// Confidence with its rank position. Stable sort preserves relative
+// order between ties.
+func applyRankConfidence(cands []state.Candidate) {
+	sort.SliceStable(cands, func(i, j int) bool {
+		return cands[i].Confidence > cands[j].Confidence
+	})
+	for i := range cands {
+		cands[i].Confidence = rankConfidence(i)
+	}
 }
 
 type tmdbSearchResponse struct {

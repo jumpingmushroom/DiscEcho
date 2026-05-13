@@ -62,9 +62,10 @@ func TestTMDB_SearchMovie(t *testing.T) {
 	if cands[0].Source != "TMDB" {
 		t.Errorf("source: got %q", cands[0].Source)
 	}
-	// Confidence: popularity 38.5 / 10 = 3.85 → rounded to 4
-	if cands[0].Confidence < 3 || cands[0].Confidence > 5 {
-		t.Errorf("confidence: got %d", cands[0].Confidence)
+	// Confidence is rank-based: top candidate always 100 regardless of
+	// the raw TMDB popularity score.
+	if cands[0].Confidence != 100 {
+		t.Errorf("top candidate confidence: want 100, got %d", cands[0].Confidence)
 	}
 }
 
@@ -119,9 +120,17 @@ func TestTMDB_SearchBoth_MergesAndSortsAndCaps(t *testing.T) {
 	if len(cands) > 5 {
 		t.Errorf("should cap at 5, got %d", len(cands))
 	}
-	// Friends has popularity 110 → confidence ~11 vs Arrival 3-4. TV first.
+	// Sort key for the cross-endpoint merge is popularity (Friends pop 110
+	// > Arrival pop 38.5), so TV lands first. Confidence is then assigned
+	// by rank position: 100, 80, 60, 40, 20.
 	if cands[0].MediaType != "tv" {
-		t.Errorf("highest confidence first: got %s", cands[0].MediaType)
+		t.Errorf("highest popularity first: got %s", cands[0].MediaType)
+	}
+	if cands[0].Confidence != 100 {
+		t.Errorf("rank-0 confidence: want 100, got %d", cands[0].Confidence)
+	}
+	if len(cands) >= 2 && cands[1].Confidence != 80 {
+		t.Errorf("rank-1 confidence: want 80, got %d", cands[1].Confidence)
 	}
 }
 
