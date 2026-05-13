@@ -40,6 +40,20 @@ func (h *Handlers) StartDisc(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	// Idempotency guard: the dashboard's auto-confirm timer and a manual
+	// click can both fire within milliseconds, and without this the
+	// orchestrator happily enqueues a second job for the same disc on
+	// the same drive. The user sees one running rip and a phantom
+	// duplicate that will redundantly re-run the whole pipeline after.
+	hasActive, err := h.Store.DiscHasActiveJob(r.Context(), id)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if hasActive {
+		writeError(w, http.StatusConflict, "disc already has an active job")
+		return
+	}
 	// Promote chosen candidate by mutating the in-memory disc; the
 	// orchestrator only re-reads disc metadata, not candidate index, so
 	// this carries the user choice into the pipeline. M1.2 may persist

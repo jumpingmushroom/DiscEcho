@@ -100,6 +100,25 @@ describe('AwaitingDecisionCard', () => {
     );
   });
 
+  it('a second rapid click on Use top match does not fire a second /start', async () => {
+    const { getByText } = render(AwaitingDecisionCard, { disc: lowConfDisc });
+    const btn = getByText('Use top match · Start rip');
+    await fireEvent.click(btn);
+    await fireEvent.click(btn);
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('auto-confirm and a manual click cannot both fire /start', async () => {
+    const { getByText } = render(AwaitingDecisionCard, { disc: highConfDisc });
+    await tick();
+    // Halfway through the 8-second auto-confirm countdown the user
+    // clicks Use top match. Both code paths must coalesce to one POST.
+    await vi.advanceTimersByTimeAsync(4000);
+    await fireEvent.click(getByText('Use top match · Start rip'));
+    await vi.advanceTimersByTimeAsync(8000);
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+  });
+
   it('renders inline (not wrapped in a bottom sheet dialog)', () => {
     const { container } = render(AwaitingDecisionCard, { disc: lowConfDisc });
     // BottomSheet renders a [role=dialog] backdrop; this component must not.

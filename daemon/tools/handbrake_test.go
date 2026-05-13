@@ -102,6 +102,42 @@ func TestHandBrake_ParseEncodeProgress_CarriageReturnSeparated(t *testing.T) {
 	}
 }
 
+// HandBrake 1.6.1 (and likely surrounding releases) emits encode
+// progress as a bare percentage when stdout is a pipe — no
+// `(avg fps X, ETA YhYmYs)` tail. The parser must accept both forms.
+func TestHandBrake_ParseEncodeProgress_NoParensTail(t *testing.T) {
+	stream := strings.NewReader(
+		"Encoding: task 1 of 1, 1.55 %\r" +
+			"Encoding: task 1 of 1, 13.81 %\r" +
+			"Encoding: task 1 of 1, 65.16 %\r",
+	)
+	sink := &recordingSink{}
+	tools.ParseHandBrakeEncodeStream(stream, 1, 1, sink)
+
+	progressEvents := 0
+	var pcts []float64
+	for _, e := range sink.events {
+		if e.kind == "progress" {
+			progressEvents++
+			pcts = append(pcts, e.pct)
+		}
+	}
+	if progressEvents != 3 {
+		t.Fatalf("want 3 progress events from bare-percentage input, got %d", progressEvents)
+	}
+	if pcts[0] < 1.4 || pcts[0] > 1.7 {
+		t.Errorf("pct[0]: want ~1.55, got %.2f", pcts[0])
+	}
+	if pcts[2] < 65.0 || pcts[2] > 65.3 {
+		t.Errorf("pct[2]: want ~65.16, got %.2f", pcts[2])
+	}
+	for _, e := range sink.events {
+		if e.kind == "progress" && e.eta != 0 {
+			t.Errorf("eta should be 0 when no ETA tail in input, got %d", e.eta)
+		}
+	}
+}
+
 func TestHandBrake_ProgressForOneOfThreeTitles(t *testing.T) {
 	// titleIdx=2 of totalTitles=3 → overall = ((1) + intra/100)/3 * 100
 	// for intra=50 → overall = (1 + 0.5)/3 * 100 = 50.0

@@ -124,8 +124,14 @@ func envInt(env map[string]string, key string, fallback int) int {
 var (
 	hbTitleStartRE = regexp.MustCompile(`^\+ title (\d+):`)
 	hbDurationRE   = regexp.MustCompile(`\+ duration:\s+(\d+):(\d+):(\d+)`)
-	hbEncodingRE   = regexp.MustCompile(
-		`Encoding:\s+task\s+(\d+)\s+of\s+(\d+),\s+([0-9.]+)\s*%\s+\(avg fps\s+([0-9.]+),\s+ETA\s+(\d+)h(\d+)m(\d+)s\)`)
+	// hbEncodingRE matches HandBrake's `Encoding: task N of M, P %` line.
+	// The `(avg fps X, ETA YhYmYs)` tail is optional — HandBrake omits it
+	// entirely when stdout isn't a tty (which is our case, since we read
+	// from a pipe). We still capture it when present so newer versions or
+	// terminal-attached runs give us speed/ETA.
+	hbEncodingRE = regexp.MustCompile(
+		`Encoding:\s+task\s+(\d+)\s+of\s+(\d+),\s+([0-9.]+)\s*%` +
+			`(?:\s+\(avg fps\s+([0-9.]+),\s+ETA\s+(\d+)h(\d+)m(\d+)s\))?`)
 )
 
 // ParseHandBrakeScan extracts the title list from `HandBrakeCLI --scan`
@@ -189,14 +195,20 @@ func parseHandBrakeEncodeLines(scanner *bufio.Scanner, titleIdx, totalTitles int
 			continue
 		}
 		intra, _ := strconv.ParseFloat(m[3], 64)
-		fps, _ := strconv.ParseFloat(m[4], 64)
-		etaH, _ := strconv.Atoi(m[5])
-		etaM, _ := strconv.Atoi(m[6])
-		etaS, _ := strconv.Atoi(m[7])
-
 		overall := (float64(titleIdx-1) + intra/100) / float64(totalTitles) * 100
-		etaSeconds := etaH*3600 + etaM*60 + etaS
-		speed := fmt.Sprintf("%.1ffps", fps)
+
+		// fps/ETA group is optional; m[4]…m[7] are empty when the tail
+		// wasn't in the line (HandBrake 1.6.x on a pipe).
+		var speed string
+		var etaSeconds int
+		if m[4] != "" {
+			fps, _ := strconv.ParseFloat(m[4], 64)
+			etaH, _ := strconv.Atoi(m[5])
+			etaM, _ := strconv.Atoi(m[6])
+			etaS, _ := strconv.Atoi(m[7])
+			etaSeconds = etaH*3600 + etaM*60 + etaS
+			speed = fmt.Sprintf("%.1ffps", fps)
+		}
 		sink.Progress(overall, speed, etaSeconds)
 	}
 }

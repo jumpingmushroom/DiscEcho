@@ -12,6 +12,11 @@
 
   let countdownSec = COUNTDOWN_SEC;
   let cancelled = false;
+  // `starting` becomes true the instant a rip-start request is in
+  // flight, whether from a manual click or the auto-confirm timer.
+  // It disables both buttons + the timer's startDisc call so two
+  // jobs can never enqueue for the same disc from this card.
+  let starting = false;
 
   $: liveDisc = $discs[disc.id] ?? disc;
   $: candidates = liveDisc.candidates ?? [];
@@ -42,23 +47,37 @@
   onDestroy(() => clearInterval(timer));
 
   async function pick(idx: number): Promise<void> {
+    if (starting) return;
     cancelled = true;
     clearInterval(timer);
     const c = candidates[idx];
     if (!c) return;
     const profileId = profileForCandidate(c);
     if (!profileId) return;
-    await startDisc(liveDisc.id, profileId, idx);
+    starting = true;
+    try {
+      await startDisc(liveDisc.id, profileId, idx);
+    } catch (_e) {
+      // Daemon refuses duplicate starts with 409 since 0.4.1; if we
+      // hit any error, release the lock so the user can retry from
+      // the same card rather than being stuck behind a disabled button.
+      starting = false;
+    }
   }
 
   async function autoConfirm(): Promise<void> {
-    if (cancelled || !autoConfirmAllowed) return;
+    if (starting || cancelled || !autoConfirmAllowed) return;
     cancelled = true;
     const c = candidates[0];
     if (!c) return;
     const profileId = profileForCandidate(c);
     if (!profileId) return;
-    await startDisc(liveDisc.id, profileId, 0);
+    starting = true;
+    try {
+      await startDisc(liveDisc.id, profileId, 0);
+    } catch (_e) {
+      starting = false;
+    }
   }
 
   let skipping = false;
@@ -200,6 +219,7 @@
             background: {i === 0 ? 'rgba(0,214,143,0.04)' : 'transparent'};
           "
           on:click={() => pick(i)}
+          disabled={starting}
         >
           <span
             class="relative flex h-5 w-5 items-center justify-center rounded-full border"
@@ -244,7 +264,7 @@
       <button
         class="min-h-[44px] flex-1 rounded-xl bg-accent text-[14px] font-semibold text-black disabled:opacity-50"
         on:click={() => pick(0)}
-        disabled={candidates.length === 0}
+        disabled={candidates.length === 0 || starting}
       >
         Use top match · Start rip
       </button>

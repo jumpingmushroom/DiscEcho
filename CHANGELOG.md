@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Fixed
+- Transcode progress is now visible during the encode step. HandBrake 1.6.x omits the `(avg fps X, ETA YhYmYs)` suffix when stdout is a pipe; the encode regex now matches both forms instead of dropping every line.
+- `POST /api/discs/{id}/start` returns 409 Conflict when the disc already has a queued / running / identifying / paused job, so a fast double-click on the awaiting-decision card can no longer enqueue two jobs for the same disc.
+- The awaiting-decision card disables its rip button the moment either auto-confirm or a manual click fires, coalescing both code paths into a single start request.
+
+### Changed
+- Desktop dashboard sidebar (job detail panel) is hidden by default and opens on queue-row click. Same row clicked again closes the panel; a different row switches between jobs.
+- When the sidebar shows a drive's currently-running job, that drive's hero RipCard collapses from the top band so the same content isn't rendered twice. Other busy drives' hero RipCards stay.
+
 ## [0.4.0] - 2026-05-13
 
 ### Added
