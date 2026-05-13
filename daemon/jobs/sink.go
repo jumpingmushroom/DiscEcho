@@ -48,10 +48,12 @@ func NewPersistentSink(store *state.Store, bc *state.Broadcaster, jobID string) 
 func (s *PersistentSink) JobID() string { return s.jobID }
 
 // OnStepStart marks the step running, records it as the job's active
-// step, and broadcasts. Persisting active_step here keeps the
-// dashboard's pipeline stepper in sync even before any progress
-// event fires (HandBrake/makemkvcon may take seconds before they
-// emit anything parseable).
+// step, resets the volatile progress fields so a stale 100% from the
+// previous step doesn't linger on the UI, and broadcasts both the
+// step transition and the reset progress. Persisting active_step here
+// keeps the dashboard's pipeline stepper in sync even before any
+// progress event fires (HandBrake/makemkvcon may take seconds before
+// they emit anything parseable).
 func (s *PersistentSink) OnStepStart(step state.StepID) {
 	if err := s.store.UpdateJobStepState(context.Background(), s.jobID, step, state.JobStepStateRunning); err != nil {
 		slog.Warn("PersistentSink: UpdateJobStepState running", "job", s.jobID, "step", step, "err", err)
@@ -59,12 +61,32 @@ func (s *PersistentSink) OnStepStart(step state.StepID) {
 	if err := s.store.SetActiveStep(context.Background(), s.jobID, step); err != nil {
 		slog.Warn("PersistentSink: SetActiveStep", "job", s.jobID, "step", step, "err", err)
 	}
+	// Reset progress/speed/eta so the previous step's terminal values
+	// don't bleed into the new step's UI window. UpdateJobProgress also
+	// re-asserts active_step; that's fine — it matches SetActiveStep.
+	if err := s.store.UpdateJobProgress(context.Background(), s.jobID, step, 0, "", 0, 0); err != nil {
+		slog.Warn("PersistentSink: reset progress on step start", "job", s.jobID, "step", step, "err", err)
+	}
+	s.mu.Lock()
+	s.pendingProgress = nil
+	s.lastProgressAt = time.Time{}
+	s.mu.Unlock()
 	s.bc.Publish(state.Event{
 		Name: "job.step",
 		Payload: map[string]any{
 			"job_id": s.jobID,
 			"step":   string(step),
 			"state":  string(state.JobStepStateRunning),
+		},
+	})
+	s.bc.Publish(state.Event{
+		Name: "job.progress",
+		Payload: map[string]any{
+			"job_id":      s.jobID,
+			"step":        string(step),
+			"pct":         float64(0),
+			"speed":       "",
+			"eta_seconds": 0,
 		},
 	})
 }

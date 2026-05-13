@@ -74,13 +74,43 @@ func TestPersistentSink_StepStartTransitions(t *testing.T) {
 		}
 	}
 
-	select {
-	case ev := <-ch:
-		if ev.Name != "job.step" {
-			t.Errorf("event name: %q", ev.Name)
+	saw := map[string]bool{}
+	deadline := time.After(100 * time.Millisecond)
+loop:
+	for {
+		select {
+		case ev := <-ch:
+			saw[ev.Name] = true
+			if ev.Name == "job.progress" {
+				p, ok := ev.Payload.(map[string]any)
+				if !ok {
+					t.Fatalf("job.progress payload type: %T", ev.Payload)
+				}
+				if pct, _ := p["pct"].(float64); pct != 0 {
+					t.Errorf("OnStepStart should publish pct=0, got %v", p["pct"])
+				}
+				if eta, _ := p["eta_seconds"].(int); eta != 0 {
+					t.Errorf("OnStepStart should publish eta_seconds=0, got %v", p["eta_seconds"])
+				}
+			}
+		case <-deadline:
+			break loop
 		}
-	case <-time.After(100 * time.Millisecond):
-		t.Errorf("no event broadcast")
+	}
+	if !saw["job.step"] {
+		t.Errorf("missing job.step event")
+	}
+	if !saw["job.progress"] {
+		t.Errorf("missing reset job.progress event")
+	}
+
+	got, err := fx.store.GetJob(context.Background(), fx.job.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Progress != 0 || got.Speed != "" || got.ETASeconds != 0 {
+		t.Errorf("stale progress fields after OnStepStart: pct=%v speed=%q eta=%d",
+			got.Progress, got.Speed, got.ETASeconds)
 	}
 }
 
