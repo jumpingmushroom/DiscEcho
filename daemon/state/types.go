@@ -123,7 +123,7 @@ type Candidate struct {
 	Confidence     int    `json:"confidence"`
 	MBID           string `json:"mbid,omitempty"`
 	TMDBID         int    `json:"tmdb_id,omitempty"`
-	MediaType      string `json:"media_type,omitempty"`       // 'movie' | 'tv' | '' (audio CD)
+	MediaType      string `json:"media_type,omitempty"`      // 'movie' | 'tv' | '' (audio CD)
 	RuntimeSeconds int    `json:"runtime_seconds,omitempty"` // populated by per-pick TMDB /movie/{id} fetch when the user picks
 }
 
