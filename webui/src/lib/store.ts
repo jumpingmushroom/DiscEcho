@@ -13,6 +13,7 @@ import type {
   DiscType,
   Candidate,
   Notification,
+  Stats,
 } from './wire';
 
 export interface LogLine {
@@ -34,6 +35,26 @@ export const logs = writable<Record<string, LogLine[]>>({});
 export const liveStatus = writable<LiveStatus>('connecting');
 export const pendingDiscID = writable<string | null>(null);
 export const selectedJobID = writable<string | null>(null);
+export const stats = writable<Stats | undefined>(undefined);
+
+let statsRefreshTimer: ReturnType<typeof setTimeout> | null = null;
+
+// scheduleStatsRefresh debounces a /api/stats refresh. The dashboard
+// calls this on job lifecycle SSE events; a 5-minute setInterval
+// (set up in connect()) also polls so library `total_bytes` drift
+// from external file changes eventually surfaces.
+function scheduleStatsRefresh(delayMs: number = 1000): void {
+  if (statsRefreshTimer) clearTimeout(statsRefreshTimer);
+  statsRefreshTimer = setTimeout(async () => {
+    try {
+      const fresh = await apiGet<Stats>('/api/stats');
+      stats.set(fresh);
+    } catch {
+      // Soft fail: widget keeps last value.
+    }
+    statsRefreshTimer = null;
+  }, delayMs);
+}
 export const selectedProfileID = writable<string | null>(null);
 
 const LOG_RING_SIZE = 50;
@@ -63,6 +84,7 @@ export async function bootstrap(): Promise<void> {
   profiles.set(snap.profiles ?? []);
   settings.set(snap.settings ?? {});
   discs.set(Object.fromEntries((snap.discs ?? []).map((d) => [d.id, d])));
+  stats.set(snap.stats);
   // Notifications fetched separately (not in the snapshot).
   try {
     const ns = await apiGet<Notification[]>('/api/notifications');
@@ -88,6 +110,7 @@ export function handleSSEEvent(name: string, payload: unknown): void {
       profiles.set(snap.profiles ?? []);
       settings.set(snap.settings ?? {});
       discs.set(Object.fromEntries((snap.discs ?? []).map((d) => [d.id, d])));
+      stats.set(snap.stats);
       break;
     }
 
@@ -130,6 +153,7 @@ export function handleSSEEvent(name: string, payload: unknown): void {
       const j = p.job as Job;
       jobs.update((arr) => [j, ...arr.filter((x) => x.id !== j.id)]);
       pendingDiscID.update((cur) => (cur === j.disc_id ? null : cur));
+      scheduleStatsRefresh();
       break;
     }
 
@@ -194,6 +218,7 @@ export function handleSSEEvent(name: string, payload: unknown): void {
     case 'job.done': {
       const jobID = p.job_id as string;
       jobs.update((arr) => arr.map((j) => (j.id === jobID ? { ...j, state: 'done' as const } : j)));
+      scheduleStatsRefresh();
       break;
     }
 
@@ -212,6 +237,7 @@ export function handleSSEEvent(name: string, payload: unknown): void {
             : j,
         ),
       );
+      scheduleStatsRefresh();
       break;
     }
 
@@ -271,7 +297,15 @@ export function connect(): () => void {
   const conn = connectSSE('/api/events', SSE_EVENT_NAMES, handleSSEEvent, {
     onStatusChange: (s) => liveStatus.set(s),
   });
-  return () => conn.close();
+  // Five-minute fallback poll so library.total_bytes drift from external
+  // file changes eventually surfaces. SSE-driven refreshes are the
+  // primary signal; this is belt-and-braces.
+  const poller = setInterval(() => scheduleStatsRefresh(0), 5 * 60 * 1000);
+  return () => {
+    conn.close();
+    clearInterval(poller);
+    if (statsRefreshTimer) clearTimeout(statsRefreshTimer);
+  };
 }
 
 // ----- Imperatives ---------------------------------------------------------

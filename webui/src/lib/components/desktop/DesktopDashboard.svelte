@@ -1,9 +1,10 @@
 <script lang="ts">
-  import { drives, jobs, discs, profiles, selectedJobID } from '$lib/store';
+  import { drives, jobs, discs, profiles, selectedJobID, stats } from '$lib/store';
   import DriveHeroCard from './DriveHeroCard.svelte';
   import QueueTable from './QueueTable.svelte';
   import JobDetailPanel from './JobDetailPanel.svelte';
   import RipCard from '$lib/components/RipCard.svelte';
+  import StatsRow from './StatsRow.svelte';
   import AwaitingDecisionList from '../AwaitingDecisionList.svelte';
   import type { Job } from '$lib/wire';
 
@@ -37,6 +38,9 @@
 </script>
 
 <div class="mx-auto min-h-screen max-w-screen-2xl p-6">
+  <!-- Top widgets row (active jobs / today ripped / library / failures) -->
+  <StatsRow stats={$stats} />
+
   <!-- Hero band — idle drives render as DriveHeroCard; busy drives
        swap to RipCard. A busy drive whose active job is selected in
        the sidebar collapses entirely from the hero band to avoid the
