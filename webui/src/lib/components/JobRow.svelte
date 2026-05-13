@@ -4,6 +4,7 @@
   import PipelineStepperMini from './PipelineStepperMini.svelte';
   import { createEventDispatcher } from 'svelte';
   import { discs } from '$lib/store';
+  import { formatDuration } from '$lib/time';
 
   export let job: Job;
 
@@ -46,7 +47,7 @@
         {Math.round(job.progress)}%
       </div>
       {#if job.eta_seconds}
-        <div class="font-mono text-[10px] text-text-3">{job.eta_seconds}s</div>
+        <div class="font-mono text-[10px] text-text-3">{formatDuration(job.eta_seconds)}</div>
       {/if}
     </div>
   {/if}
