@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+- Rank-based identification confidence so popular and obscure titles both surface useful scores (top match always 100%, then 80/60/40/20).
+- DVD profiles now disambiguate movie-vs-series via a `dvd_selection_mode` option, freeing the format field to default to MKV.
+
+### Changed
+- The dashboard now swaps a busy drive's idle card for an inline rip card. The rip card uses the drive identity (bus + model) as its header, so the running drive surfaces in exactly one place instead of two.
+- DVD-Movie's default output container is now MKV. Existing installs are migrated in place where the profile is still on the seed defaults.
+
+### Fixed
+- The drive progress bar no longer freezes at 100% when a rip step hands off to transcode. Per-step progress now resets at the moment the new step starts.
+- ETA in the job list and queue table now renders as `Xm Ys` / `Xh Ym Zs` instead of raw seconds.
+
 ## [0.3.3] - 2026-05-13
 
 ### Fixed
