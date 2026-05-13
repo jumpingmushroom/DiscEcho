@@ -229,3 +229,18 @@ func HumanDuration(d time.Duration) string {
 		return fmt.Sprintf("%ds", s)
 	}
 }
+
+// SumFileSizes returns the total bytes across the given file paths.
+// Missing files contribute 0. Used by each pipeline after the move
+// step to record the encoded output size into job.output_bytes.
+func SumFileSizes(paths []string) int64 {
+	var total int64
+	for _, p := range paths {
+		fi, err := os.Stat(p)
+		if err != nil {
+			continue
+		}
+		total += fi.Size()
+	}
+	return total
+}

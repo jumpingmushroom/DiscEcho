@@ -41,6 +41,7 @@ func (h *Handlers) GetState(w http.ResponseWriter, r *http.Request) {
 		"discs":    discs,
 		"profiles": profiles,
 		"settings": settings,
+		"stats":    h.computeStats(ctx),
 	})
 }
 

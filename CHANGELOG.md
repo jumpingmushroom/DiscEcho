@@ -16,6 +16,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Fixed
 - Log tail now populates during DVD / BD / UHD rips: pipelines emit milestone log lines at each step boundary (dvdbackup or MakeMKV start/complete, HandBrake scan/encode start/complete, move). Stream parsers forward unrecognised non-progress lines so warnings and errors are visible instead of silently dropped, capped at 200 lines per step.
 
+### Added (PR 3 — top widgets row)
+- Top widgets row on the desktop dashboard with **ACTIVE JOBS**, **TODAY RIPPED**, **LIBRARY SIZE**, and **FAILURES (7D)** cards. Each card has a sparkline showing recent history (24h / 7d / 30d) and a contextual subline (hour-over-hour delta, today's title count, library capacity from statfs, 7d-over-7d delta).
+- New SQLite column `jobs.output_bytes` tracks each completed rip's encoded size; library widget sums these. Auto-recorded by `PersistentSink.OnStepDone` from each pipeline's move-step notes — no per-pipeline changes needed.
+- New API endpoint `GET /api/stats` returns the widget payload; also embedded in the SSE `state.snapshot` event and `GET /api/state` for zero-extra-roundtrip bootstrap.
+
 ## [0.4.1] - 2026-05-13
 
 ### Fixed

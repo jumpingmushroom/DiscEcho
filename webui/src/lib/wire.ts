@@ -157,6 +157,34 @@ export interface SnapshotPayload {
   discs: Disc[];
   profiles: Profile[];
   settings: Record<string, string>;
+  stats?: Stats;
+}
+
+export interface ActiveJobsStat {
+  value: number;
+  delta_1h: number;
+  spark_24h: number[];
+}
+export interface TodayRippedStat {
+  bytes: number;
+  titles: number;
+  spark_7d_bytes: number[];
+}
+export interface LibraryStat {
+  used_bytes: number;
+  total_bytes: number;
+  spark_30d_used: number[];
+}
+export interface Failures7dStat {
+  value: number;
+  previous: number;
+  spark_30d: number[];
+}
+export interface Stats {
+  active_jobs: ActiveJobsStat;
+  today_ripped: TodayRippedStat;
+  library: LibraryStat;
+  failures_7d: Failures7dStat;
 }
 
 // SSE event types

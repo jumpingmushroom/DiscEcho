@@ -155,6 +155,46 @@ type JobStep struct {
 }
 
 // Job is a row of the `jobs` table.
+// Stats is the dashboard's top-widgets payload. Computed once per
+// /api/stats request by Store.Stats + the API layer's statfs walk
+// + the in-memory active-jobs sampler.
+type Stats struct {
+	ActiveJobs  ActiveJobsStat  `json:"active_jobs"`
+	TodayRipped TodayRippedStat `json:"today_ripped"`
+	Library     LibraryStat     `json:"library"`
+	Failures7d  Failures7dStat  `json:"failures_7d"`
+}
+
+// ActiveJobsStat is the ACTIVE JOBS widget payload.
+type ActiveJobsStat struct {
+	Value    int   `json:"value"`
+	Delta1h  int   `json:"delta_1h"`
+	Spark24h []int `json:"spark_24h"` // exactly 24 hourly samples, oldest first
+}
+
+// TodayRippedStat is the TODAY RIPPED widget payload.
+type TodayRippedStat struct {
+	Bytes        int64   `json:"bytes"`
+	Titles       int     `json:"titles"`
+	Spark7dBytes []int64 `json:"spark_7d_bytes"` // exactly 7 daily totals, oldest first
+}
+
+// LibraryStat is the LIBRARY SIZE widget payload. UsedBytes sums
+// job.output_bytes across done jobs; TotalBytes is statfs of the
+// configured library roots and is filled in by the API layer.
+type LibraryStat struct {
+	UsedBytes    int64   `json:"used_bytes"`
+	TotalBytes   int64   `json:"total_bytes"`
+	Spark30dUsed []int64 `json:"spark_30d_used"` // cumulative at each day-end, oldest first
+}
+
+// Failures7dStat is the FAILURES (7D) widget payload.
+type Failures7dStat struct {
+	Value    int   `json:"value"`
+	Previous int   `json:"previous"` // failures in days -14..-7
+	Spark30d []int `json:"spark_30d"`
+}
+
 type Job struct {
 	ID             string     `json:"id"`
 	DiscID         string     `json:"disc_id"`
@@ -166,6 +206,7 @@ type Job struct {
 	Speed          string     `json:"speed,omitempty"`
 	ETASeconds     int        `json:"eta_seconds,omitempty"`
 	ElapsedSeconds int        `json:"elapsed_seconds,omitempty"`
+	OutputBytes    int64      `json:"output_bytes"` // size of the encoded output file(s); LIBRARY SIZE widget sums these
 	StartedAt      *time.Time `json:"started_at,omitempty"`
 	FinishedAt     *time.Time `json:"finished_at,omitempty"`
 	ErrorMessage   string     `json:"error_message,omitempty"`
