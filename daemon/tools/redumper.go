@@ -100,23 +100,23 @@ var (
 // Unrecognised lines are ignored. The function returns when the
 // reader EOFs.
 func ParseRedumperProgress(r io.Reader, sink Sink) {
-	scanner := bufio.NewScanner(r)
-	scanner.Buffer(make([]byte, 4096), 1024*1024)
-	var speed string
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		if m := redumperSpeedRE.FindStringSubmatch(line); m != nil {
-			speed = m[1] + "x"
-			continue
-		}
-		if m := redumperLBARE.FindStringSubmatch(line); m != nil {
-			cur, _ := strconv.Atoi(m[1])
-			max, _ := strconv.Atoi(m[2])
-			if max <= 0 {
+	drainAfterScan(r, func(scanner *bufio.Scanner) {
+		var speed string
+		for scanner.Scan() {
+			line := strings.TrimSpace(scanner.Text())
+			if m := redumperSpeedRE.FindStringSubmatch(line); m != nil {
+				speed = m[1] + "x"
 				continue
 			}
-			pct := float64(cur) / float64(max) * 100
-			sink.Progress(pct, speed, 0)
+			if m := redumperLBARE.FindStringSubmatch(line); m != nil {
+				cur, _ := strconv.Atoi(m[1])
+				max, _ := strconv.Atoi(m[2])
+				if max <= 0 {
+					continue
+				}
+				pct := float64(cur) / float64(max) * 100
+				sink.Progress(pct, speed, 0)
+			}
 		}
-	}
+	})
 }

@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onDestroy } from 'svelte';
-  import { profiles, startDisc, discs, manualIdentify, pendingDiscID } from '$lib/store';
+  import { profiles, startDisc, discs, manualIdentify, pendingDiscID, skipDisc } from '$lib/store';
   import type { Disc, Candidate } from '$lib/wire';
   import DiscTypeBadge from './DiscTypeBadge.svelte';
   import ArtPlaceholder from './ArtPlaceholder.svelte';
@@ -61,11 +61,25 @@
     await startDisc(liveDisc.id, profileId, 0);
   }
 
-  function skip(): void {
+  let skipping = false;
+
+  async function skip(): Promise<void> {
+    if (skipping) return;
+    skipping = true;
     cancelled = true;
     clearInterval(timer);
     // Clearing pendingDiscID hides the legacy bottom-sheet path too.
     pendingDiscID.update((cur) => (cur === liveDisc.id ? null : cur));
+    try {
+      await skipDisc(liveDisc.id);
+      // disc.deleted SSE removes the row from the store; the
+      // AwaitingDecisionList rerender drops the card.
+    } catch (_err) {
+      // Server-side delete failed (e.g. the disc has a job after all).
+      // Leave the card visible so the user can retry — no UX-corrupt
+      // optimistic delete.
+      skipping = false;
+    }
   }
 
   let searching = false;
@@ -240,7 +254,13 @@
       >
         Search manually
       </button>
-      <button class="min-h-[36px] text-[13px] text-text-3" on:click={skip}> Skip </button>
+      <button
+        class="min-h-[36px] text-[13px] text-text-3 disabled:opacity-50"
+        on:click={skip}
+        disabled={skipping}
+      >
+        Skip
+      </button>
     </div>
   {/if}
 </div>

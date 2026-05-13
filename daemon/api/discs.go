@@ -84,6 +84,44 @@ func (h *Handlers) StartDisc(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, job)
 }
 
+// DeleteDisc removes a disc row by id. Used by the dashboard's Skip
+// affordance on awaiting-decision cards: a disc with no Job that the
+// user wants to dismiss permanently (otherwise the same row is
+// re-derived on every page load and the card returns).
+//
+// Refuses to delete a disc that has any job referencing it — the user
+// can already see those discs' outcomes in History, and removing them
+// would orphan job rows that still point at the disc_id.
+func (h *Handlers) DeleteDisc(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+
+	hasJob, err := h.Store.DiscHasAnyJob(r.Context(), id)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if hasJob {
+		writeError(w, http.StatusConflict, "disc has job history; cannot delete")
+		return
+	}
+
+	if err := h.Store.DeleteDisc(r.Context(), id); err != nil {
+		if errors.Is(err, state.ErrNotFound) {
+			writeError(w, http.StatusNotFound, "disc not found")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	h.Broadcaster.Publish(state.Event{
+		Name:    "disc.deleted",
+		Payload: map[string]any{"disc_id": id},
+	})
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
 // identifyRequest is the optional body for POST /api/discs/:id/identify.
 // Both fields are optional: an empty body re-reads the stored disc.
 type identifyRequest struct {

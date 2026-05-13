@@ -42,6 +42,7 @@ const SSE_EVENT_NAMES = [
   'drive.changed',
   'disc.detected',
   'disc.identified',
+  'disc.deleted',
   'job.created',
   'job.step',
   'job.progress',
@@ -112,6 +113,16 @@ export function handleSSEEvent(name: string, payload: unknown): void {
       const base = p.disc as Disc;
       const d: Disc = { ...base, candidates: (p.candidates as Disc['candidates']) ?? [] };
       discs.update((m) => ({ ...m, [d.id]: d }));
+      break;
+    }
+
+    case 'disc.deleted': {
+      const id = p.disc_id as string;
+      discs.update((m) => {
+        const { [id]: _drop, ...rest } = m;
+        return rest;
+      });
+      pendingDiscID.update((cur) => (cur === id ? null : cur));
       break;
     }
 
@@ -277,6 +288,15 @@ export async function startDisc(
 
 export async function cancelJob(jobID: string): Promise<void> {
   await apiPost<void>(`/api/jobs/${jobID}/cancel`);
+}
+
+// skipDisc removes the disc row server-side so the awaiting-decision
+// card is dismissed permanently — without this, the row stays in the
+// DB and AwaitingDecisionList re-derives the card on every page load.
+// The daemon refuses to delete a disc that has any job history, so
+// this is only callable on truly orphan rows.
+export async function skipDisc(discID: string): Promise<void> {
+  await apiDelete(`/api/discs/${discID}`);
 }
 
 export async function ejectDrive(driveID: string): Promise<void> {

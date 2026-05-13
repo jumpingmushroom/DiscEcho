@@ -289,9 +289,9 @@ func formatRate(bps float64) string {
 // but stays in place so future log-level mirroring (sink.Log) has
 // a hook ready.
 func parseDVDBackupStream(r io.Reader, _ Sink) {
-	scanner := bufio.NewScanner(r)
-	scanner.Buffer(make([]byte, 4096), 64*1024)
-	for scanner.Scan() {
-		_ = scanner.Text()
-	}
+	drainAfterScan(r, func(scanner *bufio.Scanner) {
+		for scanner.Scan() {
+			_ = scanner.Text()
+		}
+	})
 }

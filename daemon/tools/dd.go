@@ -46,9 +46,13 @@ func (d *DD) Copy(ctx context.Context, devPath, outPath string, totalBytes int64
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("start dd: %w", err)
 	}
-	scan := bufio.NewScanner(stderr)
-	scan.Buffer(make([]byte, 0, 64*1024), 1024*1024)
-	scanDDOutput(scan, totalBytes, sink)
+	drainAfterScan(stderr, func(scan *bufio.Scanner) {
+		// dd status=progress overstrikes the same terminal line with \r;
+		// splitCROrLF makes each update its own token instead of letting
+		// them accumulate into one mega-line.
+		scan.Split(splitCROrLF)
+		scanDDOutput(scan, totalBytes, sink)
+	})
 	if err := cmd.Wait(); err != nil {
 		return fmt.Errorf("dd: %w", err)
 	}

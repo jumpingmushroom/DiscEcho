@@ -84,18 +84,18 @@ var chdmanProgressRE = regexp.MustCompile(`Compressing,\s+([0-9.]+)%\s+complete`
 // ParseCHDManProgress reads chdman output and emits sink.Progress on
 // "Compressing, X.X% complete" lines.
 func ParseCHDManProgress(r io.Reader, sink Sink) {
-	scanner := bufio.NewScanner(r)
-	scanner.Buffer(make([]byte, 4096), 1024*1024)
-	for scanner.Scan() {
-		line := scanner.Text()
-		m := chdmanProgressRE.FindStringSubmatch(line)
-		if m == nil {
-			continue
+	drainAfterScan(r, func(scanner *bufio.Scanner) {
+		for scanner.Scan() {
+			line := scanner.Text()
+			m := chdmanProgressRE.FindStringSubmatch(line)
+			if m == nil {
+				continue
+			}
+			pct, err := strconv.ParseFloat(m[1], 64)
+			if err != nil {
+				continue
+			}
+			sink.Progress(pct, "", 0)
 		}
-		pct, err := strconv.ParseFloat(m[1], 64)
-		if err != nil {
-			continue
-		}
-		sink.Progress(pct, "", 0)
-	}
+	})
 }

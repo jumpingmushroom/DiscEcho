@@ -90,9 +90,12 @@ var (
 // ParseWhipperStream scans r line-by-line and emits events to sink.
 // Exposed for testing.
 func ParseWhipperStream(r io.Reader, sink Sink) {
-	scanner := bufio.NewScanner(r)
-	scanner.Buffer(make([]byte, 4096), 64*1024)
+	drainAfterScan(r, func(scanner *bufio.Scanner) {
+		parseWhipperLines(scanner, sink)
+	})
+}
 
+func parseWhipperLines(scanner *bufio.Scanner, sink Sink) {
 	currentTrack := 0
 	totalTracks := 0
 
