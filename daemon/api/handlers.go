@@ -24,4 +24,9 @@ type Handlers struct {
 	Token         string
 	Apprise       Apprise // defined in notifications.go; nil-safe in handlers
 	Settings      *settings.Settings
+
+	// NVENCAvailable is set at boot by tools.ProbeNVENC. It controls
+	// the "GPU transcoding" Settings row and is threaded into the
+	// DVD-Video / BDMV pipeline Deps (in main.go).
+	NVENCAvailable bool
 }
