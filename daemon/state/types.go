@@ -166,6 +166,7 @@ type Job struct {
 	Speed          string     `json:"speed,omitempty"`
 	ETASeconds     int        `json:"eta_seconds,omitempty"`
 	ElapsedSeconds int        `json:"elapsed_seconds,omitempty"`
+	OutputBytes    int64      `json:"output_bytes"` // size of the encoded output file(s); LIBRARY SIZE widget sums these
 	StartedAt      *time.Time `json:"started_at,omitempty"`
 	FinishedAt     *time.Time `json:"finished_at,omitempty"`
 	ErrorMessage   string     `json:"error_message,omitempty"`

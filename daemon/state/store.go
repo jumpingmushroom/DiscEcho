@@ -693,12 +693,12 @@ func (s *Store) CreateJob(ctx context.Context, j *Job) error {
 
 	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO jobs (id, disc_id, drive_id, profile_id, state, active_step,
-		                  progress, speed, eta_seconds, elapsed_seconds,
+		                  progress, speed, eta_seconds, elapsed_seconds, output_bytes,
 		                  started_at, finished_at, error_message, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		j.ID, j.DiscID, nullString(j.DriveID), j.ProfileID,
 		string(j.State), string(j.ActiveStep),
-		j.Progress, j.Speed, j.ETASeconds, j.ElapsedSeconds,
+		j.Progress, j.Speed, j.ETASeconds, j.ElapsedSeconds, j.OutputBytes,
 		timestampPtr(j.StartedAt), timestampPtr(j.FinishedAt),
 		j.ErrorMessage, timestamp(j.CreatedAt),
 	); err != nil {
@@ -734,7 +734,7 @@ func (s *Store) CreateJob(ctx context.Context, j *Job) error {
 func (s *Store) GetJob(ctx context.Context, id string) (*Job, error) {
 	row := s.db.Conn().QueryRowContext(ctx, `
 		SELECT id, disc_id, COALESCE(drive_id, ''), profile_id, state, active_step,
-		       progress, speed, eta_seconds, elapsed_seconds,
+		       progress, speed, eta_seconds, elapsed_seconds, output_bytes,
 		       started_at, finished_at, error_message, created_at
 		FROM jobs WHERE id = ?`, id)
 	j, err := scanJob(row)
@@ -768,7 +768,7 @@ func (s *Store) ListJobs(ctx context.Context, f JobFilter) ([]Job, error) {
 	}
 
 	q := `SELECT id, disc_id, COALESCE(drive_id, ''), profile_id, state, active_step,
-	             progress, speed, eta_seconds, elapsed_seconds,
+	             progress, speed, eta_seconds, elapsed_seconds, output_bytes,
 	             started_at, finished_at, error_message, created_at
 	      FROM jobs`
 	var args []any
@@ -813,7 +813,7 @@ func (s *Store) ListActiveAndRecentJobs(ctx context.Context, recentLimit int) ([
 
 	activeRows, err := s.db.Conn().QueryContext(ctx, `
 		SELECT id, disc_id, COALESCE(drive_id, ''), profile_id, state, active_step,
-		       progress, speed, eta_seconds, elapsed_seconds,
+		       progress, speed, eta_seconds, elapsed_seconds, output_bytes,
 		       started_at, finished_at, error_message, created_at
 		FROM jobs
 		WHERE state NOT IN ('done','failed','cancelled')
@@ -837,7 +837,7 @@ func (s *Store) ListActiveAndRecentJobs(ctx context.Context, recentLimit int) ([
 	if recentLimit > 0 {
 		recentRows, err := s.db.Conn().QueryContext(ctx, `
 			SELECT id, disc_id, COALESCE(drive_id, ''), profile_id, state, active_step,
-			       progress, speed, eta_seconds, elapsed_seconds,
+			       progress, speed, eta_seconds, elapsed_seconds, output_bytes,
 			       started_at, finished_at, error_message, created_at
 			FROM jobs
 			WHERE state IN ('done','failed','cancelled')
@@ -977,6 +977,22 @@ func (s *Store) UpdateJobProgress(ctx context.Context, id string, activeStep Ste
 	return nil
 }
 
+// RecordOutputBytes writes the move step's final output size onto a
+// job row. Called from each pipeline after the move step succeeds so
+// the LIBRARY SIZE widget can sum across all done jobs.
+func (s *Store) RecordOutputBytes(ctx context.Context, jobID string, bytes int64) error {
+	res, err := s.db.Conn().ExecContext(ctx,
+		`UPDATE jobs SET output_bytes = ? WHERE id = ?`, bytes, jobID)
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
 // MarkInterruptedJobs flips every job in {queued, identifying, running}
 // to interrupted. Used at daemon startup so crashed-mid-rip jobs are
 // visible in the UI for resolution. Returns the count flipped.
@@ -998,7 +1014,7 @@ func scanJob(r rowScanner) (*Job, error) {
 	var st, activeStep, startedStr, finishedStr, createdStr string
 	if err := r.Scan(
 		&j.ID, &j.DiscID, &j.DriveID, &j.ProfileID, &st, &activeStep,
-		&j.Progress, &j.Speed, &j.ETASeconds, &j.ElapsedSeconds,
+		&j.Progress, &j.Speed, &j.ETASeconds, &j.ElapsedSeconds, &j.OutputBytes,
 		&startedStr, &finishedStr, &j.ErrorMessage, &createdStr,
 	); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -1445,7 +1461,7 @@ func (s *Store) ListHistory(ctx context.Context, f HistoryFilter) ([]HistoryRow,
 	q := `
 		SELECT
 		  j.id, j.disc_id, COALESCE(j.drive_id, ''), j.profile_id, j.state, j.active_step,
-		  j.progress, j.speed, j.eta_seconds, j.elapsed_seconds,
+		  j.progress, j.speed, j.eta_seconds, j.elapsed_seconds, j.output_bytes,
 		  j.started_at, j.finished_at, j.error_message, j.created_at,
 		  d.id, COALESCE(d.drive_id, ''), d.type, d.title, d.year, d.runtime_seconds,
 		  d.size_bytes_raw, d.toc_hash, d.metadata_provider, d.metadata_id,
@@ -1486,7 +1502,7 @@ func (s *Store) ListHistory(ctx context.Context, f HistoryFilter) ([]HistoryRow,
 		)
 		if err := rows.Scan(
 			&j.ID, &j.DiscID, &j.DriveID, &j.ProfileID, &jState, &jActive,
-			&j.Progress, &j.Speed, &j.ETASeconds, &j.ElapsedSeconds,
+			&j.Progress, &j.Speed, &j.ETASeconds, &j.ElapsedSeconds, &j.OutputBytes,
 			&jStarted, &jFinished, &j.ErrorMessage, &jCreated,
 			&d.ID, &d.DriveID, &dType, &d.Title, &d.Year, &d.RuntimeSeconds,
 			&d.SizeBytesRaw, &d.TOCHash, &d.MetadataProvider, &d.MetadataID,
