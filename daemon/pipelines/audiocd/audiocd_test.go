@@ -33,6 +33,9 @@ type fakeMBClient struct {
 func (f *fakeMBClient) Lookup(_ context.Context, _ string) ([]state.Candidate, error) {
 	return f.cands, f.err
 }
+func (f *fakeMBClient) ReleaseDetails(_ context.Context, _ string) (identify.AudioCDMetadata, error) {
+	return identify.AudioCDMetadata{}, nil
+}
 
 type trackInfo struct {
 	num   int

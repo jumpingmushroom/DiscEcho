@@ -1,12 +1,14 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
 	"strconv"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/jumpingmushroom/DiscEcho/daemon/identify"
 	"github.com/jumpingmushroom/DiscEcho/daemon/state"
 )
 
@@ -87,6 +89,13 @@ func (h *Handlers) StartDisc(w http.ResponseWriter, r *http.Request) {
 			if rt, err := h.TMDB.MovieRuntime(r.Context(), c.TMDBID); err == nil && rt > 0 {
 				_ = h.Store.UpdateDiscRuntime(r.Context(), disc.ID, rt)
 			}
+		}
+		// Persist the extended pane metadata for the picked candidate so
+		// disc.metadata_json is ready before the first SSE snapshot — the
+		// pane renders rich data on first paint. Best-effort: a failure
+		// here doesn't block the rip.
+		if blob, err := h.fetchExtendedMetadata(r.Context(), disc, &c); err == nil && blob != "" {
+			_ = h.Store.UpdateDiscMetadataBlob(r.Context(), disc.ID, blob)
 		}
 	}
 
@@ -211,3 +220,76 @@ func (h *Handlers) IdentifyDisc(w http.ResponseWriter, r *http.Request) {
 
 	writeJSON(w, http.StatusOK, map[string]any{"disc": disc, "candidates": cands})
 }
+
+// fetchExtendedMetadata calls the appropriate identify-source method to
+// retrieve the pane payload for the picked candidate and marshals it as
+// JSON. Returns "" + nil when the candidate type has no source mapping
+// (data discs, unknown).
+func (h *Handlers) fetchExtendedMetadata(ctx context.Context, disc *state.Disc, c *state.Candidate) (string, error) {
+	switch {
+	case c.MediaType == "movie" && c.TMDBID > 0 && h.TMDB != nil:
+		m, err := h.TMDB.MovieDetails(ctx, c.TMDBID)
+		if err != nil {
+			return "", err
+		}
+		return marshalBlob(m)
+	case c.MediaType == "tv" && c.TMDBID > 0 && h.TMDB != nil:
+		m, err := h.TMDB.TVDetails(ctx, c.TMDBID)
+		if err != nil {
+			return "", err
+		}
+		return marshalBlob(m)
+	case disc.Type == state.DiscTypeAudioCD && c.MBID != "" && h.MusicBrainz != nil:
+		m, err := h.MusicBrainz.ReleaseDetails(ctx, c.MBID)
+		if err != nil {
+			return "", err
+		}
+		return marshalBlob(m)
+	case isGameDisc(disc.Type) && c.Source == "Redump":
+		// Game discs build their blob from already-stored candidate data
+		// (Redump matched at identify time). No external fetch needed.
+		return marshalBlob(map[string]any{
+			"system": gameSystemName(disc.Type),
+			"serial": disc.MetadataID,
+		})
+	default:
+		return "", nil
+	}
+}
+
+func marshalBlob(v any) (string, error) {
+	body, err := json.Marshal(v)
+	if err != nil {
+		return "", err
+	}
+	return string(body), nil
+}
+
+func isGameDisc(t state.DiscType) bool {
+	switch t {
+	case state.DiscTypePSX, state.DiscTypePS2, state.DiscTypeSAT, state.DiscTypeDC, state.DiscTypeXBOX:
+		return true
+	}
+	return false
+}
+
+func gameSystemName(t state.DiscType) string {
+	switch t {
+	case state.DiscTypePSX:
+		return "Sony PlayStation"
+	case state.DiscTypePS2:
+		return "Sony PlayStation 2"
+	case state.DiscTypeSAT:
+		return "Sega Saturn"
+	case state.DiscTypeDC:
+		return "Sega Dreamcast"
+	case state.DiscTypeXBOX:
+		return "Microsoft Xbox"
+	}
+	return string(t)
+}
+
+// Compile-time check: identify package needs to be available for the
+// fetchExtendedMetadata switch logic to compile; the import is exercised
+// elsewhere by the live MovieDetails / ReleaseDetails calls.
+var _ = identify.DiscMetadata{}

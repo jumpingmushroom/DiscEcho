@@ -34,6 +34,7 @@ DiscEcho-handoff.zip
 
 # AI-specific planning artifacts live outside the repo
 docs/superpowers/
+.superpowers/
 
 # Local working agreement; not for the public repo
 CLAUDE.md

@@ -34,7 +34,32 @@ type TMDBClient interface {
 	// TMDB doesn't know the runtime; only network / decode errors
 	// produce non-nil error.
 	MovieRuntime(ctx context.Context, tmdbID int) (int, error)
+	// MovieDetails / TVDetails fetch the extended record used by the
+	// dashboard metadata pane (plot, director, cast, studio, genres,
+	// rating, poster URL). Persisted into disc.metadata_json at
+	// /api/discs/{id}/start so the pane has rich data on first paint.
+	MovieDetails(ctx context.Context, tmdbID int) (DiscMetadata, error)
+	TVDetails(ctx context.Context, tmdbID int) (DiscMetadata, error)
 }
+
+// DiscMetadata is the extended display payload the pane needs.
+// Persisted onto discs.metadata_json at /api/discs/{id}/start. Field
+// names match the JSON the webui expects so json.Marshal yields the
+// wire shape directly.
+type DiscMetadata struct {
+	Plot      string   `json:"plot,omitempty"`
+	Director  string   `json:"director,omitempty"`
+	Cast      []string `json:"cast,omitempty"`
+	Studio    string   `json:"studio,omitempty"`
+	Genres    []string `json:"genres,omitempty"`
+	Rating    float64  `json:"rating,omitempty"`
+	PosterURL string   `json:"poster_url,omitempty"`
+}
+
+// posterImageBase is the TMDB CDN base for w342 poster images. w342 is
+// the "card thumbnail" size — adequate for the 56-pixel header thumb
+// and large enough that retina screens don't pixelate.
+const posterImageBase = "https://image.tmdb.org/t/p/w342"
 
 const tmdbCandidateCap = 5
 
@@ -98,6 +123,110 @@ func (c *tmdbClient) MovieRuntime(ctx context.Context, tmdbID int) (int, error) 
 		return 0, fmt.Errorf("decode movie response: %w", err)
 	}
 	return detail.Runtime * 60, nil
+}
+
+// MovieDetails returns the extended pane metadata for a TMDB movie.
+func (c *tmdbClient) MovieDetails(ctx context.Context, tmdbID int) (DiscMetadata, error) {
+	return c.details(ctx, fmt.Sprintf("/movie/%d", tmdbID), "Director")
+}
+
+// TVDetails is the TV-show equivalent of MovieDetails. Treats
+// "Creator" as the Director equivalent so the pane shows one human
+// name regardless of media type.
+func (c *tmdbClient) TVDetails(ctx context.Context, tmdbID int) (DiscMetadata, error) {
+	return c.details(ctx, fmt.Sprintf("/tv/%d", tmdbID), "Creator")
+}
+
+// tmdbDetailsResponse decodes the slice of fields we care about from
+// /movie/{id} and /tv/{id} responses. Both endpoints share the same
+// genre / production_companies / credits shape, so one struct suffices.
+type tmdbDetailsResponse struct {
+	Overview    string  `json:"overview"`
+	VoteAverage float64 `json:"vote_average"`
+	PosterPath  string  `json:"poster_path"`
+	Genres      []struct {
+		Name string `json:"name"`
+	} `json:"genres"`
+	ProductionCompanies []struct {
+		Name string `json:"name"`
+	} `json:"production_companies"`
+	Credits struct {
+		Crew []struct {
+			Name string `json:"name"`
+			Job  string `json:"job"`
+		} `json:"crew"`
+		Cast []struct {
+			Name  string `json:"name"`
+			Order int    `json:"order"`
+		} `json:"cast"`
+	} `json:"credits"`
+}
+
+func (c *tmdbClient) details(ctx context.Context, endpoint, directorJob string) (DiscMetadata, error) {
+	if c.cfg.APIKey == "" {
+		return DiscMetadata{}, nil
+	}
+	u, err := url.Parse(strings.TrimRight(c.cfg.BaseURL, "/") + endpoint)
+	if err != nil {
+		return DiscMetadata{}, fmt.Errorf("build url: %w", err)
+	}
+	q := u.Query()
+	q.Set("api_key", c.cfg.APIKey)
+	q.Set("language", c.cfg.Language)
+	q.Set("append_to_response", "credits")
+	u.RawQuery = q.Encode()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
+	if err != nil {
+		return DiscMetadata{}, fmt.Errorf("build request: %w", err)
+	}
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := c.cfg.HTTPClient.Do(req)
+	if err != nil {
+		return DiscMetadata{}, err
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode == http.StatusNotFound {
+		return DiscMetadata{}, nil
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
+		return DiscMetadata{}, fmt.Errorf("tmdb details: status %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+
+	var raw tmdbDetailsResponse
+	if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil {
+		return DiscMetadata{}, fmt.Errorf("decode details: %w", err)
+	}
+
+	out := DiscMetadata{
+		Plot:   raw.Overview,
+		Rating: raw.VoteAverage,
+	}
+	for _, g := range raw.Genres {
+		out.Genres = append(out.Genres, g.Name)
+	}
+	if len(raw.ProductionCompanies) > 0 {
+		out.Studio = raw.ProductionCompanies[0].Name
+	}
+	for _, cm := range raw.Credits.Cast {
+		out.Cast = append(out.Cast, cm.Name)
+		if len(out.Cast) >= 10 {
+			break
+		}
+	}
+	for _, cm := range raw.Credits.Crew {
+		if cm.Job == directorJob {
+			out.Director = cm.Name
+			break
+		}
+	}
+	if raw.PosterPath != "" {
+		out.PosterURL = posterImageBase + raw.PosterPath
+	}
+	return out, nil
 }
 
 func (c *tmdbClient) SearchMovie(ctx context.Context, query string) ([]state.Candidate, error) {

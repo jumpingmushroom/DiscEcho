@@ -43,6 +43,12 @@ func (f *fakeTMDB) SearchBoth(_ context.Context, _ string) ([]state.Candidate, e
 	return f.cands, f.err
 }
 func (f *fakeTMDB) MovieRuntime(_ context.Context, _ int) (int, error) { return 0, nil }
+func (f *fakeTMDB) MovieDetails(_ context.Context, _ int) (identify.DiscMetadata, error) {
+	return identify.DiscMetadata{}, nil
+}
+func (f *fakeTMDB) TVDetails(_ context.Context, _ int) (identify.DiscMetadata, error) {
+	return identify.DiscMetadata{}, nil
+}
 
 // fakeMakeMKV satisfies both bdmv.MakeMKVScanner and bdmv.MakeMKVRipper.
 type fakeMakeMKV struct {

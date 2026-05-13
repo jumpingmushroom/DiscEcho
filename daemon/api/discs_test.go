@@ -12,6 +12,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/jumpingmushroom/DiscEcho/daemon/api"
+	"github.com/jumpingmushroom/DiscEcho/daemon/identify"
 	"github.com/jumpingmushroom/DiscEcho/daemon/jobs"
 	"github.com/jumpingmushroom/DiscEcho/daemon/pipelines"
 	"github.com/jumpingmushroom/DiscEcho/daemon/state"
@@ -96,6 +97,66 @@ func TestStartDisc_CreatesJob(t *testing.T) {
 		time.Sleep(20 * time.Millisecond)
 	}
 	t.Fatalf("job did not finish")
+}
+
+func TestStartDisc_PersistsMetadataBlob_TMDB(t *testing.T) {
+	reg := pipelines.NewRegistry()
+	reg.Register(&stubDiscHandler{})
+	h := apitestServerWithOrch(t, reg)
+	h.TMDB = &fakeTMDBForAPI{
+		movieDetails: identify.DiscMetadata{
+			Director:  "Jeff Tremaine",
+			PosterURL: "https://image.tmdb.org/t/p/w342/abc.jpg",
+		},
+	}
+
+	drv := seedDrive(t, h)
+	prof := seedProfile(t, h)
+	disc := seedDisc(t, h, drv.ID)
+	disc.Candidates = []state.Candidate{
+		{Source: "TMDB", Title: "Jackass: The Movie", Year: 2002, TMDBID: 329865, MediaType: "movie"},
+	}
+	if err := h.Store.UpdateDiscCandidates(context.Background(), disc.ID, disc.Candidates); err != nil {
+		t.Fatal(err)
+	}
+
+	r := chi.NewRouter()
+	r.Post("/api/discs/{id}/start", h.StartDisc)
+	body := mustJSON(t, map[string]any{"profile_id": prof.ID, "candidate_index": 0})
+	req := httptest.NewRequest(http.MethodPost, "/api/discs/"+disc.ID+"/start", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status %d: %s", w.Code, w.Body.String())
+	}
+
+	got, err := h.Store.GetDisc(context.Background(), disc.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.MetadataJSON == "" || got.MetadataJSON == "{}" {
+		t.Fatalf("metadata_json empty after start: %q", got.MetadataJSON)
+	}
+	if !bytes.Contains([]byte(got.MetadataJSON), []byte(`"director":"Jeff Tremaine"`)) {
+		t.Errorf("expected director in blob: %s", got.MetadataJSON)
+	}
+	if !bytes.Contains([]byte(got.MetadataJSON), []byte(`"poster_url":"https://image.tmdb.org/t/p/w342/abc.jpg"`)) {
+		t.Errorf("expected poster_url in blob: %s", got.MetadataJSON)
+	}
+
+	// Drain the orchestrator's stub job so cleanup doesn't race.
+	var j state.Job
+	_ = json.Unmarshal(w.Body.Bytes(), &j)
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		gj, err := h.Store.GetJob(context.Background(), j.ID)
+		if err == nil && (gj.State == state.JobStateDone || gj.State == state.JobStateFailed) {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
 }
 
 func TestStartDisc_RefusesDuplicateWhenActiveJobExists(t *testing.T) {
@@ -394,7 +455,9 @@ func TestIdentifyDisc_ManualQueryHitsTMDBAndUpdates(t *testing.T) {
 }
 
 type fakeTMDBForAPI struct {
-	cands []state.Candidate
+	cands        []state.Candidate
+	movieDetails identify.DiscMetadata
+	tvDetails    identify.DiscMetadata
 }
 
 func (f *fakeTMDBForAPI) SearchMovie(_ context.Context, _ string) ([]state.Candidate, error) {
@@ -407,6 +470,12 @@ func (f *fakeTMDBForAPI) SearchBoth(_ context.Context, _ string) ([]state.Candid
 	return f.cands, nil
 }
 func (f *fakeTMDBForAPI) MovieRuntime(_ context.Context, _ int) (int, error) { return 0, nil }
+func (f *fakeTMDBForAPI) MovieDetails(_ context.Context, _ int) (identify.DiscMetadata, error) {
+	return f.movieDetails, nil
+}
+func (f *fakeTMDBForAPI) TVDetails(_ context.Context, _ int) (identify.DiscMetadata, error) {
+	return f.tvDetails, nil
+}
 
 func mustJSON(t *testing.T, v any) []byte {
 	t.Helper()

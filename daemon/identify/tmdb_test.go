@@ -189,3 +189,87 @@ func TestTMDB_ContextCancellation(t *testing.T) {
 
 // keep url package alive for goimports
 var _ = url.Parse
+
+func TestTMDB_MovieDetails(t *testing.T) {
+	body, _ := os.ReadFile("testdata/tmdb-movie-details.json")
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.Contains(r.URL.Path, "/movie/329865") {
+			t.Errorf("path: %s", r.URL.Path)
+		}
+		if r.URL.Query().Get("append_to_response") != "credits" {
+			t.Errorf("missing append_to_response=credits")
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(body)
+	}))
+	defer srv.Close()
+
+	c := identify.NewTMDBClient(identify.TMDBConfig{
+		APIKey: "k", BaseURL: srv.URL, Language: "en-US",
+	})
+	d, err := c.MovieDetails(context.Background(), 329865)
+	if err != nil {
+		t.Fatalf("details: %v", err)
+	}
+	if d.Plot == "" {
+		t.Errorf("plot empty")
+	}
+	if d.Director != "Denis Villeneuve" {
+		t.Errorf("director: %q", d.Director)
+	}
+	if len(d.Cast) < 2 || d.Cast[0] != "Amy Adams" {
+		t.Errorf("cast: %v", d.Cast)
+	}
+	if d.Studio != "Lava Bear Films" {
+		t.Errorf("studio: %q", d.Studio)
+	}
+	if len(d.Genres) == 0 || d.Genres[0] != "Science Fiction" {
+		t.Errorf("genres: %v", d.Genres)
+	}
+	if d.Rating < 7.0 || d.Rating > 8.0 {
+		t.Errorf("rating: %f", d.Rating)
+	}
+	if d.PosterURL == "" || !strings.Contains(d.PosterURL, "x2FJsf1ElAgr63Y3PNPtJrcmpoe.jpg") {
+		t.Errorf("poster_url: %q", d.PosterURL)
+	}
+}
+
+func TestTMDB_TVDetails(t *testing.T) {
+	body, _ := os.ReadFile("testdata/tmdb-tv-details.json")
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.Contains(r.URL.Path, "/tv/1668") {
+			t.Errorf("path: %s", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(body)
+	}))
+	defer srv.Close()
+
+	c := identify.NewTMDBClient(identify.TMDBConfig{
+		APIKey: "k", BaseURL: srv.URL, Language: "en-US",
+	})
+	d, err := c.TVDetails(context.Background(), 1668)
+	if err != nil {
+		t.Fatalf("details: %v", err)
+	}
+	if d.Plot == "" {
+		t.Errorf("plot empty")
+	}
+	if d.Director != "David Crane" {
+		t.Errorf("director (creator): %q", d.Director)
+	}
+	if d.PosterURL == "" {
+		t.Errorf("poster_url empty")
+	}
+}
+
+func TestTMDB_MovieDetails_NoAPIKey(t *testing.T) {
+	c := identify.NewTMDBClient(identify.TMDBConfig{})
+	d, err := c.MovieDetails(context.Background(), 1)
+	if err != nil {
+		t.Errorf("err: %v", err)
+	}
+	if d.Plot != "" || d.PosterURL != "" {
+		t.Errorf("want empty DiscMetadata: %+v", d)
+	}
+}

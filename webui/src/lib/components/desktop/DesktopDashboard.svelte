@@ -41,7 +41,7 @@
        swap to RipCard. A busy drive whose active job is selected in
        the sidebar collapses entirely from the hero band to avoid the
        same RipCard rendering twice on screen. -->
-  <div class="mb-6 grid gap-4" style="grid-template-columns: repeat(auto-fit, minmax(280px, 1fr))">
+  <div class="mb-6 grid gap-4" style="grid-template-columns: repeat(auto-fit, minmax(380px, 1fr))">
     {#each $drives as d (d.id)}
       {@const activeJob = activeJobs.find((j) => j.drive_id === d.id && j.state !== 'queued')}
       {@const discID = d.current_disc_id ?? activeJob?.disc_id}

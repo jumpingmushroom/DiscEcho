@@ -80,6 +80,81 @@ func (c *mbClient) Lookup(ctx context.Context, discID string) ([]state.Candidate
 	return raw.toCandidates(), nil
 }
 
+// ReleaseDetails fetches /ws/2/release/{mbid}?inc=recordings+labels
+// and returns label/catalog/track list. Track durations from MB are
+// in milliseconds; converted to seconds here.
+func (c *mbClient) ReleaseDetails(ctx context.Context, mbid string) (AudioCDMetadata, error) {
+	if mbid == "" {
+		return AudioCDMetadata{}, nil
+	}
+	if err := c.waitForRateLimit(ctx); err != nil {
+		return AudioCDMetadata{}, err
+	}
+
+	u := strings.TrimRight(c.cfg.BaseURL, "/") +
+		"/ws/2/release/" + mbid +
+		"?fmt=json&inc=recordings+labels"
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		return AudioCDMetadata{}, fmt.Errorf("build request: %w", err)
+	}
+	req.Header.Set("User-Agent", c.cfg.UserAgent)
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := c.cfg.HTTPClient.Do(req)
+	if err != nil {
+		return AudioCDMetadata{}, err
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode == http.StatusNotFound {
+		return AudioCDMetadata{}, nil
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
+		return AudioCDMetadata{}, fmt.Errorf("musicbrainz release: status %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+
+	var raw mbReleaseResponse
+	if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil {
+		return AudioCDMetadata{}, fmt.Errorf("decode release: %w", err)
+	}
+
+	out := AudioCDMetadata{}
+	if len(raw.LabelInfo) > 0 {
+		out.Label = raw.LabelInfo[0].Label.Name
+		out.CatalogNumber = raw.LabelInfo[0].CatalogNumber
+	}
+	if len(raw.Media) > 0 {
+		for _, t := range raw.Media[0].Tracks {
+			out.Tracks = append(out.Tracks, AudioTrack{
+				Number:          t.Position,
+				Title:           t.Title,
+				DurationSeconds: t.Length / 1000,
+			})
+		}
+	}
+	return out, nil
+}
+
+// mbReleaseResponse is the slice of MusicBrainz /release/{mbid} we
+// care about. Length values are in milliseconds; we convert to seconds.
+type mbReleaseResponse struct {
+	LabelInfo []struct {
+		Label struct {
+			Name string `json:"name"`
+		} `json:"label"`
+		CatalogNumber string `json:"catalog-number"`
+	} `json:"label-info"`
+	Media []struct {
+		Tracks []struct {
+			Position int    `json:"position"`
+			Title    string `json:"title"`
+			Length   int    `json:"length"`
+		} `json:"tracks"`
+	} `json:"media"`
+}
+
 func (c *mbClient) waitForRateLimit(ctx context.Context) error {
 	if c.cfg.MinInterval <= 0 {
 		return nil

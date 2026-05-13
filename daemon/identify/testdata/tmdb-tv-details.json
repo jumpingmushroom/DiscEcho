@@ -1,0 +1,17 @@
+{
+  "id": 1668,
+  "name": "Friends",
+  "first_air_date": "1994-09-22",
+  "overview": "Six young people from New York City, on their own and struggling to survive in the real world, find the companionship, comfort and support they get from each other to be the perfect antidote to the pressures of life.",
+  "vote_average": 8.4,
+  "genres": [{"id": 35, "name": "Comedy"}],
+  "poster_path": "/2koX1xLkpTQM4IZebYvKysFW1Nh.jpg",
+  "production_companies": [{"id": 26727, "name": "Bright/Kauffman/Crane Productions"}],
+  "credits": {
+    "crew": [{"id": 1, "name": "David Crane", "job": "Creator"}],
+    "cast": [
+      {"id": 5469, "name": "Jennifer Aniston", "order": 0},
+      {"id": 11367, "name": "Courteney Cox", "order": 1}
+    ]
+  }
+}

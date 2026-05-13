@@ -56,10 +56,12 @@ export interface Candidate {
   title: string;
   artist?: string;
   year?: number;
+  region?: string; // game-disc region (USA / Europe / Japan / …)
   confidence: number;
   mbid?: string;
   tmdb_id?: number;
   media_type?: 'movie' | 'tv' | '';
+  runtime_seconds?: number;
 }
 
 export interface HistoryRow {
@@ -85,6 +87,7 @@ export interface Disc {
   toc_hash?: string;
   metadata_provider?: string;
   metadata_id?: string;
+  metadata_json?: string; // raw JSON blob with per-disc-type extended fields
   candidates: Candidate[];
   created_at: string;
 }

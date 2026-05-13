@@ -108,3 +108,52 @@ func TestStore_Disc_GetNotFound(t *testing.T) {
 		t.Errorf("want ErrNotFound, got nil")
 	}
 }
+
+func TestStore_UpdateDiscMetadataBlob_WritesAndReadsBack(t *testing.T) {
+	s := openStore(t)
+	ctx := context.Background()
+	drv := newDrive(t, s, "/dev/sr0")
+
+	d := &state.Disc{DriveID: drv.ID, Type: state.DiscTypeDVD, Title: "Test"}
+	if err := s.CreateDisc(ctx, d); err != nil {
+		t.Fatal(err)
+	}
+
+	blob := `{"plot":"hello","cast":["a","b"]}`
+	if err := s.UpdateDiscMetadataBlob(ctx, d.ID, blob); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := s.GetDisc(ctx, d.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.MetadataJSON != blob {
+		t.Errorf("metadata_json: want %q, got %q", blob, got.MetadataJSON)
+	}
+}
+
+func TestStore_UpdateDiscMetadataBlob_NotFound(t *testing.T) {
+	s := openStore(t)
+	if err := s.UpdateDiscMetadataBlob(context.Background(), "missing", `{}`); err == nil {
+		t.Errorf("want error, got nil")
+	}
+}
+
+func TestStore_CreateDisc_DefaultsMetadataJSONToEmptyObject(t *testing.T) {
+	s := openStore(t)
+	ctx := context.Background()
+	drv := newDrive(t, s, "/dev/sr0")
+
+	d := &state.Disc{DriveID: drv.ID, Type: state.DiscTypeDVD}
+	if err := s.CreateDisc(ctx, d); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.GetDisc(ctx, d.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.MetadataJSON != "{}" {
+		t.Errorf("default metadata_json: want %q, got %q", "{}", got.MetadataJSON)
+	}
+}

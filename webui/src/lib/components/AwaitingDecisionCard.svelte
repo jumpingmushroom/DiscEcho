@@ -3,7 +3,7 @@
   import { profiles, startDisc, discs, manualIdentify, pendingDiscID, skipDisc } from '$lib/store';
   import type { Disc, Candidate } from '$lib/wire';
   import DiscTypeBadge from './DiscTypeBadge.svelte';
-  import ArtPlaceholder from './ArtPlaceholder.svelte';
+  import DiscArt from './DiscArt.svelte';
 
   export let disc: Disc;
 
@@ -152,8 +152,8 @@
   data-disc-id={liveDisc.id}
 >
   <div class="mb-4 flex gap-3">
-    <ArtPlaceholder
-      label={liveDisc.type === 'AUDIO_CD' ? 'cd' : 'cover'}
+    <DiscArt
+      disc={liveDisc}
       size={64}
       ratio={liveDisc.type === 'AUDIO_CD' ? 'square' : 'portrait'}
     />

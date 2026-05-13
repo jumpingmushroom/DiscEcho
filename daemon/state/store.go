@@ -234,14 +234,18 @@ func (s *Store) CreateDisc(ctx context.Context, d *Disc) error {
 	if err != nil {
 		return fmt.Errorf("marshal candidates: %w", err)
 	}
+	metaBlob := d.MetadataJSON
+	if metaBlob == "" {
+		metaBlob = "{}"
+	}
 	_, err = s.db.Conn().ExecContext(ctx, `
 		INSERT INTO discs (id, drive_id, type, title, year, runtime_seconds,
 		                   size_bytes_raw, toc_hash, metadata_provider, metadata_id,
-		                   candidates_json, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		                   candidates_json, metadata_json, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		d.ID, nullString(d.DriveID), string(d.Type), d.Title, d.Year, d.RuntimeSeconds,
 		d.SizeBytesRaw, d.TOCHash, d.MetadataProvider, d.MetadataID,
-		candJSON, timestamp(d.CreatedAt))
+		candJSON, metaBlob, timestamp(d.CreatedAt))
 	return err
 }
 
@@ -250,7 +254,7 @@ func (s *Store) GetDisc(ctx context.Context, id string) (*Disc, error) {
 	row := s.db.Conn().QueryRowContext(ctx, `
 		SELECT id, COALESCE(drive_id, ''), type, title, year, runtime_seconds,
 		       size_bytes_raw, toc_hash, metadata_provider, metadata_id,
-		       candidates_json, created_at
+		       candidates_json, metadata_json, created_at
 		FROM discs WHERE id = ?`, id)
 	return scanDisc(row)
 }
@@ -266,7 +270,7 @@ func (s *Store) ListRecentDiscs(ctx context.Context, limit int) ([]Disc, error) 
 	rows, err := s.db.Conn().QueryContext(ctx, `
 		SELECT id, COALESCE(drive_id, ''), type, title, year, runtime_seconds,
 		       size_bytes_raw, toc_hash, metadata_provider, metadata_id,
-		       candidates_json, created_at
+		       candidates_json, metadata_json, created_at
 		FROM discs ORDER BY created_at DESC LIMIT ?`, limit)
 	if err != nil {
 		return nil, err
@@ -289,7 +293,7 @@ func (s *Store) ListDiscsForDrive(ctx context.Context, driveID string) ([]Disc, 
 	rows, err := s.db.Conn().QueryContext(ctx, `
 		SELECT id, COALESCE(drive_id, ''), type, title, year, runtime_seconds,
 		       size_bytes_raw, toc_hash, metadata_provider, metadata_id,
-		       candidates_json, created_at
+		       candidates_json, metadata_json, created_at
 		FROM discs WHERE drive_id = ? ORDER BY created_at DESC`, driveID)
 	if err != nil {
 		return nil, err
@@ -314,6 +318,29 @@ func (s *Store) UpdateDiscMetadata(ctx context.Context, id, title string, year i
 	res, err := s.db.Conn().ExecContext(ctx, `
 		UPDATE discs SET title = ?, year = ?, metadata_provider = ?, metadata_id = ?
 		WHERE id = ?`, title, year, provider, metadataID, id)
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// UpdateDiscMetadataBlob writes the per-disc-type extended metadata
+// JSON onto an existing disc row. Used at /api/discs/{id}/start after
+// the user picks a candidate so the pane has rich data from the first
+// paint without round-tripping back to TMDB / MusicBrainz at view
+// time. blob is the raw JSON string (UTF-8). An empty string is
+// stored as "{}" so the column's NOT NULL constraint is satisfied
+// and the webui can safely parse the result.
+func (s *Store) UpdateDiscMetadataBlob(ctx context.Context, id string, blob string) error {
+	if blob == "" {
+		blob = "{}"
+	}
+	res, err := s.db.Conn().ExecContext(ctx,
+		`UPDATE discs SET metadata_json = ? WHERE id = ?`, blob, id)
 	if err != nil {
 		return err
 	}
@@ -429,11 +456,11 @@ func nullString(s string) sql.NullString {
 
 func scanDisc(r rowScanner) (*Disc, error) {
 	var d Disc
-	var dtype, candJSON, createdStr string
+	var dtype, candJSON, metaJSON, createdStr string
 	if err := r.Scan(
 		&d.ID, &d.DriveID, &dtype, &d.Title, &d.Year, &d.RuntimeSeconds,
 		&d.SizeBytesRaw, &d.TOCHash, &d.MetadataProvider, &d.MetadataID,
-		&candJSON, &createdStr,
+		&candJSON, &metaJSON, &createdStr,
 	); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrNotFound
@@ -446,6 +473,7 @@ func scanDisc(r rowScanner) (*Disc, error) {
 		return nil, fmt.Errorf("unmarshal candidates: %w", err)
 	}
 	d.Candidates = cs
+	d.MetadataJSON = metaJSON
 	t, err := parseTime(createdStr)
 	if err != nil {
 		return nil, fmt.Errorf("parse created_at: %w", err)
@@ -1421,7 +1449,7 @@ func (s *Store) ListHistory(ctx context.Context, f HistoryFilter) ([]HistoryRow,
 		  j.started_at, j.finished_at, j.error_message, j.created_at,
 		  d.id, COALESCE(d.drive_id, ''), d.type, d.title, d.year, d.runtime_seconds,
 		  d.size_bytes_raw, d.toc_hash, d.metadata_provider, d.metadata_id,
-		  d.candidates_json, d.created_at
+		  d.candidates_json, d.metadata_json, d.created_at
 		FROM jobs j
 		JOIN discs d ON j.disc_id = d.id
 		WHERE j.state IN ('done','failed','cancelled')
@@ -1454,7 +1482,7 @@ func (s *Store) ListHistory(ctx context.Context, f HistoryFilter) ([]HistoryRow,
 			j                                              Job
 			d                                              Disc
 			jState, jActive, jStarted, jFinished, jCreated string
-			dType, dCands, dCreated                        string
+			dType, dCands, dMeta, dCreated                 string
 		)
 		if err := rows.Scan(
 			&j.ID, &j.DiscID, &j.DriveID, &j.ProfileID, &jState, &jActive,
@@ -1462,7 +1490,7 @@ func (s *Store) ListHistory(ctx context.Context, f HistoryFilter) ([]HistoryRow,
 			&jStarted, &jFinished, &j.ErrorMessage, &jCreated,
 			&d.ID, &d.DriveID, &dType, &d.Title, &d.Year, &d.RuntimeSeconds,
 			&d.SizeBytesRaw, &d.TOCHash, &d.MetadataProvider, &d.MetadataID,
-			&dCands, &dCreated,
+			&dCands, &dMeta, &dCreated,
 		); err != nil {
 			return nil, err
 		}
@@ -1482,6 +1510,7 @@ func (s *Store) ListHistory(ctx context.Context, f HistoryFilter) ([]HistoryRow,
 		if d.Candidates, err = unmarshalCandidates(dCands); err != nil {
 			return nil, fmt.Errorf("unmarshal candidates: %w", err)
 		}
+		d.MetadataJSON = dMeta
 		if d.CreatedAt, err = parseTime(dCreated); err != nil {
 			return nil, fmt.Errorf("parse d.created_at: %w", err)
 		}

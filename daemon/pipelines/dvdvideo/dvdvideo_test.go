@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"testing"
 
 	"github.com/jumpingmushroom/DiscEcho/daemon/identify"
@@ -83,6 +84,12 @@ func (f *fakeTMDB) SearchBoth(_ context.Context, _ string) ([]state.Candidate, e
 	return f.cands, f.err
 }
 func (f *fakeTMDB) MovieRuntime(_ context.Context, _ int) (int, error) { return 0, nil }
+func (f *fakeTMDB) MovieDetails(_ context.Context, _ int) (identify.DiscMetadata, error) {
+	return identify.DiscMetadata{}, nil
+}
+func (f *fakeTMDB) TVDetails(_ context.Context, _ int) (identify.DiscMetadata, error) {
+	return identify.DiscMetadata{}, nil
+}
 
 // fakeHandBrake satisfies tools.Tool for the transcode step AND
 // dvdvideo.HandBrakeScanner for the post-rip title enumeration.
@@ -548,5 +555,62 @@ func TestDVD_Run_LibraryNotWritable(t *testing.T) {
 		&state.Profile{OutputPathTemplate: `{{.Title}}.mp4`}, sink)
 	if err == nil {
 		t.Errorf("want error from probe failure")
+	}
+}
+
+type recordingMetadataStore struct {
+	calls []struct {
+		id   string
+		blob string
+	}
+}
+
+func (r *recordingMetadataStore) UpdateDiscMetadataBlob(_ context.Context, id, blob string) error {
+	r.calls = append(r.calls, struct {
+		id   string
+		blob string
+	}{id, blob})
+	return nil
+}
+
+func TestDVDPipeline_PersistsScanTitlesToMetadataBlob(t *testing.T) {
+	libRoot := t.TempDir()
+	store := &recordingMetadataStore{}
+	hb := &fakeHandBrake{scanTitles: []tools.HandBrakeTitle{
+		{Number: 1, DurationSeconds: 5099},
+	}}
+	bk := &fakeDVDBackup{label: "JACKASS"}
+	reg := tools.NewRegistry()
+	reg.Register(hb)
+	reg.Register(tools.NewMockTool("apprise", []tools.MockEvent{}))
+	reg.Register(tools.NewMockTool("eject", []tools.MockEvent{}))
+
+	h := dvdvideo.New(dvdvideo.Deps{
+		Tools:                    reg,
+		LibraryRoot:              libRoot,
+		WorkRoot:                 t.TempDir(),
+		DVDBackup:                bk,
+		HandBrakeScanner:         hb,
+		MetadataStore:            store,
+		MinEncodedBytesPerSecond: -1,
+	})
+
+	drv := &state.Drive{ID: "drv-1", DevPath: "/dev/sr0"}
+	disc := &state.Disc{ID: "disc-1", Type: state.DiscTypeDVD, Title: "Jackass: The Movie", Year: 2002}
+	prof := &state.Profile{
+		Format:             "MKV",
+		OutputPathTemplate: `{{.Title}} ({{.Year}})/{{.Title}} ({{.Year}}).mkv`,
+		Options:            map[string]any{"dvd_selection_mode": "main_feature"},
+	}
+
+	if err := h.Run(context.Background(), drv, disc, prof, &testutil.RecordingSink{}); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	if len(store.calls) == 0 {
+		t.Fatalf("expected MetadataStore.UpdateDiscMetadataBlob to be called")
+	}
+	if !strings.Contains(store.calls[0].blob, `"dvd_titles"`) {
+		t.Errorf("blob missing dvd_titles key: %s", store.calls[0].blob)
 	}
 }
