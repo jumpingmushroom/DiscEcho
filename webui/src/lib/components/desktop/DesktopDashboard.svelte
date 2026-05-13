@@ -43,11 +43,7 @@
       {@const disc = discID ? $discs[discID] : undefined}
       {#if activeJob && d.state !== 'idle'}
         {@const profile = $profiles.find((p) => p.id === activeJob.profile_id)}
-        <button
-          type="button"
-          class="text-left"
-          on:click={() => selectedJobID.set(activeJob.id)}
-        >
+        <button type="button" class="text-left" on:click={() => selectedJobID.set(activeJob.id)}>
           <RipCard drive={d} {disc} job={activeJob} {profile} />
         </button>
       {:else}

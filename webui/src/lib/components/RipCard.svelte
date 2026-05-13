@@ -119,9 +119,7 @@
 
   <!-- Log tail -->
   <div class="mt-5">
-    <div class="mb-2 text-[10px] font-medium uppercase tracking-[0.14em] text-text-3">
-      Log tail
-    </div>
+    <div class="mb-2 text-[10px] font-medium uppercase tracking-[0.14em] text-text-3">Log tail</div>
     <div
       class="max-h-48 overflow-y-auto rounded-md border border-border p-2 font-mono text-[11px]
              leading-relaxed"
