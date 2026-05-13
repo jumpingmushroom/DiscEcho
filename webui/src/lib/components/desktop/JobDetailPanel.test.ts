@@ -2,8 +2,17 @@ import '@testing-library/jest-dom/vitest';
 import { describe, it, expect, beforeEach } from 'vitest';
 import { render } from '@testing-library/svelte';
 import JobDetailPanel from './JobDetailPanel.svelte';
-import { discs, profiles, logs } from '$lib/store';
-import type { Job, Disc, Profile } from '$lib/wire';
+import { discs, drives, profiles, logs } from '$lib/store';
+import type { Job, Disc, Drive, Profile } from '$lib/wire';
+
+const sr0: Drive = {
+  id: 'd1',
+  model: 'ASUS SDRW-08D2S-U',
+  bus: 'SR0',
+  dev_path: '/dev/sr0',
+  state: 'ripping',
+  last_seen_at: '2026-05-07T12:00:00Z',
+};
 
 const dvdDisc: Disc = {
   id: 'disc-1',
@@ -51,6 +60,7 @@ const ripJob: Job = {
 describe('JobDetailPanel', () => {
   beforeEach(() => {
     discs.set({ 'disc-1': dvdDisc });
+    drives.set([sr0]);
     profiles.set([cdProfile]);
     logs.set({});
   });
@@ -60,11 +70,12 @@ describe('JobDetailPanel', () => {
     expect(getByText(/click a drive or queue row/i)).toBeInTheDocument();
   });
 
-  it('renders title, year, drive, profile when given a job', () => {
+  it('renders title, year, drive header, profile when given a job', () => {
     const { getByText } = render(JobDetailPanel, { job: ripJob });
     expect(getByText('Arrival')).toBeInTheDocument();
     expect(getByText(/2016/)).toBeInTheDocument();
-    expect(getByText('d1')).toBeInTheDocument();
+    expect(getByText('SR0')).toBeInTheDocument();
+    expect(getByText('ASUS SDRW-08D2S-U')).toBeInTheDocument();
     expect(getByText('BD-1080p')).toBeInTheDocument();
   });
 

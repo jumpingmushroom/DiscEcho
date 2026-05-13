@@ -1,8 +1,9 @@
 <script lang="ts">
-  import { drives, jobs, discs, selectedJobID } from '$lib/store';
+  import { drives, jobs, discs, profiles, selectedJobID } from '$lib/store';
   import DriveHeroCard from './DriveHeroCard.svelte';
   import QueueTable from './QueueTable.svelte';
   import JobDetailPanel from './JobDetailPanel.svelte';
+  import RipCard from '$lib/components/RipCard.svelte';
   import AwaitingDecisionList from '../AwaitingDecisionList.svelte';
   import type { Job } from '$lib/wire';
 
@@ -33,18 +34,27 @@
 </script>
 
 <div class="mx-auto min-h-screen max-w-screen-2xl p-6">
-  <!-- Hero band -->
+  <!-- Hero band — idle drives render as DriveHeroCard; busy drives swap
+       to RipCard so the running rip surfaces in one place, not two. -->
   <div class="mb-6 grid gap-4" style="grid-template-columns: repeat(auto-fit, minmax(280px, 1fr))">
     {#each $drives as d (d.id)}
       {@const activeJob = activeJobs.find((j) => j.drive_id === d.id && j.state !== 'queued')}
       {@const discID = d.current_disc_id ?? activeJob?.disc_id}
-      <DriveHeroCard
-        drive={d}
-        disc={discID ? $discs[discID] : undefined}
-        job={activeJob}
-        queuedCount={queuedByDrive[d.id] ?? 0}
-        on:select={(e) => selectedJobID.set(e.detail)}
-      />
+      {@const disc = discID ? $discs[discID] : undefined}
+      {#if activeJob && d.state !== 'idle'}
+        {@const profile = $profiles.find((p) => p.id === activeJob.profile_id)}
+        <button type="button" class="text-left" on:click={() => selectedJobID.set(activeJob.id)}>
+          <RipCard drive={d} {disc} job={activeJob} {profile} />
+        </button>
+      {:else}
+        <DriveHeroCard
+          drive={d}
+          {disc}
+          job={activeJob}
+          queuedCount={queuedByDrive[d.id] ?? 0}
+          on:select={(e) => selectedJobID.set(e.detail)}
+        />
+      {/if}
     {:else}
       <div class="rounded-2xl border border-dashed border-border p-6 text-center text-text-3">
         No drives detected.

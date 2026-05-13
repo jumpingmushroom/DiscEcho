@@ -336,12 +336,34 @@ func TestLoad_DVDProfilesSeeded(t *testing.T) {
 	if len(dvds) != 2 {
 		t.Fatalf("want 2 DVD profiles, got %d", len(dvds))
 	}
-	names := map[string]bool{}
-	for _, p := range dvds {
-		names[p.Name] = true
+	byName := map[string]*state.Profile{}
+	for i := range dvds {
+		byName[dvds[i].Name] = &dvds[i]
 	}
-	if !names["DVD-Movie"] || !names["DVD-Series"] {
-		t.Errorf("missing names: %v", names)
+	if byName["DVD-Movie"] == nil || byName["DVD-Series"] == nil {
+		t.Fatalf("missing seed names: %v", byName)
+	}
+
+	mv := byName["DVD-Movie"]
+	if mv.Format != "MKV" {
+		t.Errorf("DVD-Movie format: want MKV, got %s", mv.Format)
+	}
+	if mv.Container != "MKV" {
+		t.Errorf("DVD-Movie container: want MKV, got %s", mv.Container)
+	}
+	if mode, _ := mv.Options["dvd_selection_mode"].(string); mode != "main_feature" {
+		t.Errorf("DVD-Movie dvd_selection_mode: want main_feature, got %q", mode)
+	}
+	if !strings.HasSuffix(mv.OutputPathTemplate, ".mkv") {
+		t.Errorf("DVD-Movie output template should end in .mkv: %s", mv.OutputPathTemplate)
+	}
+
+	sr := byName["DVD-Series"]
+	if sr.Format != "MKV" {
+		t.Errorf("DVD-Series format: want MKV, got %s", sr.Format)
+	}
+	if mode, _ := sr.Options["dvd_selection_mode"].(string); mode != "per_title" {
+		t.Errorf("DVD-Series dvd_selection_mode: want per_title, got %q", mode)
 	}
 
 	// Idempotent

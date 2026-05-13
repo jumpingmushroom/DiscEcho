@@ -54,11 +54,18 @@ describe('JobRow', () => {
     expect(getByText('d1')).toBeInTheDocument();
   });
 
-  it('renders progress percent and ETA for running jobs', () => {
+  it('renders progress percent and formatted ETA for running jobs', () => {
     const { getByText, queryByText } = render(JobRow, { job: runningJob });
     expect(getByText('43%')).toBeInTheDocument();
-    expect(getByText('90s')).toBeInTheDocument();
+    expect(getByText('1m 30s')).toBeInTheDocument();
+    expect(queryByText('90s')).toBeNull();
     expect(queryByText('QUEUED')).toBeNull();
+  });
+
+  it('formats hour-scale ETA as Xh Ym Zs', () => {
+    const longJob: Job = { ...runningJob, eta_seconds: 3725 };
+    const { getByText } = render(JobRow, { job: longJob });
+    expect(getByText('1h 2m 5s')).toBeInTheDocument();
   });
 
   it('hides percent + ETA, shows QUEUED badge for queued jobs', () => {

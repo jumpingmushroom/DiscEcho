@@ -55,15 +55,16 @@ describe('QueueTable', () => {
     expect(getByText('No active jobs')).toBeInTheDocument();
   });
 
-  it('renders rows with title, drive, percent, ETA cells', () => {
-    const { getByText } = render(QueueTable, {
+  it('renders rows with title, drive, percent, and formatted ETA cells', () => {
+    const { getByText, queryByText } = render(QueueTable, {
       jobs: [runningJob],
       selectedJobID: null,
     });
     expect(getByText('Arrival')).toBeInTheDocument();
     expect(getByText('d1')).toBeInTheDocument();
     expect(getByText('67%')).toBeInTheDocument();
-    expect(getByText('134s')).toBeInTheDocument();
+    expect(getByText('2m 14s')).toBeInTheDocument();
+    expect(queryByText('134s')).toBeNull();
   });
 
   it('renders QUEUED badge in pct column for queued rows', () => {

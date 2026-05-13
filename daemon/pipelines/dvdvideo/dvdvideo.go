@@ -198,7 +198,7 @@ func (h *Handler) Run(ctx context.Context, drv *state.Drive, disc *state.Disc, p
 	if ext != "mp4" && ext != "mkv" {
 		ext = "mkv"
 	}
-	isMovie := strings.ToLower(prof.Format) == "mp4"
+	isMovie := IsMovieProfile(prof)
 
 	// Movie profiles delegate title selection to HandBrake's own
 	// `--main-feature` flag, which reads the IFO's main-feature bit
@@ -366,7 +366,7 @@ func (h *Handler) createWorkDir(discID string) (string, error) {
 // Series (MKV) profile: every title >= options.min_title_seconds
 // (default 300).
 func selectEncodeTitles(titles []tools.HandBrakeTitle, prof *state.Profile) []tools.HandBrakeTitle {
-	if strings.ToLower(prof.Format) == "mp4" {
+	if IsMovieProfile(prof) {
 		// Movie path is driven by --main-feature; the caller still needs
 		// *something* to iterate to drive its outer loop once, so it
 		// substitutes longestTitle(titles) directly. Returning nil here
@@ -391,6 +391,28 @@ func selectEncodeTitles(titles []tools.HandBrakeTitle, prof *state.Profile) []to
 		}
 	}
 	return out
+}
+
+// IsMovieProfile decides whether the DVD-Movie title-selection path
+// (HandBrake --main-feature) applies, or whether the DVD-Series path
+// (enumerate-and-floor) applies. Resolution order:
+//
+//  1. profile option "dvd_selection_mode" — "main_feature" / "per_title"
+//  2. legacy fallback: lowercased Format == "mp4" means movie
+//
+// The legacy fallback exists for DBs that haven't yet picked up the
+// 003_dvd_default_mkv migration (e.g. a freshly-restored backup from
+// before that migration shipped).
+func IsMovieProfile(prof *state.Profile) bool {
+	if mode, ok := prof.Options["dvd_selection_mode"].(string); ok {
+		switch mode {
+		case "main_feature":
+			return true
+		case "per_title":
+			return false
+		}
+	}
+	return strings.ToLower(prof.Format) == "mp4"
 }
 
 // longestTitle returns the title with the largest DurationSeconds, or
