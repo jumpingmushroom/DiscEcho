@@ -3,6 +3,7 @@ package jobs_test
 import (
 	"context"
 	"errors"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -209,5 +210,56 @@ func TestPersistentSink_StepFailedRecordsState(t *testing.T) {
 		if st.Step == state.StepRip && st.State != state.JobStepStateFailed {
 			t.Errorf("rip should be failed, got %s", st.State)
 		}
+	}
+}
+
+func TestPersistentSink_OnStepDoneMove_RecordsOutputBytes(t *testing.T) {
+	fx := newJobFixture(t)
+	defer fx.bc.Close()
+
+	tmp := t.TempDir()
+	a := filepath.Join(tmp, "a.mkv")
+	b := filepath.Join(tmp, "b.mkv")
+	if err := os.WriteFile(a, make([]byte, 1024), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(b, make([]byte, 2048), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	s := jobs.NewPersistentSink(fx.store, fx.bc, fx.job.ID)
+	// Move-step done with the multi-path notes shape from dvdvideo /
+	// audiocd. The sink should sum the two file sizes onto job.output_bytes.
+	s.OnStepDone(state.StepMove, map[string]any{"paths": []string{a, b}})
+
+	got, err := fx.store.GetJob(context.Background(), fx.job.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.OutputBytes != 3072 {
+		t.Errorf("output_bytes: want 3072, got %d", got.OutputBytes)
+	}
+}
+
+func TestPersistentSink_OnStepDoneMove_SinglePathShape(t *testing.T) {
+	fx := newJobFixture(t)
+	defer fx.bc.Close()
+
+	tmp := t.TempDir()
+	p := filepath.Join(tmp, "out.mkv")
+	if err := os.WriteFile(p, make([]byte, 4096), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	s := jobs.NewPersistentSink(fx.store, fx.bc, fx.job.ID)
+	// Single-path shape used by BDMV / UHD / games / data.
+	s.OnStepDone(state.StepMove, map[string]any{"path": p})
+
+	got, err := fx.store.GetJob(context.Background(), fx.job.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.OutputBytes != 4096 {
+		t.Errorf("output_bytes: want 4096, got %d", got.OutputBytes)
 	}
 }

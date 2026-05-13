@@ -44,10 +44,13 @@ type StepPlan struct {
 }
 
 // EventSink receives every event a Handler emits during Run.
+// JobID identifies the job the sink is bound to — pipelines use it to
+// attribute final output sizes back onto the right job row.
 type EventSink interface {
 	OnStepStart(stepID state.StepID)
 	OnProgress(stepID state.StepID, pct float64, speed string, etaSeconds int)
 	OnLog(level state.LogLevel, format string, args ...any)
 	OnStepDone(stepID state.StepID, notes map[string]any)
 	OnStepFailed(stepID state.StepID, err error)
+	JobID() string
 }

@@ -8,6 +8,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"os"
 	"sync"
 	"time"
 
@@ -172,6 +173,17 @@ func (s *PersistentSink) OnStepDone(step state.StepID, notes map[string]any) {
 			slog.Warn("PersistentSink: AppendJobStepNotes", "job", s.jobID, "step", step, "err", err)
 		}
 	}
+	// On move-step completion, attribute the encoded output size to
+	// the job row so the LIBRARY SIZE widget can sum across done jobs.
+	// Pipelines record either `path: string` or `paths: []string` in the
+	// move step's notes; either shape is supported.
+	if step == state.StepMove {
+		if b := sumMovePathBytes(notes); b > 0 {
+			if err := s.store.RecordOutputBytes(context.Background(), s.jobID, b); err != nil {
+				slog.Warn("PersistentSink: RecordOutputBytes", "job", s.jobID, "err", err)
+			}
+		}
+	}
 	payload := map[string]any{
 		"job_id": s.jobID,
 		"step":   string(step),
@@ -197,4 +209,37 @@ func (s *PersistentSink) OnStepFailed(step state.StepID, err error) {
 			"error":  err.Error(),
 		},
 	})
+}
+
+// sumMovePathBytes walks the StepMove notes' path / paths field and
+// returns the total bytes of the referenced files. Missing files are
+// skipped silently. Returns 0 when notes don't carry path data.
+func sumMovePathBytes(notes map[string]any) int64 {
+	if notes == nil {
+		return 0
+	}
+	var paths []string
+	if p, ok := notes["path"].(string); ok && p != "" {
+		paths = append(paths, p)
+	}
+	if ps, ok := notes["paths"].([]string); ok {
+		paths = append(paths, ps...)
+	}
+	// Some pipelines stash []interface{} via map[string]any literal — handle that too.
+	if pa, ok := notes["paths"].([]any); ok {
+		for _, v := range pa {
+			if s, ok := v.(string); ok {
+				paths = append(paths, s)
+			}
+		}
+	}
+	var total int64
+	for _, p := range paths {
+		fi, err := os.Stat(p)
+		if err != nil {
+			continue
+		}
+		total += fi.Size()
+	}
+	return total
 }

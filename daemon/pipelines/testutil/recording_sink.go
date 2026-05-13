@@ -35,9 +35,12 @@ type RecordedEvent struct {
 }
 
 // RecordingSink implements pipelines.EventSink and records every call.
+// JobIDValue is what JobID() returns; default empty string is fine for
+// tests that don't care which job ID the pipeline is operating on.
 type RecordingSink struct {
-	mu     sync.Mutex
-	Events []RecordedEvent
+	mu         sync.Mutex
+	Events     []RecordedEvent
+	JobIDValue string
 }
 
 // NewRecordingSink returns an empty sink.
@@ -75,6 +78,11 @@ func (r *RecordingSink) OnStepDone(s state.StepID, notes map[string]any) {
 // OnStepFailed records a step.failed event.
 func (r *RecordingSink) OnStepFailed(s state.StepID, err error) {
 	r.append(RecordedEvent{Kind: EventFailed, Step: s, Err: err})
+}
+
+// JobID satisfies the EventSink contract. Returns JobIDValue (default "").
+func (r *RecordingSink) JobID() string {
+	return r.JobIDValue
 }
 
 // Snapshot returns a copy of Events for thread-safe inspection.
