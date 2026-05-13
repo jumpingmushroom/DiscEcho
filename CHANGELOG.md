@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-05-13
+
 ### Added
 - Rank-based identification confidence so popular and obscure titles both surface useful scores (top match always 100%, then 80/60/40/20).
 - DVD profiles now disambiguate movie-vs-series via a `dvd_selection_mode` option, freeing the format field to default to MKV.
