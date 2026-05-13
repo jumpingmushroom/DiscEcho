@@ -56,10 +56,12 @@ export interface Candidate {
   title: string;
   artist?: string;
   year?: number;
+  region?: string; // game-disc region (USA / Europe / Japan / …)
   confidence: number;
   mbid?: string;
   tmdb_id?: number;
   media_type?: 'movie' | 'tv' | '';
+  runtime_seconds?: number;
 }
 
 export interface HistoryRow {
