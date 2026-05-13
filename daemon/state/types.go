@@ -139,6 +139,7 @@ type Disc struct {
 	TOCHash          string      `json:"toc_hash,omitempty"`
 	MetadataProvider string      `json:"metadata_provider,omitempty"`
 	MetadataID       string      `json:"metadata_id,omitempty"`
+	MetadataJSON     string      `json:"metadata_json,omitempty"` // extended per-disc-type display data
 	Candidates       []Candidate `json:"candidates"`
 	CreatedAt        time.Time   `json:"created_at"`
 }
