@@ -161,6 +161,12 @@ func (h *Handlers) buildIntegrationItems(ctx context.Context, info IntegrationsI
 			Status: appriseStatus(ctx, h, info),
 			Detail: info.Apprise.Version,
 		},
+		{
+			Name:   "GPU transcoding",
+			Hint:   "NVIDIA NVENC hardware encoder",
+			Status: gpuStatus(h.NVENCAvailable),
+			Detail: gpuDetail(h.NVENCAvailable),
+		},
 	}
 	return items
 }
@@ -180,6 +186,20 @@ func redumpDetail(s *settings.Settings) string {
 		return ""
 	}
 	return s.RedumperBin
+}
+
+func gpuStatus(available bool) string {
+	if available {
+		return "connected"
+	}
+	return "not configured"
+}
+
+func gpuDetail(available bool) string {
+	if available {
+		return "NVENC (h264, h265)"
+	}
+	return "no NVIDIA GPU detected"
 }
 
 func appriseStatus(ctx context.Context, h *Handlers, info IntegrationsInfo) string {

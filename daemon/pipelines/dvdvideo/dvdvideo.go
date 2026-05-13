@@ -63,6 +63,13 @@ type Deps struct {
 	// value disables the check (used by tests with stub encoders that
 	// don't write real-sized output).
 	MinEncodedBytesPerSecond int
+
+	// NVENCAvailable signals that NVIDIA NVENC is usable on the host.
+	// When true and the profile requests an nvenc_* video_codec, the
+	// transcode step passes the hardware encoder to HandBrake.
+	// When false, NVENC profile values fall back to the matching
+	// software encoder (x264/x265) with a WARN log.
+	NVENCAvailable bool
 }
 
 // Handler implements pipelines.Handler for DVD-Video.
@@ -246,6 +253,15 @@ func (h *Handler) Run(ctx context.Context, drv *state.Drive, disc *state.Disc, p
 		}
 	}
 
+	// Select the HandBrake encoder once per job: NVENC if the
+	// profile asks for it and the GPU was detected at boot,
+	// software otherwise.
+	encoder, fellBack := pipelines.SelectHandBrakeEncoder(prof, h.deps.NVENCAvailable)
+	if fellBack {
+		sink.OnLog(state.LogLevelWarn,
+			"NVENC requested but unavailable on host; falling back to %s software encoder", encoder)
+	}
+
 	transcoded := make([]string, 0, len(encodeTitles))
 	for i, t := range encodeTitles {
 		titleIdx := i + 1
@@ -254,7 +270,7 @@ func (h *Handler) Run(ctx context.Context, drv *state.Drive, disc *state.Disc, p
 			"--input", source,
 			"--output", out,
 			"--quality", "20",
-			"--encoder", "x264",
+			"--encoder", encoder,
 			"--all-audio",
 			"--markers",
 		}

@@ -43,7 +43,7 @@ export const ENGINES: Record<string, EngineSpec> = {
   'MakeMKV+HandBrake': {
     formats: ['MKV'],
     containers: ['MKV'],
-    videoCodecs: ['x265', 'x264', 'av1', 'copy'],
+    videoCodecs: ['x265', 'x264', 'nvenc_h265', 'nvenc_h264', 'av1', 'copy'],
     options: {
       min_title_seconds: { type: 'int' },
       keep_all_tracks: { type: 'bool' },
@@ -53,7 +53,7 @@ export const ENGINES: Record<string, EngineSpec> = {
   HandBrake: {
     formats: ['MP4', 'MKV'],
     containers: ['MP4', 'MKV'],
-    videoCodecs: ['x265', 'x264', 'av1'],
+    videoCodecs: ['x265', 'x264', 'nvenc_h265', 'nvenc_h264', 'av1'],
     options: {
       min_title_seconds: { type: 'int' },
       season: { type: 'int' },

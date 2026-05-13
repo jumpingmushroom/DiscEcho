@@ -61,7 +61,7 @@ var engineSchemas = map[string]EngineSchema{
 	"MakeMKV+HandBrake": {
 		Formats:     []string{"MKV"},
 		Containers:  []string{"MKV"},
-		VideoCodecs: []string{"x265", "x264", "av1", "copy"},
+		VideoCodecs: []string{"x265", "x264", "nvenc_h265", "nvenc_h264", "av1", "copy"},
 		Options: map[string]OptionSchema{
 			"min_title_seconds": {Type: OptInt},
 			"keep_all_tracks":   {Type: OptBool},
@@ -71,7 +71,7 @@ var engineSchemas = map[string]EngineSchema{
 	"HandBrake": {
 		Formats:     []string{"MP4", "MKV"},
 		Containers:  []string{"MP4", "MKV"},
-		VideoCodecs: []string{"x265", "x264", "av1"},
+		VideoCodecs: []string{"x265", "x264", "nvenc_h265", "nvenc_h264", "av1"},
 		Options: map[string]OptionSchema{
 			"min_title_seconds": {Type: OptInt},
 			"season":            {Type: OptInt},

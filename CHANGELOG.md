@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+- Hardware-accelerated transcoding (NVENC) on NVIDIA hosts. HandBrake-based profiles now expose `nvenc_h264` and `nvenc_h265` as `video_codec` values. The daemon detects NVENC availability at startup, surfaces it in **Settings → Integrations**, and silently falls back to the matching software encoder (`x264` / `x265` / `x265_10bit` for BDMV) when no GPU is detected. See the README "Enabling GPU transcoding" section for the per-host compose overrides required to pass the GPU through.
+
+### Changed
+- HandBrake is now built from upstream source (1.11.x) in the container image so NVENC is compiled in; bookworm's apt package ships without NVENC. Cold builds take noticeably longer; cached rebuilds are unchanged.
+
 ## [0.5.0] - 2026-05-13
 
 ### Added

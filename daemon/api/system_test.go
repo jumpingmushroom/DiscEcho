@@ -114,10 +114,10 @@ func TestGetSystemIntegrations_ItemsList(t *testing.T) {
 	}
 	var info api.IntegrationsInfo
 	_ = json.Unmarshal(w.Body.Bytes(), &info)
-	if len(info.Items) != 4 {
-		t.Fatalf("Items len = %d, want 4", len(info.Items))
+	if len(info.Items) != 5 {
+		t.Fatalf("Items len = %d, want 5", len(info.Items))
 	}
-	want := []string{"TMDB", "MusicBrainz", "redump", "Apprise"}
+	want := []string{"TMDB", "MusicBrainz", "redump", "Apprise", "GPU transcoding"}
 	for i, name := range want {
 		if info.Items[i].Name != name {
 			t.Errorf("Items[%d].Name = %q, want %q", i, info.Items[i].Name, name)
@@ -221,4 +221,72 @@ func TestGetSystemIntegrations_TMDBConfigured(t *testing.T) {
 	if strings.Contains(w.Body.String(), "secret-key") {
 		t.Errorf("response leaks TMDB key: %s", w.Body.String())
 	}
+}
+
+func TestGetSystemIntegrations_GPU_Connected(t *testing.T) {
+	h := apitestServer(t)
+	h.Settings = &settings.Settings{
+		MusicBrainzBaseURL:   "https://musicbrainz.org",
+		MusicBrainzUserAgent: "DiscEcho/test",
+		AppriseBin:           "apprise",
+	}
+	h.NVENCAvailable = true
+
+	req := httptest.NewRequest(http.MethodGet, "/api/system/integrations", nil)
+	w := httptest.NewRecorder()
+	h.GetSystemIntegrations(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status %d body %s", w.Code, w.Body.String())
+	}
+	var info api.IntegrationsInfo
+	if err := json.Unmarshal(w.Body.Bytes(), &info); err != nil {
+		t.Fatal(err)
+	}
+	row := findIntegrationItem(info.Items, "GPU transcoding")
+	if row == nil {
+		t.Fatal(`"GPU transcoding" row missing`)
+	}
+	if row.Status != "connected" {
+		t.Errorf("status: got %q, want connected", row.Status)
+	}
+	if !strings.Contains(row.Detail, "NVENC") {
+		t.Errorf("detail: got %q, want it to mention NVENC", row.Detail)
+	}
+}
+
+func TestGetSystemIntegrations_GPU_NotDetected(t *testing.T) {
+	h := apitestServer(t)
+	h.Settings = &settings.Settings{
+		MusicBrainzBaseURL:   "https://musicbrainz.org",
+		MusicBrainzUserAgent: "DiscEcho/test",
+		AppriseBin:           "apprise",
+	}
+	h.NVENCAvailable = false
+
+	req := httptest.NewRequest(http.MethodGet, "/api/system/integrations", nil)
+	w := httptest.NewRecorder()
+	h.GetSystemIntegrations(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status %d", w.Code)
+	}
+	var info api.IntegrationsInfo
+	_ = json.Unmarshal(w.Body.Bytes(), &info)
+
+	row := findIntegrationItem(info.Items, "GPU transcoding")
+	if row == nil {
+		t.Fatal(`"GPU transcoding" row missing`)
+	}
+	if row.Status != "not configured" {
+		t.Errorf("status: got %q, want 'not configured'", row.Status)
+	}
+}
+
+// findIntegrationItem returns the matching item by Name, or nil.
+func findIntegrationItem(items []api.IntegrationStatus, name string) *api.IntegrationStatus {
+	for i, it := range items {
+		if it.Name == name {
+			return &items[i]
+		}
+	}
+	return nil
 }

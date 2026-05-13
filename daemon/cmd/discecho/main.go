@@ -139,6 +139,12 @@ func main() {
 	dvdProber := identify.NewDVDProber(identify.DVDProberConfig{IsoInfoBin: cfg.IsoInfoBin})
 	handBrake := tools.NewHandBrake(cfg.HandBrakeBin)
 	toolReg.Register(handBrake)
+	nvencAvailable := tools.ProbeNVENC(cfg.HandBrakeBin)
+	if nvencAvailable {
+		slog.Info("NVENC detected; hardware transcoding available")
+	} else {
+		slog.Info("NVENC not detected; profiles requesting nvenc_* will fall back to software")
+	}
 
 	// MakeMKV is shared by BDMV and UHD (DVD uses dvdbackup since
 	// v0.2.2 — see CHANGELOG; MakeMKV's rolling beta key plus the
@@ -163,6 +169,7 @@ func main() {
 		SubsLang:         cfg.SubsLang,
 		URLsForTrigger:   urlsForTrigger,
 		MetadataStore:    store,
+		NVENCAvailable:   nvencAvailable,
 	}))
 
 	// BDMV + UHD pipelines (M3.1).
@@ -177,6 +184,7 @@ func main() {
 		WorkRoot:       filepath.Join(cfg.DataPath, "work"),
 		SubsLang:       cfg.SubsLang,
 		URLsForTrigger: urlsForTrigger,
+		NVENCAvailable: nvencAvailable,
 	}))
 
 	pipeReg.Register(uhd.New(uhd.Deps{
@@ -278,8 +286,9 @@ func main() {
 		MusicBrainz:  mbClient,
 		Token:        cfg.Token,
 		// ActiveSampler is started after the orchestrator's ctx is built (below).
-		Apprise:  appriseTool,
-		Settings: cfg,
+		Apprise:        appriseTool,
+		Settings:       cfg,
+		NVENCAvailable: nvencAvailable,
 	}
 
 	embedFS, err := embed.FS()

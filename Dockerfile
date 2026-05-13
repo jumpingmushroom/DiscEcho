@@ -60,25 +60,61 @@ RUN apt-get update \
         && make install
 
 ###############################################################################
+# Stage — build HandBrakeCLI from source on Debian bookworm
+#
+# Debian bookworm's `handbrake-cli` package (1.6.1) is compiled without
+# NVENC support. We build HandBrake from source so the resulting binary
+# links against bookworm's own libraries (no cross-distro ABI issues)
+# and is compiled with --enable-nvenc (on by default for x86_64-linux).
+# NVENC requires only the nv-codec-headers at build time; no GPU is
+# needed during the build — the runtime driver is dlopen'd at job start.
+###############################################################################
+FROM debian:bookworm-slim AS handbrake-build
+ARG HANDBRAKE_VERSION=1.11.1
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends \
+        build-essential cmake git nasm ninja-build meson m4 patch pkg-config \
+        python3 tar curl ca-certificates \
+        libtool libtool-bin autoconf automake \
+        libass-dev libbz2-dev libfontconfig-dev libfreetype6-dev \
+        libfribidi-dev libharfbuzz-dev libjansson-dev liblzma-dev \
+        libmp3lame-dev libnuma-dev libogg-dev libopus-dev \
+        libsamplerate0-dev libspeex-dev libtheora-dev \
+        libturbojpeg0-dev libvorbis-dev libx264-dev libxml2-dev \
+        libvpx-dev libdvdread-dev libdvdnav-dev libbluray-dev \
+        libva-dev libdrm-dev \
+        zlib1g-dev \
+ && curl -fsSL "https://github.com/HandBrake/HandBrake/releases/download/${HANDBRAKE_VERSION}/HandBrake-${HANDBRAKE_VERSION}-source.tar.bz2" \
+        | tar xj -C /tmp \
+ && cd "/tmp/HandBrake-${HANDBRAKE_VERSION}" \
+ && ./configure --disable-gtk --launch-jobs="$(nproc)" --launch \
+ && make --directory=build install \
+ && rm -rf /tmp/HandBrake*
+
+###############################################################################
 # Stage 4 — runtime: python slim + apprise + the daemon binary
 ###############################################################################
 FROM python:3.12-slim-bookworm AS runtime
 # whipper is not on PyPI, so install it from Debian apt. cdparanoia +
 # libcdio-utils provide the lower-level rippers and cd-info that
-# identify/classify use. handbrake-cli + libdvd-pkg + genisoimage
-# provide DVD ripping (HandBrake, libdvdcss CSS bypass, isoinfo for
-# volume-label probe). libdvd-pkg lives in Debian's `contrib` archive,
-# which the python:slim base doesn't enable by default.
-# libbluray-bin ships bd_info (UHD AACS2 detection); libssl3 +
-# libexpat1 + libavcodec59 are makemkvcon's runtime shared-lib deps.
+# identify/classify use. libdvd-pkg + dvdbackup + genisoimage
+# provide DVD ripping (libdvdcss CSS bypass, isoinfo for volume-label
+# probe). HandBrakeCLI itself comes from the handbrake-build stage
+# below — the Debian package lacks NVENC support. libdvd-pkg lives in
+# Debian's `contrib` archive, which the python:slim base doesn't enable
+# by default. libbluray-bin ships bd_info (UHD AACS2 detection);
+# libssl3 + libexpat1 + libavcodec59 are makemkvcon's runtime
+# shared-lib deps. libass9 + libturbojpeg0 are HandBrakeCLI runtime
+# deps not pulled in transitively by anything else in this image.
 RUN echo "deb http://deb.debian.org/debian bookworm main contrib" \
         > /etc/apt/sources.list.d/contrib.list \
  && apt-get update \
  && apt-get install -y --no-install-recommends \
         ca-certificates eject cdparanoia libcdio-utils whipper \
-        handbrake-cli libdvd-pkg dvdbackup genisoimage \
+        libdvd-pkg dvdbackup genisoimage \
         libbluray-bdj libbluray2 libbluray-bin \
         libssl3 libexpat1 libavcodec59 \
+        libass9 libturbojpeg0 \
         mame-tools \
  && DEBIAN_FRONTEND=noninteractive dpkg-reconfigure libdvd-pkg \
  && rm -rf /var/lib/apt/lists/* \
@@ -88,6 +124,11 @@ RUN echo "deb http://deb.debian.org/debian bookworm main contrib" \
 COPY --from=makemkv-build /usr/bin/makemkvcon /usr/bin/makemkvcon
 COPY --from=makemkv-build /lib/libmakemkv.so.1 /lib/libmakemkv.so.1
 COPY --from=makemkv-build /lib/libdriveio.so.0 /lib/libdriveio.so.0
+
+# HandBrake built from source on Debian bookworm. The binary links
+# against the same bookworm shared libs already present in the runtime
+# image, so no extra lib COPYs are needed.
+COPY --from=handbrake-build /usr/local/bin/HandBrakeCLI /usr/bin/HandBrakeCLI
 
 # redumper — pre-built static Linux binary released on GitHub.
 # Pinned via REDUMPER_VERSION build arg.
