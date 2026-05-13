@@ -455,9 +455,9 @@ func TestIdentifyDisc_ManualQueryHitsTMDBAndUpdates(t *testing.T) {
 }
 
 type fakeTMDBForAPI struct {
-	cands         []state.Candidate
-	movieDetails  identify.DiscMetadata
-	tvDetails     identify.DiscMetadata
+	cands        []state.Candidate
+	movieDetails identify.DiscMetadata
+	tvDetails    identify.DiscMetadata
 }
 
 func (f *fakeTMDBForAPI) SearchMovie(_ context.Context, _ string) ([]state.Candidate, error) {

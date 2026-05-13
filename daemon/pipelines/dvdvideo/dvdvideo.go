@@ -54,7 +54,7 @@ type Deps struct {
 	WorkRoot         string
 	LibraryProbe     func(string) error
 	URLsForTrigger   func(ctx context.Context, trigger string) []string
-	SubsLang         string // e.g. "eng"; empty → no --subtitle-lang-list flag
+	SubsLang         string        // e.g. "eng"; empty → no --subtitle-lang-list flag
 	MetadataStore    MetadataStore // optional; pipeline persists scan title list when set
 
 	// MinEncodedBytesPerSecond is the lower-bound bytes-per-second the

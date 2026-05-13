@@ -141,10 +141,10 @@ func (c *tmdbClient) TVDetails(ctx context.Context, tmdbID int) (DiscMetadata, e
 // /movie/{id} and /tv/{id} responses. Both endpoints share the same
 // genre / production_companies / credits shape, so one struct suffices.
 type tmdbDetailsResponse struct {
-	Overview            string  `json:"overview"`
-	VoteAverage         float64 `json:"vote_average"`
-	PosterPath          string  `json:"poster_path"`
-	Genres              []struct {
+	Overview    string  `json:"overview"`
+	VoteAverage float64 `json:"vote_average"`
+	PosterPath  string  `json:"poster_path"`
+	Genres      []struct {
 		Name string `json:"name"`
 	} `json:"genres"`
 	ProductionCompanies []struct {
