@@ -358,6 +358,29 @@ func (s *Store) DiscHasAnyJob(ctx context.Context, discID string) (bool, error) 
 	return n > 0, nil
 }
 
+// DiscHasActiveJob reports whether the disc currently has a job in any
+// non-terminal state (queued / identifying / running / paused). Used by
+// POST /api/discs/{id}/start to refuse a duplicate start when a previous
+// click already created a job — the orchestrator serialises per-drive
+// but the API itself has no idempotency, so a fast double-click (or
+// auto-confirm + manual click racing) otherwise enqueues two jobs for
+// the same disc.
+func (s *Store) DiscHasActiveJob(ctx context.Context, discID string) (bool, error) {
+	if discID == "" {
+		return false, nil
+	}
+	var n int
+	err := s.db.Conn().QueryRowContext(ctx, `
+		SELECT COUNT(*) FROM jobs
+		WHERE disc_id = ?
+		  AND state IN ('queued','identifying','running','paused')`,
+		discID).Scan(&n)
+	if err != nil {
+		return false, err
+	}
+	return n > 0, nil
+}
+
 // DeleteDisc removes a disc row by id. Returns ErrNotFound when no row
 // matches. Does NOT cascade-delete jobs — callers must check via
 // DiscHasAnyJob first.

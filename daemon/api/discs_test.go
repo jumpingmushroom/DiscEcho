@@ -98,6 +98,96 @@ func TestStartDisc_CreatesJob(t *testing.T) {
 	t.Fatalf("job did not finish")
 }
 
+func TestStartDisc_RefusesDuplicateWhenActiveJobExists(t *testing.T) {
+	reg := pipelines.NewRegistry()
+	reg.Register(&stubDiscHandler{})
+	h := apitestServerWithOrch(t, reg)
+
+	drv := seedDrive(t, h)
+	prof := seedProfile(t, h)
+	disc := seedDisc(t, h, drv.ID)
+
+	// Seed an already-active job for this disc so the handler sees the
+	// guard condition without depending on orchestrator scheduling.
+	existing := &state.Job{
+		DiscID:    disc.ID,
+		DriveID:   drv.ID,
+		ProfileID: prof.ID,
+	}
+	if err := h.Store.CreateJob(context.Background(), existing); err != nil {
+		t.Fatal(err)
+	}
+
+	r := chi.NewRouter()
+	r.Post("/api/discs/{id}/start", h.StartDisc)
+
+	body := mustJSON(t, map[string]any{
+		"profile_id":      prof.ID,
+		"candidate_index": 0,
+	})
+	req := httptest.NewRequest(http.MethodPost, "/api/discs/"+disc.ID+"/start", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusConflict {
+		t.Fatalf("status %d body=%s", w.Code, w.Body.String())
+	}
+}
+
+func TestStartDisc_AllowsRestartAfterPreviousJobTerminal(t *testing.T) {
+	reg := pipelines.NewRegistry()
+	reg.Register(&stubDiscHandler{})
+	h := apitestServerWithOrch(t, reg)
+
+	drv := seedDrive(t, h)
+	prof := seedProfile(t, h)
+	disc := seedDisc(t, h, drv.ID)
+
+	// Done jobs don't block a re-start — the user can re-rip a disc
+	// after a previous run finished or failed.
+	done := &state.Job{
+		DiscID:    disc.ID,
+		DriveID:   drv.ID,
+		ProfileID: prof.ID,
+	}
+	if err := h.Store.CreateJob(context.Background(), done); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.Store.UpdateJobState(context.Background(), done.ID, state.JobStateDone, ""); err != nil {
+		t.Fatal(err)
+	}
+
+	r := chi.NewRouter()
+	r.Post("/api/discs/{id}/start", h.StartDisc)
+
+	body := mustJSON(t, map[string]any{"profile_id": prof.ID})
+	req := httptest.NewRequest(http.MethodPost, "/api/discs/"+disc.ID+"/start", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status %d body=%s", w.Code, w.Body.String())
+	}
+
+	// Same wait-for-terminal pattern as TestStartDisc_CreatesJob so the
+	// orchestrator cleanup doesn't race with the running stub job.
+	var got state.Job
+	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		j, err := h.Store.GetJob(context.Background(), got.ID)
+		if err == nil && (j.State == state.JobStateDone || j.State == state.JobStateFailed) {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatalf("job did not finish")
+}
+
 func TestStartDisc_MissingProfileID(t *testing.T) {
 	reg := pipelines.NewRegistry()
 	reg.Register(&stubDiscHandler{})
