@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-05-13
+
 ### Fixed
 - Transcode progress is now visible during the encode step. HandBrake 1.6.x omits the `(avg fps X, ETA YhYmYs)` suffix when stdout is a pipe; the encode regex now matches both forms instead of dropping every line.
 - `POST /api/discs/{id}/start` returns 409 Conflict when the disc already has a queued / running / identifying / paused job, so a fast double-click on the awaiting-decision card can no longer enqueue two jobs for the same disc.
