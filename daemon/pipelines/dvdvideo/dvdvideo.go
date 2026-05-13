@@ -3,6 +3,7 @@ package dvdvideo
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -35,6 +36,14 @@ type HandBrakeScanner interface {
 }
 
 // Deps bundles the handler's dependencies for mock injection.
+// MetadataStore is the thin slice of *state.Store the pipeline needs
+// to update disc.metadata_json mid-run (e.g. to persist the scan title
+// list for the pane's Files tab). Nil-safe; the handler skips the
+// write when this is unset.
+type MetadataStore interface {
+	UpdateDiscMetadataBlob(ctx context.Context, id string, blob string) error
+}
+
 type Deps struct {
 	Prober           identify.DVDProber
 	TMDB             identify.TMDBClient
@@ -46,6 +55,7 @@ type Deps struct {
 	LibraryProbe     func(string) error
 	URLsForTrigger   func(ctx context.Context, trigger string) []string
 	SubsLang         string // e.g. "eng"; empty → no --subtitle-lang-list flag
+	MetadataStore    MetadataStore // optional; pipeline persists scan title list when set
 
 	// MinEncodedBytesPerSecond is the lower-bound bytes-per-second the
 	// encoded output must hit for the transcode step to be considered
@@ -187,6 +197,9 @@ func (h *Handler) Run(ctx context.Context, drv *state.Drive, disc *state.Disc, p
 	}
 	logScannedTitles(disc.ID, titles)
 	warnOnRuntimeMismatch(disc, titles)
+	if h.deps.MetadataStore != nil {
+		_ = mergeMetadataField(ctx, h.deps.MetadataStore, disc.ID, disc.MetadataJSON, "dvd_titles", titles)
+	}
 
 	whb, ok := h.deps.Tools.Get("handbrake")
 	if !ok {
@@ -556,4 +569,22 @@ func (s *stepSink) Progress(pct float64, speed string, eta int) {
 
 func (s *stepSink) Log(level state.LogLevel, format string, args ...any) {
 	s.sink.OnLog(level, format, args...)
+}
+
+// mergeMetadataField reads the current blob, sets one top-level key to
+// value, and persists the merged JSON. Failures are non-fatal — the
+// rip continues regardless. Used to attach the HandBrake scan title
+// list onto disc.metadata_json so the pane's Files tab can render the
+// source-disc inventory after the rip completes too.
+func mergeMetadataField(ctx context.Context, store MetadataStore, discID, existing string, key string, value any) error {
+	merged := map[string]any{}
+	if existing != "" && existing != "{}" {
+		_ = json.Unmarshal([]byte(existing), &merged)
+	}
+	merged[key] = value
+	body, err := json.Marshal(merged)
+	if err != nil {
+		return err
+	}
+	return store.UpdateDiscMetadataBlob(ctx, discID, string(body))
 }

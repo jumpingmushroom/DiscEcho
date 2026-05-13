@@ -162,6 +162,7 @@ func main() {
 		WorkRoot:         filepath.Join(cfg.DataPath, "work"),
 		SubsLang:         cfg.SubsLang,
 		URLsForTrigger:   urlsForTrigger,
+		MetadataStore:    store,
 	}))
 
 	// BDMV + UHD pipelines (M3.1).
