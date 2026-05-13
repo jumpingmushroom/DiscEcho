@@ -6,6 +6,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.3.2] - 2026-05-13
+
+### Fixed
+
+- **HandBrake scan now enumerates every title on the disc.** The
+  daemon called `HandBrakeCLI --input <src> --scan`, which silently
+  defaults to `title_index=1` — only the *first* title is reported.
+  Every multi-title DVD (Jackass: The Movie's 10 VTSs, season-set
+  TV discs, anything menu-driven with a short preview as title 1)
+  came back from the scan as a single 7-min preview, masking the
+  real feature. Adding `--title 0` to the scan invocation makes
+  HandBrake walk the full IFO and return every title. This was the
+  root cause behind both the 0.2.3 silent-junk regression
+  (longest-of-one-title is always the wrong title) and the 0.3.1
+  feature-floor false-positive on this disc.
+
 ## [0.3.1] - 2026-05-13
 
 ### Added
