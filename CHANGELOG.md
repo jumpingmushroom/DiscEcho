@@ -6,6 +6,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- **Movie-profile feature-duration floor.** When the longest scanned
+  title is below the floor (default 20 minutes), the transcode step
+  fails with a descriptive error before invoking HandBrake. This is
+  a belt-and-braces guard alongside v0.3.0's `--main-feature`: a
+  disc with no main-feature bit set in the IFO, or an incomplete
+  dvdbackup mirror, can leave the scan's longest title at a few
+  minutes (Jackass: The Movie shipped a 7-min sketch as the entire
+  feature in v0.2.3). Failing here is preferable to producing a
+  junk file that passes the bytes-per-second check (which only
+  compares against the *encoded* duration, not the expected feature
+  duration). Override per profile via the `min_feature_seconds`
+  option; set to `0` to disable for legitimately-short content.
+
 ## [0.3.0] - 2026-05-12
 
 ### Changed

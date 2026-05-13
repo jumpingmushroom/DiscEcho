@@ -215,6 +215,10 @@ func (h *Handler) Run(ctx context.Context, drv *state.Drive, disc *state.Disc, p
 		// the scan's longest title only so the duration-floor check
 		// below has a number to compare the output bytes to.
 		encodeTitles = []tools.HandBrakeTitle{longestTitle(titles)}
+		if err := validateMovieTitleSelection(encodeTitles[0], prof); err != nil {
+			sink.OnStepFailed(state.StepTranscode, err)
+			return err
+		}
 	}
 
 	transcoded := make([]string, 0, len(encodeTitles))
@@ -298,6 +302,18 @@ func (h *Handler) Run(ctx context.Context, drv *state.Drive, disc *state.Disc, p
 // rejects truncated encodes (HandBrake exiting cleanly mid-stream)
 // without false-positives on extremely flat content.
 const minEncodedBytesPerSecond = 93_750
+
+// minMovieFeatureSeconds is the default floor (20 min) below which we
+// refuse to start a movie-profile encode. --main-feature handles the
+// happy path, but a disc with no main-feature bit set in the IFO (or
+// an incomplete dvdbackup mirror) can still leave the scan's longest
+// title at a few minutes — see the Jackass: The Movie regression that
+// shipped a 7-min sketch in v0.2.3. Failing here is preferable to
+// producing a junk file that passes the downstream byte-size check
+// (which only compares against the *encoded* duration, not the
+// expected feature duration). Override per profile via
+// `min_feature_seconds`; set to 0 to disable.
+const minMovieFeatureSeconds = 1200
 
 // validateEncodedTitle errors out when the encoded file is missing, is
 // empty, or is below the expected lower-bound for its source duration.
@@ -392,6 +408,35 @@ func longestTitle(titles []tools.HandBrakeTitle) tools.HandBrakeTitle {
 		}
 	}
 	return best
+}
+
+// validateMovieTitleSelection rejects movie-profile encodes when the
+// longest scanned title is below the configured feature floor. The
+// longest scanned title is also what `validateEncodedTitle` later
+// compares the output bytes against, so a too-short pick here means
+// the byte-size check would also be using a too-short reference and
+// would pass on a junk encode. Returns nil when the profile sets
+// `min_feature_seconds=0`.
+func validateMovieTitleSelection(picked tools.HandBrakeTitle, prof *state.Profile) error {
+	floor := minMovieFeatureSeconds
+	if v, ok := prof.Options["min_feature_seconds"]; ok {
+		switch n := v.(type) {
+		case int:
+			floor = n
+		case float64:
+			floor = int(n)
+		}
+	}
+	if floor <= 0 {
+		return nil
+	}
+	if picked.DurationSeconds < floor {
+		return fmt.Errorf(
+			"longest scanned title is %ds, below movie feature floor of %ds — disc likely has no play-all title or the mirror is incomplete; set profile option min_feature_seconds=0 to override",
+			picked.DurationSeconds, floor,
+		)
+	}
+	return nil
 }
 
 // logScannedTitles emits one INFO line per title HandBrake's scan
