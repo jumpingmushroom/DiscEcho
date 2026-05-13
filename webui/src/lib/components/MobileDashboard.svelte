@@ -1,12 +1,13 @@
 <script lang="ts">
   import { goto } from '$app/navigation';
-  import { drives, jobs, discs, liveStatus } from '$lib/store';
+  import { drives, jobs, discs, profiles, liveStatus } from '$lib/store';
   import AppBar from '$lib/components/AppBar.svelte';
   import TabBar from '$lib/components/TabBar.svelte';
   import LiveDot from '$lib/components/LiveDot.svelte';
   import DriveCard from '$lib/components/DriveCard.svelte';
   import JobRow from '$lib/components/JobRow.svelte';
   import AwaitingDecisionList from '$lib/components/AwaitingDecisionList.svelte';
+  import RipCard from '$lib/components/RipCard.svelte';
   import type { Drive, Job } from '$lib/wire';
 
   const TERMINAL_STATES: ReadonlyArray<Job['state']> = [
@@ -84,19 +85,33 @@
     <AwaitingDecisionList />
   </div>
 
-  <!-- Drives -->
+  <!-- Drives — busy drives surface as RipCard, idle drives as DriveCard -->
   <div class="space-y-3 px-5">
     <div class="pt-2 text-[11px] font-medium uppercase tracking-[0.14em] text-text-3">
       Optical drives
     </div>
     {#each $drives as d (d.id)}
-      <DriveCard
-        drive={d}
-        disc={d.current_disc_id ? $discs[d.current_disc_id] : undefined}
-        job={activeJobs.find((j) => j.drive_id === d.id && j.state !== 'queued')}
-        queuedCount={queuedByDrive[d.id] ?? 0}
-        on:click={() => onDriveClick(d)}
-      />
+      {@const activeJob = activeJobs.find((j) => j.drive_id === d.id && j.state !== 'queued')}
+      {@const discID = d.current_disc_id ?? activeJob?.disc_id}
+      {@const disc = discID ? $discs[discID] : undefined}
+      {#if activeJob && d.state !== 'idle'}
+        {@const profile = $profiles.find((p) => p.id === activeJob.profile_id)}
+        <button
+          type="button"
+          class="block w-full text-left"
+          on:click={() => goto(`/jobs/${activeJob.id}`)}
+        >
+          <RipCard drive={d} {disc} job={activeJob} {profile} />
+        </button>
+      {:else}
+        <DriveCard
+          drive={d}
+          {disc}
+          job={activeJob}
+          queuedCount={queuedByDrive[d.id] ?? 0}
+          on:click={() => onDriveClick(d)}
+        />
+      {/if}
     {:else}
       <div class="rounded-2xl border border-dashed border-border p-4 text-center text-text-3">
         No drives detected.
