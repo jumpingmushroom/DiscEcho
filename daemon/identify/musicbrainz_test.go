@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -135,5 +136,50 @@ func TestMusicBrainz_RateLimit_DelaysSecondCall(t *testing.T) {
 	}
 	if calls != 2 {
 		t.Errorf("want 2 calls, got %d", calls)
+	}
+}
+
+func TestMusicBrainz_ReleaseDetails(t *testing.T) {
+	body, _ := os.ReadFile("testdata/mb-release-tracks.json")
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.Contains(r.URL.Path, "/release/1a0ba71b-fb23-3931-a426") {
+			t.Errorf("path: %s", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(body)
+	}))
+	defer srv.Close()
+
+	c := identify.NewMusicBrainzClient(identify.MusicBrainzConfig{
+		BaseURL: srv.URL, UserAgent: "test/1.0",
+	})
+	d, err := c.ReleaseDetails(context.Background(), "1a0ba71b-fb23-3931-a426-3e4ab35f2a7c")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.Label != "Columbia" {
+		t.Errorf("label: %q", d.Label)
+	}
+	if d.CatalogNumber != "CL 1355" {
+		t.Errorf("catalog: %q", d.CatalogNumber)
+	}
+	if len(d.Tracks) != 5 {
+		t.Fatalf("want 5 tracks, got %d", len(d.Tracks))
+	}
+	if d.Tracks[0].Number != 1 || d.Tracks[0].Title != "So What" || d.Tracks[0].DurationSeconds != 562 {
+		t.Errorf("track[0]: %+v", d.Tracks[0])
+	}
+}
+
+func TestMusicBrainz_ReleaseDetails_EmptyMBID(t *testing.T) {
+	c := identify.NewMusicBrainzClient(identify.MusicBrainzConfig{
+		BaseURL: "https://example.invalid", UserAgent: "test/1.0",
+	})
+	d, err := c.ReleaseDetails(context.Background(), "")
+	if err != nil {
+		t.Errorf("empty mbid should not error: %v", err)
+	}
+	if d.Label != "" || len(d.Tracks) != 0 {
+		t.Errorf("want empty AudioCDMetadata for empty mbid: %+v", d)
 	}
 }
