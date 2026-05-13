@@ -29,6 +29,11 @@ type TMDBClient interface {
 	SearchMovie(ctx context.Context, query string) ([]state.Candidate, error)
 	SearchTV(ctx context.Context, query string) ([]state.Candidate, error)
 	SearchBoth(ctx context.Context, query string) ([]state.Candidate, error)
+	// MovieRuntime fetches `/movie/{id}` and returns the runtime in
+	// seconds. Returns (0, nil) when the API is not configured or
+	// TMDB doesn't know the runtime; only network / decode errors
+	// produce non-nil error.
+	MovieRuntime(ctx context.Context, tmdbID int) (int, error)
 }
 
 const tmdbCandidateCap = 5
@@ -48,6 +53,52 @@ func NewTMDBClient(c TMDBConfig) TMDBClient {
 }
 
 type tmdbClient struct{ cfg TMDBConfig }
+
+// MovieRuntime fetches `/movie/{id}` to read the canonical runtime
+// in minutes, returns it in seconds. Search endpoints don't include
+// runtime, so this is called on a per-pick basis when the user
+// starts a rip.
+func (c *tmdbClient) MovieRuntime(ctx context.Context, tmdbID int) (int, error) {
+	if c.cfg.APIKey == "" || tmdbID <= 0 {
+		return 0, nil
+	}
+	endpoint := fmt.Sprintf("/movie/%d", tmdbID)
+	u, err := url.Parse(strings.TrimRight(c.cfg.BaseURL, "/") + endpoint)
+	if err != nil {
+		return 0, fmt.Errorf("build url: %w", err)
+	}
+	q := u.Query()
+	q.Set("api_key", c.cfg.APIKey)
+	q.Set("language", c.cfg.Language)
+	u.RawQuery = q.Encode()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
+	if err != nil {
+		return 0, fmt.Errorf("build request: %w", err)
+	}
+	req.Header.Set("Accept", "application/json")
+	resp, err := c.cfg.HTTPClient.Do(req)
+	if err != nil {
+		return 0, err
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode == http.StatusNotFound {
+		return 0, nil
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
+		return 0, fmt.Errorf("tmdb movie/%d: status %d: %s", tmdbID, resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+
+	var detail struct {
+		Runtime int `json:"runtime"` // minutes; may be 0 or null for unknown
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&detail); err != nil {
+		return 0, fmt.Errorf("decode movie response: %w", err)
+	}
+	return detail.Runtime * 60, nil
+}
 
 func (c *tmdbClient) SearchMovie(ctx context.Context, query string) ([]state.Candidate, error) {
 	return c.search(ctx, "/search/movie", "movie", query, parseTMDBMovie)

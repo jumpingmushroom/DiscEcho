@@ -40,6 +40,7 @@ func (f *fakeTMDB) SearchTV(_ context.Context, _ string) ([]state.Candidate, err
 func (f *fakeTMDB) SearchBoth(_ context.Context, _ string) ([]state.Candidate, error) {
 	return f.cands, f.err
 }
+func (f *fakeTMDB) MovieRuntime(_ context.Context, _ int) (int, error) { return 0, nil }
 
 // fakeHandBrake satisfies tools.Tool for the transcode step AND
 // dvdvideo.HandBrakeScanner for the post-rip title enumeration.
@@ -233,14 +234,27 @@ func TestDVD_Run_MovieEndToEnd(t *testing.T) {
 		t.Errorf("encode calls: want 1, got %d", len(hb.calls))
 	}
 	// HandBrake's --input must point at the local mirror, not /dev/sr0.
+	// MP4 (movie) profile must pass --main-feature (lets HandBrake's
+	// IFO-aware detection pick the title) and must NOT pass --title.
 	if len(hb.calls) > 0 {
 		args := hb.calls[0].args
+		var hasMainFeature, hasTitle bool
 		for i, a := range args {
-			if a == "--input" && i+1 < len(args) {
-				if args[i+1] == drv.DevPath {
-					t.Errorf("HandBrake --input is %s; want local mirror path", args[i+1])
-				}
+			if a == "--input" && i+1 < len(args) && args[i+1] == drv.DevPath {
+				t.Errorf("HandBrake --input is %s; want local mirror path", args[i+1])
 			}
+			if a == "--main-feature" {
+				hasMainFeature = true
+			}
+			if a == "--title" {
+				hasTitle = true
+			}
+		}
+		if !hasMainFeature {
+			t.Errorf("movie profile: HandBrake args missing --main-feature: %v", args)
+		}
+		if hasTitle {
+			t.Errorf("movie profile: HandBrake args should not include --title (let --main-feature pick): %v", args)
 		}
 	}
 
@@ -307,6 +321,26 @@ func TestDVD_Run_SeriesMultiTitle(t *testing.T) {
 	if len(hb.calls) != 3 {
 		t.Errorf("encode calls: want 3, got %d", len(hb.calls))
 	}
+	// Series profile: every encode call must pass --title N (NOT
+	// --main-feature, which would collapse the whole series into one
+	// encode of the longest title).
+	for i, call := range hb.calls {
+		var hasMainFeature, hasTitle bool
+		for _, a := range call.args {
+			if a == "--main-feature" {
+				hasMainFeature = true
+			}
+			if a == "--title" {
+				hasTitle = true
+			}
+		}
+		if hasMainFeature {
+			t.Errorf("series call[%d]: --main-feature should not be set on a series profile", i)
+		}
+		if !hasTitle {
+			t.Errorf("series call[%d]: --title required on a series profile, args=%v", i, call.args)
+		}
+	}
 
 	matches, _ := filepath.Glob(filepath.Join(libRoot, "Friends", "Season 01", "*.mkv"))
 	sort.Strings(matches)
@@ -319,6 +353,130 @@ func TestDVD_Run_SeriesMultiTitle(t *testing.T) {
 		if m != want {
 			t.Errorf("file[%d]: got %s, want %s", i, m, want)
 		}
+	}
+}
+
+// Movie disc whose longest scanned title is below the feature floor
+// (no play-all PGC, or incomplete mirror) must fail at transcode
+// rather than handing a junk reference to --main-feature.
+func TestDVD_Run_Movie_ShortLongestTitle_Fails(t *testing.T) {
+	libRoot := t.TempDir()
+
+	hb := &fakeHandBrake{scanTitles: []tools.HandBrakeTitle{
+		{Number: 1, DurationSeconds: 428}, // 7m08
+		{Number: 2, DurationSeconds: 312},
+		{Number: 3, DurationSeconds: 95},
+	}}
+	bk := &fakeDVDBackup{label: "JACKASS"}
+	reg := tools.NewRegistry()
+	reg.Register(hb)
+	reg.Register(tools.NewMockTool("apprise", nil))
+	reg.Register(tools.NewMockTool("eject", nil))
+
+	h := dvdvideo.New(dvdvideo.Deps{
+		Tools:                    reg,
+		LibraryRoot:              libRoot,
+		WorkRoot:                 t.TempDir(),
+		LibraryProbe:             func(string) error { return nil },
+		DVDBackup:                bk,
+		HandBrakeScanner:         hb,
+		MinEncodedBytesPerSecond: -1,
+	})
+
+	err := h.Run(context.Background(),
+		&state.Drive{ID: "drv", DevPath: "/dev/sr0"},
+		&state.Disc{ID: "d", Type: state.DiscTypeDVD, Title: "Jackass", Year: 2002},
+		&state.Profile{
+			DiscType: state.DiscTypeDVD, Engine: "HandBrake", Format: "MP4",
+			OutputPathTemplate: `{{.Title}}.mp4`,
+		},
+		testutil.NewRecordingSink())
+	if err == nil {
+		t.Fatal("want error when longest scanned title is below the floor, got nil")
+	}
+	if len(hb.calls) != 0 {
+		t.Errorf("encode must not run when sanity check fails; calls=%d", len(hb.calls))
+	}
+}
+
+// User can override the floor to rip legitimately-short content via
+// the `min_feature_seconds` profile option.
+func TestDVD_Run_Movie_ShortFloorOverride(t *testing.T) {
+	libRoot := t.TempDir()
+
+	hb := &fakeHandBrake{scanTitles: []tools.HandBrakeTitle{
+		{Number: 1, DurationSeconds: 600}, // 10 min, below default 1200
+	}}
+	bk := &fakeDVDBackup{label: "PIXAR_SHORT"}
+	reg := tools.NewRegistry()
+	reg.Register(hb)
+	reg.Register(tools.NewMockTool("apprise", nil))
+	reg.Register(tools.NewMockTool("eject", nil))
+
+	h := dvdvideo.New(dvdvideo.Deps{
+		Tools:                    reg,
+		LibraryRoot:              libRoot,
+		WorkRoot:                 t.TempDir(),
+		LibraryProbe:             func(string) error { return nil },
+		DVDBackup:                bk,
+		HandBrakeScanner:         hb,
+		MinEncodedBytesPerSecond: -1,
+	})
+
+	if err := h.Run(context.Background(),
+		&state.Drive{ID: "drv", DevPath: "/dev/sr0"},
+		&state.Disc{ID: "d", Type: state.DiscTypeDVD, Title: "Short", Year: 2020},
+		&state.Profile{
+			DiscType: state.DiscTypeDVD, Engine: "HandBrake", Format: "MP4",
+			Options:            map[string]any{"min_feature_seconds": 0.0},
+			OutputPathTemplate: `{{.Title}}.mp4`,
+		},
+		testutil.NewRecordingSink()); err != nil {
+		t.Fatalf("want override to allow short, got: %v", err)
+	}
+	if len(hb.calls) != 1 {
+		t.Errorf("encode should have run once with override; got %d", len(hb.calls))
+	}
+}
+
+// Series profile must bypass the movie feature floor — TV episodes
+// are routinely 20 min or shorter.
+func TestDVD_Run_Series_BelowFloor_OK(t *testing.T) {
+	libRoot := t.TempDir()
+
+	hb := &fakeHandBrake{scanTitles: []tools.HandBrakeTitle{
+		{Number: 1, DurationSeconds: 620},
+		{Number: 2, DurationSeconds: 600},
+	}}
+	bk := &fakeDVDBackup{label: "SITCOM_S01D1"}
+	reg := tools.NewRegistry()
+	reg.Register(hb)
+	reg.Register(tools.NewMockTool("apprise", nil))
+	reg.Register(tools.NewMockTool("eject", nil))
+
+	h := dvdvideo.New(dvdvideo.Deps{
+		Tools:                    reg,
+		LibraryRoot:              libRoot,
+		WorkRoot:                 t.TempDir(),
+		LibraryProbe:             func(string) error { return nil },
+		DVDBackup:                bk,
+		HandBrakeScanner:         hb,
+		MinEncodedBytesPerSecond: -1,
+	})
+
+	if err := h.Run(context.Background(),
+		&state.Drive{ID: "drv", DevPath: "/dev/sr0"},
+		&state.Disc{ID: "d", Type: state.DiscTypeDVD, Title: "Sitcom", Year: 1995},
+		&state.Profile{
+			DiscType: state.DiscTypeDVD, Engine: "HandBrake", Format: "MKV",
+			Options:            map[string]any{"min_title_seconds": 300.0, "season": 1.0},
+			OutputPathTemplate: `{{.Show}}/Season {{printf "%02d" .Season}}/{{.Show}} - S{{printf "%02d" .Season}}E{{printf "%02d" .EpisodeNumber}}.mkv`,
+		},
+		testutil.NewRecordingSink()); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if len(hb.calls) != 2 {
+		t.Errorf("want 2 episode encodes, got %d", len(hb.calls))
 	}
 }
 

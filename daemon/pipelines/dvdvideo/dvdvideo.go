@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"sort"
@@ -184,12 +185,8 @@ func (h *Handler) Run(ctx context.Context, drv *state.Drive, disc *state.Disc, p
 		sink.OnStepFailed(state.StepTranscode, err)
 		return fmt.Errorf("handbrake scan: %w", err)
 	}
-	encodeTitles := selectEncodeTitles(titles, prof)
-	if len(encodeTitles) == 0 {
-		err := errors.New("no titles to encode")
-		sink.OnStepFailed(state.StepTranscode, err)
-		return err
-	}
+	logScannedTitles(disc.ID, titles)
+	warnOnRuntimeMismatch(disc, titles)
 
 	whb, ok := h.deps.Tools.Get("handbrake")
 	if !ok {
@@ -201,18 +198,45 @@ func (h *Handler) Run(ctx context.Context, drv *state.Drive, disc *state.Disc, p
 	if ext != "mp4" && ext != "mkv" {
 		ext = "mkv"
 	}
+	isMovie := strings.ToLower(prof.Format) == "mp4"
+
+	// Movie profiles delegate title selection to HandBrake's own
+	// `--main-feature` flag, which reads the IFO's main-feature bit
+	// rather than guessing by duration. Series profiles still need
+	// our scan-and-filter logic to enumerate episode titles.
+	encodeTitles := selectEncodeTitles(titles, prof)
+	if !isMovie && len(encodeTitles) == 0 {
+		err := errors.New("no titles to encode")
+		sink.OnStepFailed(state.StepTranscode, err)
+		return err
+	}
+	if isMovie {
+		// Single encode using --main-feature. encodeTitles is set to
+		// the scan's longest title only so the duration-floor check
+		// below has a number to compare the output bytes to.
+		encodeTitles = []tools.HandBrakeTitle{longestTitle(titles)}
+		if err := validateMovieTitleSelection(encodeTitles[0], prof); err != nil {
+			sink.OnStepFailed(state.StepTranscode, err)
+			return err
+		}
+	}
+
 	transcoded := make([]string, 0, len(encodeTitles))
 	for i, t := range encodeTitles {
 		titleIdx := i + 1
 		out := filepath.Join(tmpdir, fmt.Sprintf("title%02d.%s", t.Number, ext))
 		args := []string{
 			"--input", source,
-			"--title", strconv.Itoa(t.Number),
 			"--output", out,
 			"--quality", "20",
 			"--encoder", "x264",
 			"--all-audio",
 			"--markers",
+		}
+		if isMovie {
+			args = append(args, "--main-feature")
+		} else {
+			args = append(args, "--title", strconv.Itoa(t.Number))
 		}
 		if h.deps.SubsLang != "" {
 			args = append(args, "--subtitle-lang-list", h.deps.SubsLang, "--subtitle-forced=auto")
@@ -279,6 +303,18 @@ func (h *Handler) Run(ctx context.Context, drv *state.Drive, disc *state.Disc, p
 // without false-positives on extremely flat content.
 const minEncodedBytesPerSecond = 93_750
 
+// minMovieFeatureSeconds is the default floor (20 min) below which we
+// refuse to start a movie-profile encode. --main-feature handles the
+// happy path, but a disc with no main-feature bit set in the IFO (or
+// an incomplete dvdbackup mirror) can still leave the scan's longest
+// title at a few minutes — see the Jackass: The Movie regression that
+// shipped a 7-min sketch in v0.2.3. Failing here is preferable to
+// producing a junk file that passes the downstream byte-size check
+// (which only compares against the *encoded* duration, not the
+// expected feature duration). Override per profile via
+// `min_feature_seconds`; set to 0 to disable.
+const minMovieFeatureSeconds = 1200
+
 // validateEncodedTitle errors out when the encoded file is missing, is
 // empty, or is below the expected lower-bound for its source duration.
 // HandBrakeCLI exits 0 in several end-of-stream failure modes, so we
@@ -323,21 +359,20 @@ func (h *Handler) createWorkDir(discID string) (string, error) {
 	return dir, nil
 }
 
-// selectEncodeTitles picks which titles to encode based on profile.
-// Movie (MP4) profile: longest title only.
-// Series (MKV) profile: every title >= options.min_title_seconds (default 300).
+// selectEncodeTitles picks which titles to encode for **series**
+// profiles. Movie profiles bypass this entirely and let HandBrake's
+// --main-feature pick from the IFO.
+//
+// Series (MKV) profile: every title >= options.min_title_seconds
+// (default 300).
 func selectEncodeTitles(titles []tools.HandBrakeTitle, prof *state.Profile) []tools.HandBrakeTitle {
 	if strings.ToLower(prof.Format) == "mp4" {
-		if len(titles) == 0 {
-			return nil
-		}
-		best := titles[0]
-		for _, t := range titles[1:] {
-			if t.DurationSeconds > best.DurationSeconds {
-				best = t
-			}
-		}
-		return []tools.HandBrakeTitle{best}
+		// Movie path is driven by --main-feature; the caller still needs
+		// *something* to iterate to drive its outer loop once, so it
+		// substitutes longestTitle(titles) directly. Returning nil here
+		// makes the no-titles guard in Run fire only for series, which is
+		// the correct semantics.
+		return nil
 	}
 
 	minSec := 300
@@ -356,6 +391,89 @@ func selectEncodeTitles(titles []tools.HandBrakeTitle, prof *state.Profile) []to
 		}
 	}
 	return out
+}
+
+// longestTitle returns the title with the largest DurationSeconds, or
+// a zero HandBrakeTitle when titles is empty. Used as the validation
+// reference (expected duration) for movie-profile encodes that
+// HandBrake selected via --main-feature.
+func longestTitle(titles []tools.HandBrakeTitle) tools.HandBrakeTitle {
+	if len(titles) == 0 {
+		return tools.HandBrakeTitle{}
+	}
+	best := titles[0]
+	for _, t := range titles[1:] {
+		if t.DurationSeconds > best.DurationSeconds {
+			best = t
+		}
+	}
+	return best
+}
+
+// validateMovieTitleSelection rejects movie-profile encodes when the
+// longest scanned title is below the configured feature floor. The
+// longest scanned title is also what `validateEncodedTitle` later
+// compares the output bytes against, so a too-short pick here means
+// the byte-size check would also be using a too-short reference and
+// would pass on a junk encode. Returns nil when the profile sets
+// `min_feature_seconds=0`.
+func validateMovieTitleSelection(picked tools.HandBrakeTitle, prof *state.Profile) error {
+	floor := minMovieFeatureSeconds
+	if v, ok := prof.Options["min_feature_seconds"]; ok {
+		switch n := v.(type) {
+		case int:
+			floor = n
+		case float64:
+			floor = int(n)
+		}
+	}
+	if floor <= 0 {
+		return nil
+	}
+	if picked.DurationSeconds < floor {
+		return fmt.Errorf(
+			"longest scanned title is %ds, below movie feature floor of %ds — disc likely has no play-all title or the mirror is incomplete; set profile option min_feature_seconds=0 to override",
+			picked.DurationSeconds, floor,
+		)
+	}
+	return nil
+}
+
+// logScannedTitles emits one INFO line per title HandBrake's scan
+// returned. Cheap, but invaluable when a future "wrong title got
+// picked" regression needs to be diagnosed from `docker logs`.
+func logScannedTitles(discID string, titles []tools.HandBrakeTitle) {
+	for _, t := range titles {
+		slog.Info("scanned title",
+			"disc", discID, "title", t.Number, "duration_sec", t.DurationSeconds)
+	}
+}
+
+// warnOnRuntimeMismatch logs a WARN when the longest scanned title
+// diverges by more than 50 % from the disc's TMDB-reported runtime.
+// Doesn't fail — DVDs legitimately differ from theatrical runtimes
+// (director's cuts, regional edits) — but a 5× gap is a red flag
+// that the rip captured the wrong content (e.g. an outtakes reel
+// instead of the feature).
+func warnOnRuntimeMismatch(disc *state.Disc, titles []tools.HandBrakeTitle) {
+	if disc == nil || disc.RuntimeSeconds <= 0 {
+		return
+	}
+	longest := longestTitle(titles)
+	if longest.DurationSeconds <= 0 {
+		return
+	}
+	expected := float64(disc.RuntimeSeconds)
+	got := float64(longest.DurationSeconds)
+	ratio := got / expected
+	if ratio < 0.5 || ratio > 1.5 {
+		slog.Warn("duration mismatch",
+			"disc", disc.ID,
+			"expected_sec", disc.RuntimeSeconds,
+			"scanned_longest_sec", longest.DurationSeconds,
+			"ratio", fmt.Sprintf("%.2f", ratio),
+		)
+	}
 }
 
 func (h *Handler) moveOutputs(transcoded []string, _ []tools.HandBrakeTitle,

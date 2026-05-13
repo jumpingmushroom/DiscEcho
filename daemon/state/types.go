@@ -115,15 +115,16 @@ type Drive struct {
 
 // Candidate is a single MB (or other source) match for a disc.
 type Candidate struct {
-	Source     string `json:"source"`
-	Title      string `json:"title"`
-	Artist     string `json:"artist,omitempty"`
-	Year       int    `json:"year,omitempty"`
-	Region     string `json:"region,omitempty"` // game-disc region (USA / Europe / Japan / ...)
-	Confidence int    `json:"confidence"`
-	MBID       string `json:"mbid,omitempty"`
-	TMDBID     int    `json:"tmdb_id,omitempty"`
-	MediaType  string `json:"media_type,omitempty"` // 'movie' | 'tv' | '' (audio CD)
+	Source         string `json:"source"`
+	Title          string `json:"title"`
+	Artist         string `json:"artist,omitempty"`
+	Year           int    `json:"year,omitempty"`
+	Region         string `json:"region,omitempty"` // game-disc region (USA / Europe / Japan / ...)
+	Confidence     int    `json:"confidence"`
+	MBID           string `json:"mbid,omitempty"`
+	TMDBID         int    `json:"tmdb_id,omitempty"`
+	MediaType      string `json:"media_type,omitempty"`      // 'movie' | 'tv' | '' (audio CD)
+	RuntimeSeconds int    `json:"runtime_seconds,omitempty"` // populated by per-pick TMDB /movie/{id} fetch when the user picks
 }
 
 // Disc is a row of the `discs` table.
