@@ -12,6 +12,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/jumpingmushroom/DiscEcho/daemon/api"
+	"github.com/jumpingmushroom/DiscEcho/daemon/identify"
 	"github.com/jumpingmushroom/DiscEcho/daemon/jobs"
 	"github.com/jumpingmushroom/DiscEcho/daemon/pipelines"
 	"github.com/jumpingmushroom/DiscEcho/daemon/state"
@@ -394,7 +395,9 @@ func TestIdentifyDisc_ManualQueryHitsTMDBAndUpdates(t *testing.T) {
 }
 
 type fakeTMDBForAPI struct {
-	cands []state.Candidate
+	cands         []state.Candidate
+	movieDetails  identify.DiscMetadata
+	tvDetails     identify.DiscMetadata
 }
 
 func (f *fakeTMDBForAPI) SearchMovie(_ context.Context, _ string) ([]state.Candidate, error) {
@@ -407,6 +410,12 @@ func (f *fakeTMDBForAPI) SearchBoth(_ context.Context, _ string) ([]state.Candid
 	return f.cands, nil
 }
 func (f *fakeTMDBForAPI) MovieRuntime(_ context.Context, _ int) (int, error) { return 0, nil }
+func (f *fakeTMDBForAPI) MovieDetails(_ context.Context, _ int) (identify.DiscMetadata, error) {
+	return f.movieDetails, nil
+}
+func (f *fakeTMDBForAPI) TVDetails(_ context.Context, _ int) (identify.DiscMetadata, error) {
+	return f.tvDetails, nil
+}
 
 func mustJSON(t *testing.T, v any) []byte {
 	t.Helper()
