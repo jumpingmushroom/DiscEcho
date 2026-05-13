@@ -1,7 +1,7 @@
 <script lang="ts">
   import type { Drive, Disc, Job, Profile, StepID } from '$lib/wire';
   import { logs } from '$lib/store';
-  import ArtPlaceholder from './ArtPlaceholder.svelte';
+  import DiscArt from './DiscArt.svelte';
   import DiscTypeBadge from './DiscTypeBadge.svelte';
   import PipelineStepperHorizontal from './PipelineStepperHorizontal.svelte';
   import ProgressBar from './ProgressBar.svelte';
@@ -81,11 +81,7 @@
 
   <!-- Disc identity row -->
   <div class="mt-4 flex gap-4">
-    <ArtPlaceholder
-      label={disc?.type === 'AUDIO_CD' ? 'cd' : 'cover'}
-      size={64}
-      ratio={disc?.type === 'AUDIO_CD' ? 'square' : 'portrait'}
-    />
+    <DiscArt {disc} size={64} ratio={disc?.type === 'AUDIO_CD' ? 'square' : 'portrait'} />
     <div class="min-w-0 flex-1">
       {#if disc}<DiscTypeBadge type={disc.type} />{/if}
       <div class="mt-1 truncate text-[16px] font-semibold text-text">
