@@ -14,6 +14,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/jumpingmushroom/DiscEcho/daemon/state"
 )
 
 // DVDBackup wraps the dvdbackup binary. It mirrors a DVD's VIDEO_TS
@@ -284,14 +286,36 @@ func formatRate(bps float64) string {
 	}
 }
 
-// parseDVDBackupStream consumes dvdbackup's textual output. Today
-// it's a no-op for progress (the size-based poller does the work)
-// but stays in place so future log-level mirroring (sink.Log) has
-// a hook ready.
-func parseDVDBackupStream(r io.Reader, _ Sink) {
+// parseDVDBackupStream consumes dvdbackup's textual output. Progress
+// is handled separately by the size-based poller; here we forward
+// per-VOB copy notices as info-level milestone log lines and any
+// other non-empty line as warn (libdvdread errors, mount failures,
+// etc.). Capped at 200 forwarded lines per stream to keep the SQLite
+// log_lines ring bounded — exceeding the cap emits a single marker.
+func parseDVDBackupStream(r io.Reader, sink Sink) {
+	const stderrCap = 200
+	stderrSeen := 0
+	capWarned := false
+
 	drainAfterScan(r, func(scanner *bufio.Scanner) {
 		for scanner.Scan() {
-			_ = scanner.Text()
+			line := strings.TrimSpace(scanner.Text())
+			if line == "" {
+				continue
+			}
+			if strings.HasPrefix(line, "Copying VTS_") {
+				sink.Log(state.LogLevelInfo, "dvdbackup: %s", line)
+				continue
+			}
+			if stderrSeen >= stderrCap {
+				if !capWarned {
+					sink.Log(state.LogLevelWarn, "dvdbackup: stderr cap reached, dropping further lines")
+					capWarned = true
+				}
+				continue
+			}
+			stderrSeen++
+			sink.Log(state.LogLevelWarn, "dvdbackup: %s", line)
 		}
 	})
 }

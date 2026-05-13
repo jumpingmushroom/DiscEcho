@@ -2,6 +2,7 @@ package tools_test
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"strings"
 	"testing"
@@ -164,5 +165,64 @@ func TestHandBrake_RunFailsCleanly(t *testing.T) {
 	err := h.Run(context.Background(), []string{"--scan"}, nil, "", tools.NopSink{})
 	if err == nil {
 		t.Errorf("want exec error from /usr/bin/false")
+	}
+}
+
+func TestHandBrake_ParseEncodeStream_PassesThroughNonProgressLines(t *testing.T) {
+	stream := strings.NewReader(
+		"Encoding: task 1 of 1, 10.00 %\r" +
+			"[14:30:21] sync: reached audio 0x80bd pts 541440, exiting early\n" +
+			"x264 [error]: nal write failed\n" +
+			"Encoding: task 1 of 1, 50.00 %\r",
+	)
+	sink := &recordingSink{}
+	tools.ParseHandBrakeEncodeStream(stream, 1, 1, sink)
+
+	warns := 0
+	for _, e := range sink.events {
+		if e.kind == "log" {
+			warns++
+		}
+	}
+	if warns == 0 {
+		t.Errorf("expected non-progress lines forwarded as log events; got 0")
+	}
+
+	// [hh:mm:ss] config-dump lines (no 'error' substring) should be skipped.
+	for _, e := range sink.events {
+		if e.kind == "log" && strings.Contains(e.message, "reached audio") {
+			t.Errorf("config-dump line should be skipped, got %q", e.message)
+		}
+	}
+
+	// x264 [error] should land as warn.
+	sawX264 := false
+	for _, e := range sink.events {
+		if e.kind == "log" && strings.Contains(e.message, "x264 [error]") {
+			sawX264 = true
+		}
+	}
+	if !sawX264 {
+		t.Errorf("expected x264 [error] line forwarded as warn")
+	}
+}
+
+func TestHandBrake_ParseEncodeStream_StderrCap(t *testing.T) {
+	var sb strings.Builder
+	for i := 0; i < 250; i++ {
+		fmt.Fprintf(&sb, "x264 [error]: line %d\n", i)
+	}
+	sink := &recordingSink{}
+	tools.ParseHandBrakeEncodeStream(strings.NewReader(sb.String()), 1, 1, sink)
+
+	logs := 0
+	for _, e := range sink.events {
+		if e.kind == "log" {
+			logs++
+		}
+	}
+	// 200 lines + 1 cap-marker = 201 events
+	if logs != 201 {
+		t.Errorf("expected 201 log events (200 + cap marker), got %d", logs)
 	}
 }
