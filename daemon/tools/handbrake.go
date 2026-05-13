@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/jumpingmushroom/DiscEcho/daemon/state"
 )
@@ -239,4 +240,33 @@ func parseHandBrakeEncodeLines(scanner *bufio.Scanner, titleIdx, totalTitles int
 		stderrSeen++
 		sink.Log(state.LogLevelWarn, "HandBrake: %s", trimmed)
 	}
+}
+
+// ProbeNVENC returns true when the bundled HandBrake-CLI lists at
+// least one NVENC preset. The query fails fast on systems without
+// the NVIDIA driver / NVENC userland, so a successful response means
+// we can actually use the encoder. Cheap: one subprocess fork,
+// ~50–150 ms on a configured host.
+func ProbeNVENC(handBrakeBin string) bool {
+	if handBrakeBin == "" {
+		handBrakeBin = "HandBrakeCLI"
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, handBrakeBin,
+		"--encoder-preset-list", "nvenc_h265").CombinedOutput()
+	if err != nil {
+		return false
+	}
+	// A successful probe lists at least one preset name. On hosts
+	// without NVENC userland HandBrake errors out before printing
+	// any preset; we keyword-match on common preset names to avoid
+	// false positives from stray stderr noise.
+	low := strings.ToLower(string(out))
+	for _, p := range []string{"fast", "medium", "slow", "quality", "default"} {
+		if strings.Contains(low, p) {
+			return true
+		}
+	}
+	return false
 }
