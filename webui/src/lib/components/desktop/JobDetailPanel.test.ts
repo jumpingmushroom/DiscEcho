@@ -3,7 +3,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { render } from '@testing-library/svelte';
 import JobDetailPanel from './JobDetailPanel.svelte';
 import { discs, drives, profiles, logs } from '$lib/store';
-import type { Job, Disc, Drive, Profile } from '$lib/wire';
+import type { Job, Disc, Drive } from '$lib/wire';
 
 const sr0: Drive = {
   id: 'd1',
@@ -21,27 +21,10 @@ const dvdDisc: Disc = {
   year: 2016,
   candidates: [],
   created_at: '2026-05-07T12:00:00Z',
-};
-
-const cdProfile: Profile = {
-  id: 'p1',
-  disc_type: 'DVD',
-  name: 'BD-1080p',
-  engine: 'MakeMKV+HandBrake',
-  format: 'MKV',
-  preset: 'x265 RF 19 10-bit',
-  container: 'MKV',
-  video_codec: 'x265',
-  quality_preset: 'x265 RF 19 10-bit',
-  hdr_pipeline: 'passthrough',
-  drive_policy: 'any',
-  auto_eject: true,
-  options: {},
-  output_path_template: '{{.Title}}.mkv',
-  enabled: true,
-  step_count: 7,
-  created_at: '2026-05-07T12:00:00Z',
-  updated_at: '2026-05-07T12:00:00Z',
+  metadata_json: JSON.stringify({
+    plot: 'A linguist meets aliens.',
+    director: 'Denis Villeneuve',
+  }),
 };
 
 const ripJob: Job = {
@@ -61,7 +44,7 @@ describe('JobDetailPanel', () => {
   beforeEach(() => {
     discs.set({ 'disc-1': dvdDisc });
     drives.set([sr0]);
-    profiles.set([cdProfile]);
+    profiles.set([]);
     logs.set({});
   });
 
@@ -70,39 +53,14 @@ describe('JobDetailPanel', () => {
     expect(getByText(/click a drive or queue row/i)).toBeInTheDocument();
   });
 
-  it('renders title, year, drive header, profile when given a job', () => {
+  it('delegates to DiscMetadataPane with the job disc when given a job', () => {
     const { getByText } = render(JobDetailPanel, { job: ripJob });
     expect(getByText('Arrival')).toBeInTheDocument();
-    expect(getByText(/2016/)).toBeInTheDocument();
-    expect(getByText('SR0')).toBeInTheDocument();
-    expect(getByText('ASUS SDRW-08D2S-U')).toBeInTheDocument();
-    expect(getByText('BD-1080p')).toBeInTheDocument();
-  });
-
-  it('renders the log tail when logs exist for the job', () => {
-    logs.set({
-      'job-1': [
-        {
-          job_id: 'job-1',
-          t: '2026-05-07T12:34:01.123Z',
-          level: 'info',
-          message: 'starting rip',
-        },
-        {
-          job_id: 'job-1',
-          t: '2026-05-07T12:34:02.456Z',
-          level: 'info',
-          message: 'PRGV 32%',
-        },
-      ],
-    });
-    const { getByText } = render(JobDetailPanel, { job: ripJob });
-    expect(getByText('starting rip')).toBeInTheDocument();
-    expect(getByText('PRGV 32%')).toBeInTheDocument();
-  });
-
-  it('renders no-log placeholder when log tail is empty', () => {
-    const { getByText } = render(JobDetailPanel, { job: ripJob });
-    expect(getByText(/no log lines yet/i)).toBeInTheDocument();
+    // DiscMetadataPane Overview tab surfaces director from the blob.
+    expect(getByText('Denis Villeneuve')).toBeInTheDocument();
+    // Tabs row shows Overview / Cast / Files for a DVD.
+    expect(getByText('Overview')).toBeInTheDocument();
+    expect(getByText('Cast')).toBeInTheDocument();
+    expect(getByText('Files')).toBeInTheDocument();
   });
 });
