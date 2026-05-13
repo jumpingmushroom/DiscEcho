@@ -176,34 +176,34 @@ func ParseMakeMKVInfo(s string) ([]MakeMKVTitle, error) {
 // label ("Saving to MKV file"). PRGT is ignored (mirrors PRGC for our
 // single-title rips).
 func ParseMakeMKVProgressStream(r io.Reader, sink Sink) {
-	scanner := bufio.NewScanner(r)
-	scanner.Buffer(make([]byte, 4096), 1024*1024)
-	for scanner.Scan() {
-		line := scanner.Text()
-		switch {
-		case strings.HasPrefix(line, "PRGV:"):
-			parts := strings.Split(strings.TrimPrefix(line, "PRGV:"), ",")
-			if len(parts) < 3 {
-				continue
-			}
-			cur, _ := strconv.Atoi(parts[0])
-			max, _ := strconv.Atoi(parts[2])
-			if max <= 0 {
-				continue
-			}
-			pct := float64(cur) / float64(max) * 100
-			sink.Progress(pct, "", 0)
-		case strings.HasPrefix(line, "PRGC:"):
-			label := unquoteMakeMKVLast(strings.TrimPrefix(line, "PRGC:"))
-			if label != "" {
-				// Pass the label as a %s argument, not as the format
-				// string. Production sinks call fmt.Sprintf on the
-				// format, so a literal '%' in a future MakeMKV label
-				// would render as %!<verb>(MISSING) and corrupt logs.
-				sink.Log(state.LogLevelInfo, "%s", label)
+	drainAfterScan(r, func(scanner *bufio.Scanner) {
+		for scanner.Scan() {
+			line := scanner.Text()
+			switch {
+			case strings.HasPrefix(line, "PRGV:"):
+				parts := strings.Split(strings.TrimPrefix(line, "PRGV:"), ",")
+				if len(parts) < 3 {
+					continue
+				}
+				cur, _ := strconv.Atoi(parts[0])
+				max, _ := strconv.Atoi(parts[2])
+				if max <= 0 {
+					continue
+				}
+				pct := float64(cur) / float64(max) * 100
+				sink.Progress(pct, "", 0)
+			case strings.HasPrefix(line, "PRGC:"):
+				label := unquoteMakeMKVLast(strings.TrimPrefix(line, "PRGC:"))
+				if label != "" {
+					// Pass the label as a %s argument, not as the format
+					// string. Production sinks call fmt.Sprintf on the
+					// format, so a literal '%' in a future MakeMKV label
+					// would render as %!<verb>(MISSING) and corrupt logs.
+					sink.Log(state.LogLevelInfo, "%s", label)
+				}
 			}
 		}
-	}
+	})
 }
 
 // parseTINFO splits a TINFO row payload (the part after "TINFO:") and

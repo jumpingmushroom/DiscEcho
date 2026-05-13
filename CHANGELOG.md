@@ -6,6 +6,50 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.3.3] - 2026-05-13
+
+### Fixed
+
+- **Tool stream parsers no longer deadlock the subprocess on stream
+  shape they can't parse.** The 0.3.2 Jackass re-rip hung HandBrake
+  mid-encode for ~85 minutes after `bufio.Scanner` aborted on a long
+  carriage-return-separated progress chunk: the read goroutine exited,
+  the kernel pipe buffer filled, HandBrake blocked on `pipe_write`
+  trying to finalise the MP4. The encoded file was already 2.6 GB on
+  disk but the daemon never observed completion until we drained the
+  pipes externally. Every tool wrapper that consumes a subprocess pipe
+  (`handbrake`, `dvdbackup`, `whipper`, `chdman`, `makemkv`,
+  `redumper`, `dd`) now wraps its scan loop with a helper that
+  unconditionally copies remaining bytes to `io.Discard` after the
+  parser returns, so a parse failure can never starve the subprocess.
+  HandBrake and `dd` additionally use a `\r`-aware splitter so each
+  progress chunk parses as its own line.
+- **DiscFlow no longer creates duplicate Disc rows on duplicate
+  uevents.** Hollywood DVDs emit 2–3 `media-change` kernel uevents as
+  the drive settles after insertion; before 0.3.3 the guard only
+  blocked uevents that arrived after a Job started, so every uevent
+  during the identify-in-flight window kicked off its own classify +
+  identify and produced a separate Disc row. The new
+  `Store.ClaimDriveForIdentify` runs an atomic `UPDATE drives SET
+  state='identifying' WHERE id=? AND state IN ('idle','error')` and
+  the discFlow handler drops the uevent when the CAS doesn't claim
+  the slot. Legitimate disc swaps still work because every identify
+  code path transitions the drive back to `idle`/`error` on exit.
+- **Skip button on awaiting-decision cards now actually skips.**
+  Pre-0.3.3 the Svelte handler only flipped a client-side bottom-sheet
+  flag — the daemon disc row was untouched, so any page reload
+  rederived the card. The new `DELETE /api/discs/{id}` endpoint hard-
+  deletes a disc row when no job references it; the daemon refuses
+  the request with `409 Conflict` otherwise so jobs with history stay
+  reachable from the History tab. A new `disc.deleted` SSE event
+  drops the row from the live store.
+
+### Added
+
+- `Store.DiscHasAnyJob`, `Store.DeleteDisc`, `Store.ClaimDriveForIdentify`.
+- `tools/streamparse.go` — `drainAfterScan` helper + `splitCROrLF`
+  bufio split function, both used by every existing stream parser.
+
 ## [0.3.2] - 2026-05-13
 
 ### Fixed

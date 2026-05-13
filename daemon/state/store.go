@@ -174,6 +174,32 @@ func (s *Store) UpdateDriveState(ctx context.Context, id string, state DriveStat
 	return nil
 }
 
+// ClaimDriveForIdentify atomically transitions the drive into the
+// `identifying` state only if it's currently `idle` or `error`. Returns
+// (true, nil) when the claim succeeds — the caller owns the identify
+// slot. Returns (false, nil) when another caller is already identifying
+// or the drive is busy with a later state (ripping, transcoding, …);
+// the caller must drop the uevent.
+//
+// This closes the race the v0.1.4 active-job guard left open: between
+// the first `disc inserted` uevent (which kicks off identify but
+// doesn't have a job yet) and the second uevent a few seconds later,
+// `HasActiveJobOnDrive` returns false for both, so both proceed to
+// identify and both create separate Disc rows. Hollywood DVDs emit
+// multiple media-change uevents per insertion as the drive settles,
+// which made the duplicate Disc rows reliably reproducible.
+func (s *Store) ClaimDriveForIdentify(ctx context.Context, id string) (bool, error) {
+	res, err := s.db.Conn().ExecContext(ctx,
+		`UPDATE drives SET state = ?, last_seen_at = ?
+		 WHERE id = ? AND state IN ('idle','error')`,
+		string(DriveStateIdentifying), timestamp(time.Now()), id)
+	if err != nil {
+		return false, err
+	}
+	n, _ := res.RowsAffected()
+	return n > 0, nil
+}
+
 func scanDrive(r rowScanner) (*Drive, error) {
 	var d Drive
 	var state, lastSeenStr string
@@ -305,6 +331,39 @@ func (s *Store) UpdateDiscMetadata(ctx context.Context, id, title string, year i
 func (s *Store) UpdateDiscRuntime(ctx context.Context, id string, runtimeSec int) error {
 	res, err := s.db.Conn().ExecContext(ctx,
 		`UPDATE discs SET runtime_seconds = ? WHERE id = ?`, runtimeSec, id)
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// DiscHasAnyJob reports whether any job (in any state) references the
+// disc. Used by the Skip / delete affordance to refuse removing discs
+// that already have job history — a delete would leave those job rows
+// pointing at a non-existent disc_id.
+func (s *Store) DiscHasAnyJob(ctx context.Context, discID string) (bool, error) {
+	if discID == "" {
+		return false, nil
+	}
+	var n int
+	err := s.db.Conn().QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM jobs WHERE disc_id = ?`, discID).Scan(&n)
+	if err != nil {
+		return false, err
+	}
+	return n > 0, nil
+}
+
+// DeleteDisc removes a disc row by id. Returns ErrNotFound when no row
+// matches. Does NOT cascade-delete jobs — callers must check via
+// DiscHasAnyJob first.
+func (s *Store) DeleteDisc(ctx context.Context, id string) error {
+	res, err := s.db.Conn().ExecContext(ctx,
+		`DELETE FROM discs WHERE id = ?`, id)
 	if err != nil {
 		return err
 	}

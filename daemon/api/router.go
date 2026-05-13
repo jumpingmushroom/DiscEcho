@@ -49,6 +49,7 @@ func NewRouter(h *Handlers, static http.Handler) http.Handler {
 
 			authed.Post("/discs/{id}/identify", h.IdentifyDisc)
 			authed.Post("/discs/{id}/start", h.StartDisc)
+			authed.Delete("/discs/{id}", h.DeleteDisc)
 
 			authed.Get("/profiles", h.ListProfiles)
 			authed.Get("/profiles/{id}", h.GetProfile)

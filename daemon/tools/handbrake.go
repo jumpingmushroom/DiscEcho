@@ -161,6 +161,13 @@ func ParseHandBrakeScan(s string) ([]HandBrakeTitle, error) {
 // title within the job's encode set; totalTitles is the count.
 //
 // Overall progress = ((titleIdx-1) + intraTitlePct/100) / totalTitles * 100.
+//
+// HandBrake separates progress lines with '\r' rather than '\n' to
+// overstrike the terminal; we use splitCROrLF so each progress chunk
+// becomes its own scanner token. drainAfterScan guarantees the pipe
+// keeps being drained even if our parse goroutine returns early —
+// without that, a >1 MB token would let the scanner exit and cause
+// HandBrake to deadlock on the next pipe write.
 func ParseHandBrakeEncodeStream(r io.Reader, titleIdx, totalTitles int, sink Sink) {
 	if totalTitles <= 0 {
 		totalTitles = 1
@@ -168,9 +175,13 @@ func ParseHandBrakeEncodeStream(r io.Reader, titleIdx, totalTitles int, sink Sin
 	if titleIdx <= 0 {
 		titleIdx = 1
 	}
-	scanner := bufio.NewScanner(r)
-	scanner.Buffer(make([]byte, 4096), 64*1024)
+	drainAfterScan(r, func(scanner *bufio.Scanner) {
+		scanner.Split(splitCROrLF)
+		parseHandBrakeEncodeLines(scanner, titleIdx, totalTitles, sink)
+	})
+}
 
+func parseHandBrakeEncodeLines(scanner *bufio.Scanner, titleIdx, totalTitles int, sink Sink) {
 	for scanner.Scan() {
 		line := scanner.Text()
 		m := hbEncodingRE.FindStringSubmatch(line)

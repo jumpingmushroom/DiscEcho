@@ -65,8 +65,19 @@ func (df *discFlow) handle(ev drive.Uevent) {
 		slog.Info("disc-flow: drive in post-job cooldown, ignoring media-change", "dev", devPath, "drive_id", drv.ID)
 		return
 	}
-	if err := df.store.UpdateDriveState(ctx, drv.ID, state.DriveStateIdentifying); err != nil {
-		slog.Warn("disc-flow: drive state", "err", err)
+	// Atomic CAS: only proceed if the drive is currently idle/error.
+	// Closes the race where multiple media-change uevents fire in quick
+	// succession (Hollywood DVDs emit 2–3 per insertion as the drive
+	// settles) and would otherwise each kick off an independent identify
+	// + create a duplicate Disc row.
+	claimed, err := df.store.ClaimDriveForIdentify(ctx, drv.ID)
+	if err != nil {
+		slog.Warn("disc-flow: ClaimDriveForIdentify", "err", err)
+		return
+	}
+	if !claimed {
+		slog.Info("disc-flow: drive already identifying, ignoring media-change", "dev", devPath, "drive_id", drv.ID)
+		return
 	}
 	df.bc.Publish(state.Event{
 		Name:    "drive.changed",

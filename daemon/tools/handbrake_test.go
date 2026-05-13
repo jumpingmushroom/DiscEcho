@@ -78,6 +78,30 @@ func TestHandBrake_ParseEncodeProgress(t *testing.T) {
 	}
 }
 
+// HandBrake separates progress updates with '\r', not '\n'. Before
+// 0.3.3 the parser used the default ScanLines split which treats '\r'
+// as content — a long stream of progress chunks accumulated as one
+// mega-token and the scanner aborted, deadlocking the subprocess.
+func TestHandBrake_ParseEncodeProgress_CarriageReturnSeparated(t *testing.T) {
+	stream := strings.NewReader(
+		"Encoding: task 1 of 1, 10.00 % (avg fps 30.0, ETA 00h00m30s)\r" +
+			"Encoding: task 1 of 1, 50.00 % (avg fps 30.0, ETA 00h00m20s)\r" +
+			"Encoding: task 1 of 1, 99.00 % (avg fps 30.0, ETA 00h00m01s)\r",
+	)
+	sink := &recordingSink{}
+	tools.ParseHandBrakeEncodeStream(stream, 1, 1, sink)
+
+	progressEvents := 0
+	for _, e := range sink.events {
+		if e.kind == "progress" {
+			progressEvents++
+		}
+	}
+	if progressEvents != 3 {
+		t.Errorf("want 3 progress events from \\r-separated input, got %d", progressEvents)
+	}
+}
+
 func TestHandBrake_ProgressForOneOfThreeTitles(t *testing.T) {
 	// titleIdx=2 of totalTitles=3 → overall = ((1) + intra/100)/3 * 100
 	// for intra=50 → overall = (1 + 0.5)/3 * 100 = 50.0

@@ -132,6 +132,73 @@ func TestStartDisc_DiscNotFound(t *testing.T) {
 	}
 }
 
+func TestDeleteDisc_RemovesOrphanRow(t *testing.T) {
+	h := apitestServer(t)
+	drv := seedDrive(t, h)
+	disc := seedDisc(t, h, drv.ID)
+
+	r := chi.NewRouter()
+	r.Delete("/api/discs/{id}", h.DeleteDisc)
+	req := httptest.NewRequest(http.MethodDelete, "/api/discs/"+disc.ID, nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusNoContent {
+		t.Fatalf("status %d body=%s", w.Code, w.Body.String())
+	}
+	if _, err := h.Store.GetDisc(context.Background(), disc.ID); err == nil {
+		t.Errorf("disc still present after delete")
+	}
+}
+
+func TestDeleteDisc_RefusesWhenJobExists(t *testing.T) {
+	reg := pipelines.NewRegistry()
+	reg.Register(&stubDiscHandler{})
+	h := apitestServerWithOrch(t, reg)
+	drv := seedDrive(t, h)
+	prof := seedProfile(t, h)
+	disc := seedDisc(t, h, drv.ID)
+
+	// Submit a job so the disc has history.
+	if _, err := h.Orchestrator.Submit(context.Background(), disc.ID, prof.ID); err != nil {
+		t.Fatal(err)
+	}
+	// Wait for the orchestrator stub to finish so cleanup doesn't race.
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		jobs, _ := h.Store.ListJobs(context.Background(), state.JobFilter{})
+		if len(jobs) == 1 && (jobs[0].State == state.JobStateDone || jobs[0].State == state.JobStateFailed) {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	r := chi.NewRouter()
+	r.Delete("/api/discs/{id}", h.DeleteDisc)
+	req := httptest.NewRequest(http.MethodDelete, "/api/discs/"+disc.ID, nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusConflict {
+		t.Errorf("want 409 Conflict for disc-with-job; got %d body=%s", w.Code, w.Body.String())
+	}
+	if _, err := h.Store.GetDisc(context.Background(), disc.ID); err != nil {
+		t.Errorf("disc must remain after failed delete: %v", err)
+	}
+}
+
+func TestDeleteDisc_NotFound(t *testing.T) {
+	h := apitestServer(t)
+	r := chi.NewRouter()
+	r.Delete("/api/discs/{id}", h.DeleteDisc)
+	req := httptest.NewRequest(http.MethodDelete, "/api/discs/nope", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusNotFound {
+		t.Errorf("want 404, got %d", w.Code)
+	}
+}
+
 func TestIdentifyDisc_ReturnsCandidates(t *testing.T) {
 	h := apitestServer(t)
 	drv := seedDrive(t, h)
