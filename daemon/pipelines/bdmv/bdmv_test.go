@@ -73,15 +73,17 @@ func (f *fakeMakeMKV) Rip(_ context.Context, _ string, _ int, outDir string, _ t
 	return os.WriteFile(filepath.Join(outDir, name), []byte("STUB"), 0o644)
 }
 
-// fakeHandBrake satisfies tools.Tool. On Run: writes a stub file at the
-// --output arg.
+// fakeHandBrake satisfies tools.Tool. On Run: writes a stub file at
+// the --output arg and records the argv for assertion in tests.
 type fakeHandBrake struct {
 	encodeErr error
+	calls     [][]string
 }
 
 func (f *fakeHandBrake) Name() string { return "handbrake" }
 func (f *fakeHandBrake) Run(_ context.Context, args []string, _ map[string]string,
 	_ string, _ tools.Sink) error {
+	f.calls = append(f.calls, append([]string(nil), args...))
 	if f.encodeErr != nil {
 		return f.encodeErr
 	}
@@ -236,5 +238,88 @@ func TestBDMVHandler_Run_NoTitleAboveMin(t *testing.T) {
 	err := h.Run(context.Background(), drv, disc, prof, sink)
 	if err == nil || !strings.Contains(err.Error(), "no title") {
 		t.Errorf("want 'no title' error, got %v", err)
+	}
+}
+
+// bdmvEncoderArg pulls the --encoder value from the most recent fake
+// HandBrake invocation. Returns "" if --encoder wasn't passed or no
+// calls were recorded.
+func bdmvEncoderArg(hb *fakeHandBrake) string {
+	if len(hb.calls) == 0 {
+		return ""
+	}
+	args := hb.calls[len(hb.calls)-1]
+	for i, a := range args {
+		if a == "--encoder" && i+1 < len(args) {
+			return args[i+1]
+		}
+	}
+	return ""
+}
+
+// runBDMVWithNVENC builds a fresh harness with the given NVENC state
+// and profile codec, runs the pipeline, and returns hb for inspection.
+func runBDMVWithNVENC(t *testing.T, nvencAvailable bool, videoCodec string) *fakeHandBrake {
+	t.Helper()
+	reg, _, _, hb := newRegistry()
+	h := bdmv.New(bdmv.Deps{
+		MakeMKVScanner: &fakeMakeMKV{scanTitles: []tools.MakeMKVTitle{
+			{ID: 0, DurationSec: 30, SourceFile: "00000.mpls"},
+			{ID: 1, DurationSec: 7000, SourceFile: "00800.mpls"},
+		}},
+		MakeMKVRipper:  &fakeMakeMKV{stubName: "title_t01.mkv"},
+		Tools:          reg,
+		LibraryRoot:    t.TempDir(),
+		WorkRoot:       t.TempDir(),
+		NVENCAvailable: nvencAvailable,
+	})
+	prof := &state.Profile{
+		ID:                 "p-bd",
+		DiscType:           state.DiscTypeBDMV,
+		Name:               "BD-1080p",
+		Preset:             "x265 RF 19 10-bit",
+		VideoCodec:         videoCodec,
+		OutputPathTemplate: "{{.Title}} ({{.Year}})/{{.Title}} ({{.Year}}).mkv",
+		Options:            map[string]any{"min_title_seconds": float64(3600)},
+	}
+	disc := &state.Disc{ID: "disc-1", Type: state.DiscTypeBDMV, Title: "Arrival", Year: 2016}
+	drv := &state.Drive{ID: "d1", DevPath: "/dev/sr0"}
+	sink := testutil.NewRecordingSink()
+	if err := h.Run(context.Background(), drv, disc, prof, sink); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	return hb
+}
+
+func TestBDMV_Run_NVENCSelectsHardware(t *testing.T) {
+	hb := runBDMVWithNVENC(t, true, "nvenc_h265")
+	if got := bdmvEncoderArg(hb); got != "nvenc_h265" {
+		t.Errorf("--encoder: got %q, want nvenc_h265", got)
+	}
+}
+
+func TestBDMV_Run_NVENCFallsBackTo10BitX265(t *testing.T) {
+	hb := runBDMVWithNVENC(t, false, "nvenc_h265")
+	if got := bdmvEncoderArg(hb); got != "x265_10bit" {
+		t.Errorf("--encoder: got %q, want x265_10bit (10-bit fallback)", got)
+	}
+}
+
+func TestBDMV_Run_EmptyCodecPromotedTo10Bit(t *testing.T) {
+	// Pre-NVENC behaviour: empty VideoCodec must still produce
+	// x265_10bit so legacy DBs and seeded BDMV profiles don't
+	// silently downgrade to x264.
+	hb := runBDMVWithNVENC(t, false, "")
+	if got := bdmvEncoderArg(hb); got != "x265_10bit" {
+		t.Errorf("--encoder: got %q, want x265_10bit (empty codec → 10-bit)", got)
+	}
+}
+
+func TestBDMV_Run_NVENCH264HardwarePassthrough(t *testing.T) {
+	// nvenc_h264 with GPU must NOT be promoted to anything — user
+	// explicitly chose 8-bit hardware.
+	hb := runBDMVWithNVENC(t, true, "nvenc_h264")
+	if got := bdmvEncoderArg(hb); got != "nvenc_h264" {
+		t.Errorf("--encoder: got %q, want nvenc_h264", got)
 	}
 }

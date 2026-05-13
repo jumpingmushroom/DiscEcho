@@ -48,6 +48,15 @@ type Deps struct {
 	LibraryProbe   func(string) error
 	URLsForTrigger func(ctx context.Context, trigger string) []string
 	SubsLang       string
+
+	// NVENCAvailable signals that NVIDIA NVENC is usable on the host.
+	// When true and the profile requests an nvenc_* video_codec, the
+	// transcode step passes the hardware encoder to HandBrake.
+	// When false, NVENC profile values fall back to the closest
+	// software encoder. BDMV's pipeline has always emitted 10-bit
+	// HEVC, so software h264/h265 results are promoted to x265_10bit
+	// to preserve bit-depth.
+	NVENCAvailable bool
 }
 
 // Handler implements pipelines.Handler for BDMV.
@@ -190,11 +199,27 @@ func (h *Handler) Run(ctx context.Context, drv *state.Drive, disc *state.Disc, p
 		sink.OnStepFailed(state.StepTranscode, err)
 		return err
 	}
+	// Select the HandBrake encoder: NVENC if the profile asks for it
+	// and the GPU was detected at boot, software otherwise. BDMV's
+	// pipeline has always emitted 10-bit HEVC, so promote any software
+	// h264/h265 result to x265_10bit (covers empty VideoCodec, explicit
+	// x265, and fallback from nvenc_h265). NVENC values pass through;
+	// hardware 10-bit NVENC needs an explicit --encoder-profile flag
+	// and is tracked as a follow-up.
+	encoder, fellBack := pipelines.SelectHandBrakeEncoder(prof, h.deps.NVENCAvailable)
+	switch encoder {
+	case "x264", "x265":
+		encoder = "x265_10bit"
+	}
+	if fellBack {
+		sink.OnLog(state.LogLevelWarn,
+			"NVENC requested but unavailable on host; falling back to %s software encoder", encoder)
+	}
 	hbArgs := []string{
 		"--input", rippedFile,
 		"--output", transcodedFile,
 		"--format", "av_mkv",
-		"--encoder", "x265_10bit",
+		"--encoder", encoder,
 		"--quality", "19",
 		"--all-audio",
 		"--markers",
