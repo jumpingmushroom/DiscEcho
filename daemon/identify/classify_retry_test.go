@@ -209,9 +209,9 @@ func TestClassifyRetry_FSProbeSpinUp(t *testing.T) {
 			}
 			return []string{"/SYSTEM.CNF", "/SCES_534.09"}, nil
 		}},
-		bd:     &fakeBDProberInternal{},
-		sysCNF: &fakeSysCNFProberInternal{info: &SystemCNF{BootCode: "SCES_534.09", IsPS2: true}},
-		runner: func(_ context.Context, _, _ string) ([]byte, error) { return dataMode, nil },
+		bd:      &fakeBDProberInternal{},
+		sysCNF:  &fakeSysCNFProberInternal{info: &SystemCNF{BootCode: "SCES_534.09", IsPS2: true}},
+		runner:  func(_ context.Context, _, _ string) ([]byte, error) { return dataMode, nil },
 		backoff: []time.Duration{time.Microsecond, time.Microsecond, time.Microsecond},
 	}
 	got, err := c.Classify(context.Background(), "/dev/sr0")
