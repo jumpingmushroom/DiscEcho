@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Fixed
+- The queue detail pane now shows the disc title whenever it is known, instead of "Unknown disc" when the rich metadata blob hasn't been fetched. It already had the title — it just refused to display it without the extended TMDB/MusicBrainz payload.
+- dvdbackup's progress output and libdvdread trace lines no longer flood the job log or get mislabelled as warnings. Progress is dropped (the size-based poller already drives the percentage), libdvdread chatter is dropped unless it carries an error, and the rest is logged at info — warnings are reserved for genuine failures.
+
 ## [0.7.0] - 2026-05-14
 
 ### Added

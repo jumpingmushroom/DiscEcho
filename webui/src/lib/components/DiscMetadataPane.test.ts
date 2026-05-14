@@ -101,6 +101,32 @@ describe('DiscMetadataPane', () => {
     expect(getByText(/Unknown disc/i)).toBeInTheDocument();
   });
 
+  it('shows the disc title when known even without a rich metadata blob', () => {
+    const disc: Disc = {
+      id: 'd4',
+      type: 'DVD',
+      title: 'March of the Penguins',
+      year: 2005,
+      candidates: [],
+      created_at: '2026-05-13T12:00:00Z',
+      metadata_json: '{}',
+    };
+    const { getByText, queryByText } = render(DiscMetadataPane, { disc });
+    expect(getByText('March of the Penguins')).toBeInTheDocument();
+    expect(queryByText(/Unknown disc/i)).not.toBeInTheDocument();
+  });
+
+  it('falls back to the top candidate title when the disc has no title', () => {
+    const disc: Disc = {
+      id: 'd5',
+      type: 'DVD',
+      candidates: [{ source: 'TMDB', title: 'Arrival', year: 2016, confidence: 80 }],
+      created_at: '2026-05-13T12:00:00Z',
+    };
+    const { getByText } = render(DiscMetadataPane, { disc });
+    expect(getByText('Arrival')).toBeInTheDocument();
+  });
+
   it('shows empty-state placeholder when no disc', () => {
     const { getByText } = render(DiscMetadataPane, { disc: undefined });
     expect(getByText(/Click a queue row/i)).toBeInTheDocument();

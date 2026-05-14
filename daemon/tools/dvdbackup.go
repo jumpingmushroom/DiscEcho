@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -286,36 +287,71 @@ func formatRate(bps float64) string {
 	}
 }
 
-// parseDVDBackupStream consumes dvdbackup's textual output. Progress
-// is handled separately by the size-based poller; here we forward
-// per-VOB copy notices as info-level milestone log lines and any
-// other non-empty line as warn (libdvdread errors, mount failures,
-// etc.). Capped at 200 forwarded lines per stream to keep the SQLite
-// log_lines ring bounded — exceeding the cap emits a single marker.
+// dvdBackupProgressRE matches dvdbackup's `-p` progress chatter
+// ("Copying menu: 9% done (1/11 MiB)", "Copying Title, part 1/1: 2%
+// done ..."). These overstrike the terminal with '\r' and carry no
+// information the size-based poller doesn't already surface.
+var dvdBackupProgressRE = regexp.MustCompile(`% done`)
+
+// dvdBackupErrorKeywords flag a line as a genuine warning rather than
+// routine chatter. Matched case-insensitively as substrings.
+var dvdBackupErrorKeywords = []string{
+	"error", "cannot", "could not", "couldn't",
+	"failed", "no such", "unable", "permission denied",
+}
+
+// hasErrorKeyword reports whether line looks like an actual error or
+// failure rather than informational tool output.
+func hasErrorKeyword(line string) bool {
+	l := strings.ToLower(line)
+	for _, kw := range dvdBackupErrorKeywords {
+		if strings.Contains(l, kw) {
+			return true
+		}
+	}
+	return false
+}
+
+// parseDVDBackupStream consumes dvdbackup's textual output (stdout and
+// stderr). Progress is handled separately by the size-based poller, so
+// '% done' chatter is dropped; libdvdread's per-VOB key/seek trace is
+// likewise dropped unless it carries an error keyword. Remaining lines
+// are forwarded at info level, escalated to warn only when they look
+// like a real error. splitCROrLF keeps dvdbackup's '\r'-overstrike
+// progress from accumulating into multi-KB scanner tokens. Capped at
+// 200 forwarded lines per stream to keep the SQLite log_lines ring
+// bounded — exceeding the cap emits a single marker.
 func parseDVDBackupStream(r io.Reader, sink Sink) {
-	const stderrCap = 200
-	stderrSeen := 0
+	const lineCap = 200
+	seen := 0
 	capWarned := false
 
 	drainAfterScan(r, func(scanner *bufio.Scanner) {
+		scanner.Split(splitCROrLF)
 		for scanner.Scan() {
 			line := strings.TrimSpace(scanner.Text())
 			if line == "" {
 				continue
 			}
-			if strings.HasPrefix(line, "Copying VTS_") {
-				sink.Log(state.LogLevelInfo, "dvdbackup: %s", line)
+			if dvdBackupProgressRE.MatchString(line) {
 				continue
 			}
-			if stderrSeen >= stderrCap {
+			if strings.HasPrefix(line, "libdvdread:") && !hasErrorKeyword(line) {
+				continue
+			}
+			if seen >= lineCap {
 				if !capWarned {
-					sink.Log(state.LogLevelWarn, "dvdbackup: stderr cap reached, dropping further lines")
+					sink.Log(state.LogLevelWarn, "dvdbackup: log cap reached, dropping further lines")
 					capWarned = true
 				}
 				continue
 			}
-			stderrSeen++
-			sink.Log(state.LogLevelWarn, "dvdbackup: %s", line)
+			seen++
+			level := state.LogLevelInfo
+			if hasErrorKeyword(line) {
+				level = state.LogLevelWarn
+			}
+			sink.Log(level, "dvdbackup: %s", line)
 		}
 	})
 }
