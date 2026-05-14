@@ -1,7 +1,11 @@
 <script lang="ts">
   import MobileProfileList from '$lib/components/MobileProfileList.svelte';
   import DesktopProfiles from '$lib/components/desktop/DesktopProfiles.svelte';
+  import { isDesktop } from '$lib/viewport';
 </script>
 
-<div class="lg:hidden"><MobileProfileList /></div>
-<div class="hidden lg:block"><DesktopProfiles /></div>
+{#if $isDesktop}
+  <DesktopProfiles />
+{:else}
+  <MobileProfileList />
+{/if}

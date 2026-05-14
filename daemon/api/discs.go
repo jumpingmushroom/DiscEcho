@@ -42,11 +42,10 @@ func (h *Handlers) StartDisc(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	// Idempotency guard: the dashboard's auto-confirm timer and a manual
-	// click can both fire within milliseconds, and without this the
-	// orchestrator happily enqueues a second job for the same disc on
-	// the same drive. The user sees one running rip and a phantom
-	// duplicate that will redundantly re-run the whole pipeline after.
+	// Fast-path duplicate guard: skip the candidate-metadata fetch
+	// below for an obvious duplicate. This check is NOT atomic with
+	// Submit — the authoritative, race-safe guard is under startMu
+	// just before Submit. See that block and the startMu doc comment.
 	hasActive, err := h.Store.DiscHasActiveJob(r.Context(), id)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
@@ -97,6 +96,23 @@ func (h *Handlers) StartDisc(w http.ResponseWriter, r *http.Request) {
 		if blob, err := h.fetchExtendedMetadata(r.Context(), disc, &c); err == nil && blob != "" {
 			_ = h.Store.UpdateDiscMetadataBlob(r.Context(), disc.ID, blob)
 		}
+	}
+
+	// Authoritative duplicate guard. The fast-path check above isn't
+	// atomic with Submit, so two requests racing within that window
+	// both pass it. Re-check under startMu — held across Submit — so
+	// exactly one job is created no matter how many requests race;
+	// the losers get the same 409 as a sequential duplicate.
+	h.startMu.Lock()
+	defer h.startMu.Unlock()
+	hasActive, err = h.Store.DiscHasActiveJob(r.Context(), id)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if hasActive {
+		writeError(w, http.StatusConflict, "disc already has an active job")
+		return
 	}
 
 	job, err := h.Orchestrator.Submit(r.Context(), disc.ID, req.ProfileID)
