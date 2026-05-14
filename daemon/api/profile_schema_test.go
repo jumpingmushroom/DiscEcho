@@ -259,6 +259,43 @@ func TestValidateProfile_BadDrivePolicy(t *testing.T) {
 	}
 }
 
+// TestValidateProfile_SeededDVDProfileOptions guards against the
+// seeder and the validation schema drifting apart. The DVD-Movie and
+// DVD-Series profiles are seeded (settings.go) and migrated
+// (003_dvd_default_mkv.sql) with a dvd_selection_mode option; if the
+// HandBrake engine schema doesn't list it, every UI save of a DVD
+// profile 422s.
+func TestValidateProfile_SeededDVDProfileOptions(t *testing.T) {
+	cases := []struct {
+		name string
+		opts map[string]any
+	}{
+		{"DVD-Movie", map[string]any{"dvd_selection_mode": "main_feature"}},
+		{"DVD-Series", map[string]any{
+			"min_title_seconds":  float64(300),
+			"season":             float64(1),
+			"dvd_selection_mode": "per_title",
+		}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			p := &state.Profile{
+				Name:               tc.name,
+				DiscType:           state.DiscTypeDVD,
+				Engine:             "HandBrake",
+				Container:          "MKV",
+				VideoCodec:         "x264",
+				Options:            tc.opts,
+				OutputPathTemplate: `{{.Title}}.mkv`,
+				StepCount:          7,
+			}
+			if errs := api.ValidateProfile(p); len(errs) != 0 {
+				t.Errorf("seeded %s profile must validate; got %+v", tc.name, errs)
+			}
+		})
+	}
+}
+
 func TestValidateProfile_DDRejectsOptions(t *testing.T) {
 	p := &state.Profile{
 		DiscType:           state.DiscTypeData,
