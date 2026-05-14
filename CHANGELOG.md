@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-05-14
+
 ### Changed
 - DVD encode quality is now a real, per-profile setting. The `quality_rf` and `encoder_preset` profile options drive HandBrake directly — previously the quality was hardcoded in the pipeline and the profile's quality field was display-only. The seeded DVD profiles default to RF 18 / preset slow for near-transparent archives; existing DVD profiles are migrated to the same defaults. Set `quality_rf` higher (e.g. 20–22) for smaller files.
 - DVD and Blu-ray rips to MKV now keep **every** subtitle track on the disc instead of filtering to a single language. MP4 profiles keep the language-filtered behaviour, since MP4 can't cleanly carry bitmap (VOBSUB) subtitles.
