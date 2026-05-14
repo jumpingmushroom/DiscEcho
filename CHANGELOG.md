@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-05-14
+
 ### Added
 - A **Clear history** button on the History tab — wipes all finished-rip records (jobs, their logs, and the disc rows they orphan) in one click, behind a two-step confirm. The ripped files on disk are not touched, and an in-progress rip is unaffected.
 
