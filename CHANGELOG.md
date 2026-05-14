@@ -6,6 +6,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+- Saving settings in the web UI now shows a brief confirmation toast. Covers profile create/save/delete, notification create/save/delete, notification Validate/Test results, history retention, and library paths — previously these succeeded silently.
+
 ## [0.6.1] - 2026-05-14
 
 ### Fixed

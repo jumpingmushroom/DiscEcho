@@ -1,5 +1,6 @@
 <script lang="ts">
   import { settings, updateRetention } from '$lib/store';
+  import { pushToast } from '$lib/toasts';
 
   $: foreverInit = ($settings['retention.forever'] as string) === 'true';
   $: daysInit = parseInt(($settings['retention.days'] as string) ?? '30', 10) || 30;
@@ -27,6 +28,7 @@
     saving = true;
     try {
       await updateRetention({ forever, days });
+      pushToast('success', 'Retention settings saved');
     } catch (e) {
       error = (e as Error).message;
     } finally {

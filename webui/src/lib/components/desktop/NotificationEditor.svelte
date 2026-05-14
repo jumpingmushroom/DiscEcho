@@ -8,6 +8,7 @@
     testNotification,
   } from '$lib/store';
   import { parseValidationErrors, type ValidationErrors } from '$lib/api';
+  import { pushToast } from '$lib/toasts';
   import { createEventDispatcher } from 'svelte';
   import Field from './Field.svelte';
 
@@ -21,7 +22,7 @@
   let working: Notification = blank();
   let original: Notification = blank();
   let fieldErrors: ValidationErrors = {};
-  let banner: { kind: 'ok' | 'error'; text: string } | null = null;
+  let saveError: string | null = null;
   let saving = false;
   let confirmingDelete = false;
 
@@ -36,7 +37,7 @@
       working = notification ? clone(notification) : blank();
       original = clone(working);
       fieldErrors = {};
-      banner = null;
+      saveError = null;
       confirmingDelete = false;
     }
   }
@@ -83,7 +84,7 @@
   async function onSave(): Promise<void> {
     saving = true;
     fieldErrors = {};
-    banner = null;
+    saveError = null;
     try {
       if (creating) {
         const rest: Omit<Notification, 'id' | 'created_at' | 'updated_at'> = {
@@ -101,13 +102,14 @@
         working = clone(fresh);
         original = clone(fresh);
       }
+      pushToast('success', creating ? 'Notification created' : 'Notification saved');
       dispatch('saved');
     } catch (e) {
       const fe = parseValidationErrors(e);
       if (fe) {
         fieldErrors = fe;
       } else {
-        banner = { kind: 'error', text: (e as Error).message };
+        saveError = (e as Error).message;
       }
     } finally {
       saving = false;
@@ -115,23 +117,25 @@
   }
 
   async function onValidate(): Promise<void> {
-    banner = null;
     try {
       const res = await validateNotification(working.id);
-      banner = res.ok
-        ? { kind: 'ok', text: 'URL is valid.' }
-        : { kind: 'error', text: res.error ?? 'validation failed' };
+      if (res.ok) {
+        pushToast('success', 'URL is valid.');
+      } else {
+        pushToast('error', res.error ?? 'validation failed');
+      }
     } catch (e) {
-      banner = { kind: 'error', text: (e as Error).message };
+      pushToast('error', (e as Error).message);
     }
   }
 
   async function onTest(): Promise<void> {
-    banner = null;
     const res = await testNotification(working.id);
-    banner = res.sent
-      ? { kind: 'ok', text: 'Test sent.' }
-      : { kind: 'error', text: res.error ?? 'send failed' };
+    if (res.sent) {
+      pushToast('success', 'Test notification sent.');
+    } else {
+      pushToast('error', res.error ?? 'send failed');
+    }
   }
 
   async function onDelete(): Promise<void> {
@@ -140,13 +144,14 @@
       return;
     }
     saving = true;
-    banner = null;
+    saveError = null;
     try {
       await deleteNotification(working.id);
       confirmingDelete = false;
+      pushToast('success', 'Notification deleted');
       dispatch('saved');
     } catch (e) {
-      banner = { kind: 'error', text: (e as Error).message };
+      saveError = (e as Error).message;
     } finally {
       saving = false;
     }
@@ -197,15 +202,9 @@
       <span class="text-[13px] text-text-2">Enabled</span>
     </label>
 
-    {#if banner}
-      <div
-        class="rounded-md border px-3 py-2 text-[12px]"
-        class:border-accent={banner.kind === 'ok'}
-        class:text-accent={banner.kind === 'ok'}
-        class:border-error={banner.kind === 'error'}
-        class:text-error={banner.kind === 'error'}
-      >
-        {banner.text}
+    {#if saveError}
+      <div class="rounded-md border border-error px-3 py-2 text-[12px] text-error">
+        {saveError}
       </div>
     {/if}
 

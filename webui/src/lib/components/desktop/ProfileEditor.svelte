@@ -2,6 +2,7 @@
   import type { Profile, DiscType } from '$lib/wire';
   import { createProfile, updateProfile, deleteProfile } from '$lib/store';
   import { parseValidationErrors, type ValidationErrors } from '$lib/api';
+  import { pushToast } from '$lib/toasts';
   import {
     ENGINES,
     DISC_TYPES,
@@ -137,6 +138,7 @@
       } else {
         await updateProfile(working.id, { ...payload, id: working.id } as Profile);
       }
+      pushToast('success', creating ? 'Profile created' : 'Profile saved');
       dispatch('saved');
     } catch (e) {
       const fe = parseValidationErrors(e);
@@ -160,6 +162,7 @@
     try {
       await deleteProfile(working.id);
       confirmingDelete = false;
+      pushToast('success', 'Profile deleted');
       dispatch('saved');
     } catch (e) {
       genericError = (e as Error).message;

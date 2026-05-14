@@ -2,6 +2,7 @@
   import { onMount } from 'svelte';
   import { drives } from '$lib/store';
   import { apiGet, apiPut } from '$lib/api';
+  import { pushToast } from '$lib/toasts';
   import FormSection from './FormSection.svelte';
   import FormRow from './FormRow.svelte';
   import PathField from './PathField.svelte';
@@ -59,7 +60,6 @@
   let roots: LibraryRoots = { movies: '', tv: '', music: '', games: '', data: '' };
   let dirty: Partial<LibraryRoots> = {};
   let savingRoots = false;
-  let rootsSavedAt: number | null = null;
   let rootsError: string | null = null;
 
   $: hasDirty = Object.keys(dirty).length > 0;
@@ -95,7 +95,7 @@
       await apiPut('/api/settings', body);
       roots = { ...roots, ...dirty };
       dirty = {};
-      rootsSavedAt = Date.now();
+      pushToast('success', 'Library paths saved');
     } catch (e) {
       rootsError = (e as Error).message;
     } finally {
@@ -209,8 +209,6 @@
           </button>
         </div>
       </div>
-    {:else if rootsSavedAt}
-      <div class="px-4 py-3 text-[11px] text-text-3">Saved.</div>
     {/if}
   </FormSection>
 

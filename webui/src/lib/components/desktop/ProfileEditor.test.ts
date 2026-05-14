@@ -2,7 +2,9 @@ import '@testing-library/jest-dom/vitest';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, fireEvent } from '@testing-library/svelte';
 import { tick } from 'svelte';
+import { get } from 'svelte/store';
 import ProfileEditor from './ProfileEditor.svelte';
+import { toasts } from '$lib/toasts';
 import type { Profile } from '$lib/wire';
 
 async function flush(): Promise<void> {
@@ -56,6 +58,7 @@ describe('ProfileEditor', () => {
   beforeEach(() => {
     fetchSpy = vi.fn();
     vi.stubGlobal('fetch', fetchSpy);
+    toasts.set([]);
   });
 
   afterEach(() => {
@@ -138,6 +141,9 @@ describe('ProfileEditor', () => {
     expect(url).toBe('/api/profiles');
     expect((init as RequestInit).method).toBe('POST');
     expect(onSaved).toHaveBeenCalled();
+    expect(get(toasts)).toContainEqual(
+      expect.objectContaining({ kind: 'success', message: 'Profile created' }),
+    );
   });
 
   it('Save with 422 surfaces field errors against typed container field', async () => {
