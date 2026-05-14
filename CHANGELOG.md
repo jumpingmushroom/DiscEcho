@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.9.1] - 2026-05-15
+
 ### Fixed
 - The daemon no longer goes permanently deaf to disc insertions after a transient kernel-event hiccup. The udev watcher ran disc identification inline on its event-reading loop, so a slow identify (the `cd-info` probe alone can retry for ~13s) stalled the loop long enough for the kernel's event socket buffer to overflow; the resulting error killed the watcher with no restart, and every disc inserted afterwards was silently ignored until the container was restarted. Identification now runs off the read loop, and the watcher reconnects automatically if its event stream ever drops.
 - Discs whose type is determined by reading the filesystem (PlayStation 2, PSX, DVD, Blu-ray, Xbox) are no longer intermittently misidentified as a generic DATA disc. The classifier's `isoinfo` filesystem probe is now retried through the disc spin-up window — the same way the `cd-info` probe already was. Previously, when `isoinfo` ran in the brief window where `cd-info` had succeeded but the ISO9660 filesystem wasn't yet readable, it returned an empty listing that silently downgraded the disc to DATA, where it became invisible in the UI (no candidates, no card) — so identify appeared to "just stop". The classifier also now logs a breadcrumb when a disc isn't recognised by any probe.
