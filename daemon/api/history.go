@@ -60,6 +60,19 @@ func (h *Handlers) ListHistory(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// ClearHistory deletes every finished-rip record — done/failed/cancelled
+// jobs, their logs and steps, and the disc rows left orphaned by that
+// deletion. In-progress rips are untouched, and the ripped files on
+// disk are not touched. Responds with {"deleted": N}.
+func (h *Handlers) ClearHistory(w http.ResponseWriter, r *http.Request) {
+	n, err := h.Store.ClearHistory(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]int{"deleted": n})
+}
+
 func parseIntOr(s string, def int) int {
 	if s == "" {
 		return def

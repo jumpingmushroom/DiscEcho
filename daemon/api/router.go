@@ -59,6 +59,7 @@ func NewRouter(h *Handlers, static http.Handler) http.Handler {
 			authed.Delete("/profiles/{id}", h.DeleteProfile)
 
 			authed.Get("/history", h.ListHistory)
+			authed.Post("/history/clear", h.ClearHistory)
 
 			authed.Get("/notifications", h.ListNotifications)
 			authed.Post("/notifications", h.CreateNotification)
