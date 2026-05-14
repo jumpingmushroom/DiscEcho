@@ -8,6 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Fixed
 - Inserting a disc no longer enqueues two identical rip jobs. The dashboard kept both its mobile and desktop layouts mounted at once (CSS only hid one), so each identified disc ran two auto-confirm timers and fired two start-rip requests; and the daemon's duplicate-job guard wasn't atomic with job submission, so both slipped through. The dashboard (and the profiles/settings pages) now mount a single layout for the viewport, and the start-rip handler serializes its guard so concurrent requests for the same disc create exactly one job.
+- The active rip card showed the current step's speed and ETA twice — once in the pipeline stepper's "Active" row and again below the progress bar. It now appears once, below the bar. (There is no whole-rip ETA to show in the other slot: speed/ETA are per-step and reset at each step boundary.)
 
 ## [0.8.0] - 2026-05-14
 
