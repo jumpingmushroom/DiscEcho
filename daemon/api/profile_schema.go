@@ -73,8 +73,9 @@ var engineSchemas = map[string]EngineSchema{
 		Containers:  []string{"MP4", "MKV"},
 		VideoCodecs: []string{"x265", "x264", "nvenc_h265", "nvenc_h264", "av1"},
 		Options: map[string]OptionSchema{
-			"min_title_seconds": {Type: OptInt},
-			"season":            {Type: OptInt},
+			"min_title_seconds":  {Type: OptInt},
+			"season":             {Type: OptInt},
+			"dvd_selection_mode": {Type: OptString},
 		},
 		StepCount: 7,
 	},
