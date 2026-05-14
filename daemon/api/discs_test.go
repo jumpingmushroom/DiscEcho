@@ -24,6 +24,10 @@ import (
 type stubDiscHandler struct {
 	mu    sync.Mutex
 	calls int
+	// gate, when non-nil, blocks Run until the test closes it — keeps a
+	// submitted job in a non-terminal state so concurrency tests can
+	// observe it as "active". Nil → Run completes immediately.
+	gate chan struct{}
 }
 
 func (s *stubDiscHandler) DiscType() state.DiscType { return state.DiscTypeAudioCD }
@@ -37,6 +41,9 @@ func (s *stubDiscHandler) Run(_ context.Context, _ *state.Drive, _ *state.Disc, 
 	s.mu.Lock()
 	s.calls++
 	s.mu.Unlock()
+	if s.gate != nil {
+		<-s.gate
+	}
 	return nil
 }
 
@@ -193,6 +200,82 @@ func TestStartDisc_RefusesDuplicateWhenActiveJobExists(t *testing.T) {
 
 	if w.Code != http.StatusConflict {
 		t.Fatalf("status %d body=%s", w.Code, w.Body.String())
+	}
+}
+
+// TestStartDisc_ConcurrentRequestsCreateOneJob is the regression for
+// duplicate rips: the dashboard mounts both the mobile and desktop
+// component trees at once, so a disc's auto-confirm fires twice and
+// two POST /start requests race within milliseconds. The handler's
+// active-job check must be serialized with job submission so exactly
+// one job is created — the rest get 409.
+func TestStartDisc_ConcurrentRequestsCreateOneJob(t *testing.T) {
+	reg := pipelines.NewRegistry()
+	// Gated stub: the submitted job stays non-terminal until we close
+	// the gate, so the racing requests observe it as an active job —
+	// in production a rip runs for minutes, an instant stub would let
+	// the job reach `done` before the slower requests re-check.
+	stub := &stubDiscHandler{gate: make(chan struct{})}
+	reg.Register(stub)
+	h := apitestServerWithOrch(t, reg)
+
+	drv := seedDrive(t, h)
+	prof := seedProfile(t, h)
+	disc := seedDisc(t, h, drv.ID)
+
+	r := chi.NewRouter()
+	r.Post("/api/discs/{id}/start", h.StartDisc)
+
+	body := mustJSON(t, map[string]any{"profile_id": prof.ID, "candidate_index": 0})
+
+	const n = 8
+	var wg sync.WaitGroup
+	codes := make([]int, n)
+	release := make(chan struct{})
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			req := httptest.NewRequest(http.MethodPost, "/api/discs/"+disc.ID+"/start", bytes.NewReader(body))
+			req.Header.Set("Content-Type", "application/json")
+			w := httptest.NewRecorder()
+			<-release
+			r.ServeHTTP(w, req)
+			codes[i] = w.Code
+		}(i)
+	}
+	close(release)
+	wg.Wait()
+
+	jobsList, err := h.Store.ListJobs(context.Background(), state.JobFilter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(jobsList) != 1 {
+		t.Errorf("want exactly 1 job from %d concurrent StartDisc calls, got %d", n, len(jobsList))
+	}
+	ok, conflict := 0, 0
+	for _, c := range codes {
+		switch c {
+		case http.StatusOK:
+			ok++
+		case http.StatusConflict:
+			conflict++
+		}
+	}
+	if ok != 1 || conflict != n-1 {
+		t.Errorf("want 1×200 + %d×409, got %d×200 + %d×409 (codes=%v)", n-1, ok, conflict, codes)
+	}
+
+	// Release the gated job so the orchestrator cleanup doesn't hang.
+	close(stub.gate)
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		js, _ := h.Store.ListJobs(context.Background(), state.JobFilter{})
+		if len(js) >= 1 && (js[0].State == state.JobStateDone || js[0].State == state.JobStateFailed) {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
 	}
 }
 

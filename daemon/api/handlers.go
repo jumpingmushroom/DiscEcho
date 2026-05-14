@@ -1,6 +1,8 @@
 package api
 
 import (
+	"sync"
+
 	"github.com/jumpingmushroom/DiscEcho/daemon/identify"
 	"github.com/jumpingmushroom/DiscEcho/daemon/jobs"
 	"github.com/jumpingmushroom/DiscEcho/daemon/pipelines"
@@ -29,4 +31,13 @@ type Handlers struct {
 	// the "GPU transcoding" Settings row and is threaded into the
 	// DVD-Video / BDMV pipeline Deps (in main.go).
 	NVENCAvailable bool
+
+	// startMu serializes the "no active job?" check against job
+	// submission in StartDisc. Two POST /discs/{id}/start requests can
+	// arrive within milliseconds for the same disc (the dashboard
+	// mounts both the mobile and desktop component trees, each with
+	// its own auto-confirm timer); without this lock both pass the
+	// guard and enqueue a duplicate job. The daemon is single-process,
+	// so an in-process mutex fully closes the race.
+	startMu sync.Mutex
 }
