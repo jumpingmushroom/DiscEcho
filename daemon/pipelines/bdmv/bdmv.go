@@ -224,9 +224,9 @@ func (h *Handler) Run(ctx context.Context, drv *state.Drive, disc *state.Disc, p
 		"--all-audio",
 		"--markers",
 	}
-	if h.deps.SubsLang != "" {
-		hbArgs = append(hbArgs, "--subtitle-lang-list", h.deps.SubsLang, "--subtitle-forced=auto")
-	}
+	// BDMV output is always MKV — keep every subtitle track the disc
+	// carries rather than filtering to one language.
+	hbArgs = append(hbArgs, "--all-subtitles")
 	sink.OnLog(state.LogLevelInfo, "HandBrake: encoding %s", filepath.Base(rippedFile))
 	encStart := time.Now()
 	if err := hb.Run(ctx, hbArgs, nil, tmpdir, newStepSink(sink, state.StepTranscode)); err != nil {

@@ -241,6 +241,53 @@ func TestBDMVHandler_Run_NoTitleAboveMin(t *testing.T) {
 	}
 }
 
+// BDMV output is always an archival MKV — the HandBrake encode must
+// keep every subtitle track on the disc, ignoring any configured
+// SubsLang language filter.
+func TestBDMVHandler_Run_KeepsAllSubtitles(t *testing.T) {
+	reg, _, _, hb := newRegistry()
+	h := bdmv.New(bdmv.Deps{
+		MakeMKVScanner: &fakeMakeMKV{scanTitles: []tools.MakeMKVTitle{
+			{ID: 1, DurationSec: 7000, SourceFile: "00800.mpls"},
+		}},
+		MakeMKVRipper: &fakeMakeMKV{stubName: "title_t01.mkv"},
+		Tools:         reg,
+		LibraryRoot:   t.TempDir(),
+		WorkRoot:      t.TempDir(),
+		SubsLang:      "eng", // must be ignored — BDMV output is archival MKV
+	})
+	prof := &state.Profile{
+		ID: "p-bd", DiscType: state.DiscTypeBDMV, Name: "BD-1080p",
+		Preset:             "x265 RF 19 10-bit",
+		OutputPathTemplate: "{{.Title}}.mkv",
+		Options:            map[string]any{"min_title_seconds": float64(3600)},
+	}
+	disc := &state.Disc{ID: "disc-1", Type: state.DiscTypeBDMV, Title: "Arrival", Year: 2016}
+	drv := &state.Drive{ID: "d1", DevPath: "/dev/sr0"}
+
+	if err := h.Run(context.Background(), drv, disc, prof, testutil.NewRecordingSink()); err != nil {
+		t.Fatal(err)
+	}
+	if len(hb.calls) != 1 {
+		t.Fatalf("want 1 HandBrake call, got %d", len(hb.calls))
+	}
+	var hasAll, hasLangFilter bool
+	for _, a := range hb.calls[0] {
+		switch a {
+		case "--all-subtitles":
+			hasAll = true
+		case "--subtitle-lang-list":
+			hasLangFilter = true
+		}
+	}
+	if !hasAll {
+		t.Errorf("BDMV HandBrake args missing --all-subtitles: %v", hb.calls[0])
+	}
+	if hasLangFilter {
+		t.Errorf("BDMV must not language-filter subtitles: %v", hb.calls[0])
+	}
+}
+
 // bdmvEncoderArg pulls the --encoder value from the most recent fake
 // HandBrake invocation. Returns "" if --encoder wasn't passed or no
 // calls were recorded.

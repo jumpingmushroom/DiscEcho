@@ -76,6 +76,8 @@ var engineSchemas = map[string]EngineSchema{
 			"min_title_seconds":  {Type: OptInt},
 			"season":             {Type: OptInt},
 			"dvd_selection_mode": {Type: OptString},
+			"quality_rf":         {Type: OptInt},
+			"encoder_preset":     {Type: OptString},
 		},
 		StepCount: 7,
 	},

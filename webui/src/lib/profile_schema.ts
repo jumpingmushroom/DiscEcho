@@ -57,6 +57,9 @@ export const ENGINES: Record<string, EngineSpec> = {
     options: {
       min_title_seconds: { type: 'int' },
       season: { type: 'int' },
+      dvd_selection_mode: { type: 'string' },
+      quality_rf: { type: 'int' },
+      encoder_preset: { type: 'string' },
     },
     stepCount: 7,
   },

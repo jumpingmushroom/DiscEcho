@@ -72,16 +72,17 @@ func (h *HandBrake) Run(ctx context.Context, args []string, env map[string]strin
 
 	titleIdx := envInt(env, "HB_TITLE_IDX", 1)
 	totalTitles := envInt(env, "HB_TOTAL_TITLES", 1)
+	titleDuration := envInt(env, "HB_TITLE_DURATION", 0)
 
 	var wg sync.WaitGroup
 	wg.Add(2)
 	go func() {
 		defer wg.Done()
-		ParseHandBrakeEncodeStream(stdout, titleIdx, totalTitles, sink)
+		ParseHandBrakeEncodeStream(stdout, titleIdx, totalTitles, titleDuration, sink)
 	}()
 	go func() {
 		defer wg.Done()
-		ParseHandBrakeEncodeStream(stderr, titleIdx, totalTitles, sink)
+		ParseHandBrakeEncodeStream(stderr, titleIdx, totalTitles, titleDuration, sink)
 	}()
 	wg.Wait()
 
@@ -168,6 +169,10 @@ func ParseHandBrakeScan(s string) ([]HandBrakeTitle, error) {
 // ParseHandBrakeEncodeStream scans an encoding output stream and emits
 // Sink progress events. titleIdx is the 1-based index of the current
 // title within the job's encode set; totalTitles is the count.
+// titleDurationSeconds is the source title's duration — used to derive
+// a realtime-multiple speed and an accurate ETA, since HandBrake omits
+// its own `(avg fps, ETA)` tail when stdout is a pipe. 0 → ETA is
+// extrapolated from the percentage alone, with no speed.
 //
 // Overall progress = ((titleIdx-1) + intraTitlePct/100) / totalTitles * 100.
 //
@@ -177,7 +182,7 @@ func ParseHandBrakeScan(s string) ([]HandBrakeTitle, error) {
 // keeps being drained even if our parse goroutine returns early —
 // without that, a >1 MB token would let the scanner exit and cause
 // HandBrake to deadlock on the next pipe write.
-func ParseHandBrakeEncodeStream(r io.Reader, titleIdx, totalTitles int, sink Sink) {
+func ParseHandBrakeEncodeStream(r io.Reader, titleIdx, totalTitles, titleDurationSeconds int, sink Sink) {
 	if totalTitles <= 0 {
 		totalTitles = 1
 	}
@@ -186,33 +191,47 @@ func ParseHandBrakeEncodeStream(r io.Reader, titleIdx, totalTitles int, sink Sin
 	}
 	drainAfterScan(r, func(scanner *bufio.Scanner) {
 		scanner.Split(splitCROrLF)
-		parseHandBrakeEncodeLines(scanner, titleIdx, totalTitles, sink)
+		parseHandBrakeEncodeLines(scanner, titleIdx, totalTitles, titleDurationSeconds, sink)
 	})
 }
 
-func parseHandBrakeEncodeLines(scanner *bufio.Scanner, titleIdx, totalTitles int, sink Sink) {
-	const stderrCap = 200
-	stderrSeen := 0
+func parseHandBrakeEncodeLines(scanner *bufio.Scanner, titleIdx, totalTitles, titleDurationSeconds int, sink Sink) {
+	const lineCap = 200
+	logSeen := 0
 	capWarned := false
+
+	// Anchor for ETA extrapolation: the wall-clock time and intra-title
+	// percentage of the first progress event seen on this stream.
+	var firstProgressAt time.Time
+	var firstProgressIntra float64
 
 	for scanner.Scan() {
 		line := scanner.Text()
-		m := hbEncodingRE.FindStringSubmatch(line)
-		if m != nil {
+		if m := hbEncodingRE.FindStringSubmatch(line); m != nil {
 			intra, _ := strconv.ParseFloat(m[3], 64)
 			overall := (float64(titleIdx-1) + intra/100) / float64(totalTitles) * 100
 
-			// fps/ETA group is optional; m[4]…m[7] are empty when the tail
-			// wasn't in the line (HandBrake 1.6.x on a pipe).
 			var speed string
 			var etaSeconds int
 			if m[4] != "" {
+				// HandBrake gave us a real fps/ETA tail (tty-attached,
+				// or a future build that emits it on a pipe).
 				fps, _ := strconv.ParseFloat(m[4], 64)
 				etaH, _ := strconv.Atoi(m[5])
 				etaM, _ := strconv.Atoi(m[6])
 				etaS, _ := strconv.Atoi(m[7])
 				etaSeconds = etaH*3600 + etaM*60 + etaS
 				speed = fmt.Sprintf("%.1ffps", fps)
+			} else {
+				// Pipe case: HandBrake omits the tail, so derive speed
+				// and ETA from elapsed wall-clock since the first event.
+				if firstProgressAt.IsZero() {
+					firstProgressAt = time.Now()
+					firstProgressIntra = intra
+				}
+				speed, etaSeconds = deriveEncodeETA(
+					firstProgressIntra, intra,
+					time.Since(firstProgressAt), titleDurationSeconds)
 			}
 			sink.Progress(overall, speed, etaSeconds)
 			continue
@@ -222,24 +241,76 @@ func parseHandBrakeEncodeLines(scanner *bufio.Scanner, titleIdx, totalTitles int
 		if trimmed == "" {
 			continue
 		}
-		// HandBrake's `[hh:mm:ss] ...` config-dump lines are voluminous
-		// and not actionable for end users — skip unless they contain
-		// an error keyword. Real warnings/errors usually surface as
-		// `x264 [error]: ...` or `[hh:mm:ss] err: ...`.
-		if strings.HasPrefix(trimmed, "[") && !strings.Contains(strings.ToLower(trimmed), "error") {
+		// HandBrake logs its fully-resolved job as pretty-printed JSON
+		// to stderr at startup — pure noise in the job log.
+		if isJSONNoise(trimmed) {
+			continue
+		}
+		// `[hh:mm:ss] ...` activity-log lines are voluminous and not
+		// actionable — skip unless the line carries an error.
+		if strings.HasPrefix(trimmed, "[") && !hasErrorKeyword(trimmed) {
 			continue
 		}
 
-		if stderrSeen >= stderrCap {
+		if logSeen >= lineCap {
 			if !capWarned {
-				sink.Log(state.LogLevelWarn, "HandBrake: stderr cap reached, dropping further lines")
+				sink.Log(state.LogLevelWarn, "HandBrake: log cap reached, dropping further lines")
 				capWarned = true
 			}
 			continue
 		}
-		stderrSeen++
-		sink.Log(state.LogLevelWarn, "HandBrake: %s", trimmed)
+		logSeen++
+		level := state.LogLevelInfo
+		if hasErrorKeyword(trimmed) || strings.Contains(strings.ToLower(trimmed), "warning") {
+			level = state.LogLevelWarn
+		}
+		sink.Log(level, "HandBrake: %s", trimmed)
 	}
+}
+
+// deriveEncodeETA computes a realtime-multiple speed string and an ETA
+// in seconds for a HandBrake encode. firstIntra is the intra-title
+// percentage at the first observed progress event, curIntra the
+// current percentage, elapsed the wall-clock since that first event,
+// and titleDurationSeconds the source title's duration.
+//
+// Anchoring on the first event rather than 0% avoids crediting
+// pre-observation progress to the elapsed window. Returns empty/zero
+// until progress has actually advanced. With titleDurationSeconds <= 0
+// the speed can't be expressed as a realtime multiple, so only the
+// percentage-extrapolated ETA is returned.
+func deriveEncodeETA(firstIntra, curIntra float64, elapsed time.Duration, titleDurationSeconds int) (speed string, etaSeconds int) {
+	deltaIntra := curIntra - firstIntra
+	elapsedSec := elapsed.Seconds()
+	if deltaIntra <= 0 || elapsedSec <= 0 || curIntra >= 100 {
+		return "", 0
+	}
+	if titleDurationSeconds > 0 {
+		encodedDelta := deltaIntra / 100 * float64(titleDurationSeconds)
+		rate := encodedDelta / elapsedSec // encoded seconds per wall second
+		if rate <= 0 {
+			return "", 0
+		}
+		remaining := (100 - curIntra) / 100 * float64(titleDurationSeconds)
+		return fmt.Sprintf("%.1fx", rate), int(remaining / rate)
+	}
+	pctRate := deltaIntra / elapsedSec // percent per wall second
+	return "", int((100 - curIntra) / pctRate)
+}
+
+// isJSONNoise reports whether a trimmed line belongs to HandBrake's
+// pretty-printed JSON job dump (it logs the fully-resolved job spec to
+// stderr at startup). Those lines flood the log with no actionable
+// content.
+func isJSONNoise(trimmed string) bool {
+	if strings.HasPrefix(trimmed, `"`) {
+		return true
+	}
+	switch trimmed {
+	case "{", "}", "[", "]", "},", "],":
+		return true
+	}
+	return false
 }
 
 // ProbeNVENC returns true when the bundled HandBrake-CLI can actually

@@ -3,7 +3,28 @@ package tools
 import (
 	"bufio"
 	"io"
+	"strings"
 )
+
+// errorKeywords flag a tool-output line as a genuine warning rather
+// than routine informational chatter. Matched case-insensitively as
+// substrings. Shared by the dvdbackup and HandBrake stream parsers.
+var errorKeywords = []string{
+	"error", "cannot", "could not", "couldn't",
+	"failed", "no such", "unable", "permission denied",
+}
+
+// hasErrorKeyword reports whether line looks like an actual error or
+// failure rather than informational tool output.
+func hasErrorKeyword(line string) bool {
+	l := strings.ToLower(line)
+	for _, kw := range errorKeywords {
+		if strings.Contains(l, kw) {
+			return true
+		}
+	}
+	return false
+}
 
 // drainAfterScan runs scan against r, then unconditionally copies any
 // remaining bytes from r to io.Discard. This is the critical part:

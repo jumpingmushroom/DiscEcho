@@ -262,6 +262,13 @@ func (h *Handler) Run(ctx context.Context, drv *state.Drive, disc *state.Disc, p
 			"NVENC requested but unavailable on host; falling back to %s software encoder", encoder)
 	}
 
+	// Encode quality is a real, per-profile setting. quality_rf is the
+	// x264/x265 constant-rate-factor (lower = larger/better); encoder_preset
+	// trades CPU time for compression efficiency. Defaults match the
+	// seeded DVD profiles: RF 18 + slow → near-transparent DVD archives.
+	qualityRF := pipelines.IntOption(prof, "quality_rf", 18)
+	encoderPreset := pipelines.StringOption(prof, "encoder_preset", "slow")
+
 	transcoded := make([]string, 0, len(encodeTitles))
 	for i, t := range encodeTitles {
 		titleIdx := i + 1
@@ -269,8 +276,9 @@ func (h *Handler) Run(ctx context.Context, drv *state.Drive, disc *state.Disc, p
 		args := []string{
 			"--input", source,
 			"--output", out,
-			"--quality", "20",
+			"--quality", strconv.Itoa(qualityRF),
 			"--encoder", encoder,
+			"--encoder-preset", encoderPreset,
 			"--all-audio",
 			"--markers",
 		}
@@ -279,15 +287,23 @@ func (h *Handler) Run(ctx context.Context, drv *state.Drive, disc *state.Disc, p
 		} else {
 			args = append(args, "--title", strconv.Itoa(t.Number))
 		}
-		if h.deps.SubsLang != "" {
+		if ext == "mkv" {
+			// Archival MKV: keep every subtitle track the disc carries
+			// (VOBSUB bitmap, native to Matroska). No language filter —
+			// a rip should preserve what's on the disc.
+			args = append(args, "--all-subtitles")
+		} else if h.deps.SubsLang != "" {
+			// MP4 can't cleanly hold VOBSUB, so keep the
+			// language-filtered selection for the MP4 path.
 			args = append(args, "--subtitle-lang-list", h.deps.SubsLang, "--subtitle-forced=auto")
 		}
 		if ext == "mp4" {
 			args = append(args, "--optimize")
 		}
 		env := map[string]string{
-			"HB_TITLE_IDX":    strconv.Itoa(titleIdx),
-			"HB_TOTAL_TITLES": strconv.Itoa(len(encodeTitles)),
+			"HB_TITLE_IDX":      strconv.Itoa(titleIdx),
+			"HB_TOTAL_TITLES":   strconv.Itoa(len(encodeTitles)),
+			"HB_TITLE_DURATION": strconv.Itoa(t.DurationSeconds),
 		}
 		stepSink := newStepSink(sink, state.StepTranscode)
 		sink.OnLog(state.LogLevelInfo, "HandBrake: encoding title %d → %s", t.Number, filepath.Base(out))
@@ -427,15 +443,7 @@ func selectEncodeTitles(titles []tools.HandBrakeTitle, prof *state.Profile) []to
 		return nil
 	}
 
-	minSec := 300
-	if v, ok := prof.Options["min_title_seconds"]; ok {
-		switch n := v.(type) {
-		case int:
-			minSec = n
-		case float64:
-			minSec = int(n)
-		}
-	}
+	minSec := pipelines.IntOption(prof, "min_title_seconds", 300)
 	var out []tools.HandBrakeTitle
 	for _, t := range titles {
 		if t.DurationSeconds >= minSec {
@@ -492,15 +500,7 @@ func longestTitle(titles []tools.HandBrakeTitle) tools.HandBrakeTitle {
 // would pass on a junk encode. Returns nil when the profile sets
 // `min_feature_seconds=0`.
 func validateMovieTitleSelection(picked tools.HandBrakeTitle, prof *state.Profile) error {
-	floor := minMovieFeatureSeconds
-	if v, ok := prof.Options["min_feature_seconds"]; ok {
-		switch n := v.(type) {
-		case int:
-			floor = n
-		case float64:
-			floor = int(n)
-		}
-	}
+	floor := pipelines.IntOption(prof, "min_feature_seconds", minMovieFeatureSeconds)
 	if floor <= 0 {
 		return nil
 	}
@@ -552,15 +552,7 @@ func warnOnRuntimeMismatch(disc *state.Disc, titles []tools.HandBrakeTitle) {
 
 func (h *Handler) moveOutputs(transcoded []string, _ []tools.HandBrakeTitle,
 	disc *state.Disc, prof *state.Profile) ([]string, error) {
-	season := 1
-	if v, ok := prof.Options["season"]; ok {
-		switch n := v.(type) {
-		case int:
-			season = n
-		case float64:
-			season = int(n)
-		}
-	}
+	season := pipelines.IntOption(prof, "season", 1)
 
 	var moved []string
 	for episodeIdx, src := range transcoded {

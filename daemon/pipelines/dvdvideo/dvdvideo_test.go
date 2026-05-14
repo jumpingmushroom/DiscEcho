@@ -776,3 +776,120 @@ func TestDVDPipeline_EmitsMilestoneLogs(t *testing.T) {
 		}
 	}
 }
+
+// hasFlag reports whether args contains the bare flag.
+func hasFlag(args []string, flag string) bool {
+	for _, a := range args {
+		if a == flag {
+			return true
+		}
+	}
+	return false
+}
+
+// flagValue returns the argument following flag, or "" if absent.
+func flagValue(args []string, flag string) string {
+	for i, a := range args {
+		if a == flag && i+1 < len(args) {
+			return args[i+1]
+		}
+	}
+	return ""
+}
+
+func TestDVD_Run_EncodeArgs_SubtitlesAndQualityDefaults(t *testing.T) {
+	libRoot := t.TempDir()
+	hb := &fakeHandBrake{scanTitles: []tools.HandBrakeTitle{{Number: 1, DurationSeconds: 7000}}}
+	bk := &fakeDVDBackup{label: "PENGUINS"}
+	reg := tools.NewRegistry()
+	reg.Register(hb)
+	reg.Register(tools.NewMockTool("apprise", nil))
+	reg.Register(tools.NewMockTool("eject", nil))
+
+	h := dvdvideo.New(dvdvideo.Deps{
+		Tools:                    reg,
+		LibraryRoot:              libRoot,
+		WorkRoot:                 t.TempDir(),
+		LibraryProbe:             func(string) error { return nil },
+		DVDBackup:                bk,
+		HandBrakeScanner:         hb,
+		MinEncodedBytesPerSecond: -1,
+		SubsLang:                 "eng", // must be ignored for an MKV profile
+	})
+
+	disc := &state.Disc{ID: "d", Type: state.DiscTypeDVD, Title: "March of the Penguins", Year: 2005}
+	prof := &state.Profile{
+		DiscType: state.DiscTypeDVD, Engine: "HandBrake", Format: "MKV",
+		Options:            map[string]any{"dvd_selection_mode": "main_feature"},
+		OutputPathTemplate: `{{.Title}}.mkv`,
+	}
+
+	if err := h.Run(context.Background(),
+		&state.Drive{ID: "drv", DevPath: "/dev/sr0"}, disc, prof,
+		testutil.NewRecordingSink()); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if len(hb.calls) != 1 {
+		t.Fatalf("want 1 encode call, got %d", len(hb.calls))
+	}
+	args := hb.calls[0].args
+
+	// Archival MKV keeps every subtitle track — no language filter.
+	if !hasFlag(args, "--all-subtitles") {
+		t.Errorf("MKV encode args missing --all-subtitles: %v", args)
+	}
+	if hasFlag(args, "--subtitle-lang-list") {
+		t.Errorf("MKV encode args should not language-filter subtitles: %v", args)
+	}
+	// Defaults when the profile carries no quality_rf / encoder_preset.
+	if v := flagValue(args, "--quality"); v != "18" {
+		t.Errorf("--quality: want 18 (default), got %q", v)
+	}
+	if v := flagValue(args, "--encoder-preset"); v != "slow" {
+		t.Errorf("--encoder-preset: want slow (default), got %q", v)
+	}
+}
+
+func TestDVD_Run_EncodeArgs_ProfileOverridesQuality(t *testing.T) {
+	libRoot := t.TempDir()
+	hb := &fakeHandBrake{scanTitles: []tools.HandBrakeTitle{{Number: 1, DurationSeconds: 7000}}}
+	bk := &fakeDVDBackup{label: "PENGUINS"}
+	reg := tools.NewRegistry()
+	reg.Register(hb)
+	reg.Register(tools.NewMockTool("apprise", nil))
+	reg.Register(tools.NewMockTool("eject", nil))
+
+	h := dvdvideo.New(dvdvideo.Deps{
+		Tools:                    reg,
+		LibraryRoot:              libRoot,
+		WorkRoot:                 t.TempDir(),
+		LibraryProbe:             func(string) error { return nil },
+		DVDBackup:                bk,
+		HandBrakeScanner:         hb,
+		MinEncodedBytesPerSecond: -1,
+	})
+
+	disc := &state.Disc{ID: "d", Type: state.DiscTypeDVD, Title: "Movie", Year: 2020}
+	prof := &state.Profile{
+		DiscType: state.DiscTypeDVD, Engine: "HandBrake", Format: "MKV",
+		Options: map[string]any{
+			"dvd_selection_mode": "main_feature",
+			"quality_rf":         22,
+			"encoder_preset":     "medium",
+		},
+		OutputPathTemplate: `{{.Title}}.mkv`,
+	}
+
+	if err := h.Run(context.Background(),
+		&state.Drive{ID: "drv", DevPath: "/dev/sr0"}, disc, prof,
+		testutil.NewRecordingSink()); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	args := hb.calls[0].args
+	if v := flagValue(args, "--quality"); v != "22" {
+		t.Errorf("--quality: want 22 (profile override), got %q", v)
+	}
+	if v := flagValue(args, "--encoder-preset"); v != "medium" {
+		t.Errorf("--encoder-preset: want medium (profile override), got %q", v)
+	}
+}
