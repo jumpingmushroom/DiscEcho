@@ -2,7 +2,9 @@ import '@testing-library/jest-dom/vitest';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, fireEvent } from '@testing-library/svelte';
 import { tick } from 'svelte';
+import { get } from 'svelte/store';
 import NotificationEditor from './NotificationEditor.svelte';
+import { toasts } from '$lib/toasts';
 import type { Notification } from '$lib/wire';
 
 const seed: Notification = {
@@ -30,6 +32,7 @@ describe('NotificationEditor', () => {
   beforeEach(() => {
     fetchSpy = vi.fn();
     vi.stubGlobal('fetch', fetchSpy);
+    toasts.set([]);
   });
 
   afterEach(() => {
@@ -62,6 +65,9 @@ describe('NotificationEditor', () => {
       `/api/notifications/${seed.id}`,
       expect.objectContaining({ method: 'PUT' }),
     );
+    expect(get(toasts)).toContainEqual(
+      expect.objectContaining({ kind: 'success', message: 'Notification saved' }),
+    );
   });
 
   it('Save POSTs in creating mode', async () => {
@@ -81,6 +87,9 @@ describe('NotificationEditor', () => {
     expect(fetchSpy).toHaveBeenCalledWith(
       '/api/notifications',
       expect.objectContaining({ method: 'POST' }),
+    );
+    expect(get(toasts)).toContainEqual(
+      expect.objectContaining({ kind: 'success', message: 'Notification created' }),
     );
   });
 
@@ -109,64 +118,72 @@ describe('NotificationEditor', () => {
     expect((getByText(/^validate$/i) as HTMLButtonElement).disabled).toBe(true);
   });
 
-  it('Validate shows ok banner', async () => {
+  it('Validate pushes a success toast', async () => {
     fetchSpy.mockResolvedValueOnce({
       ok: true,
       status: 200,
       json: async () => ({ ok: true }),
     });
-    const { getByText, container } = render(NotificationEditor, {
+    const { getByText } = render(NotificationEditor, {
       notification: seed,
       creating: false,
     });
     await fireEvent.click(getByText(/^validate$/i));
     await flush();
-    expect(container.textContent).toMatch(/url is valid/i);
+    expect(get(toasts)).toContainEqual(
+      expect.objectContaining({ kind: 'success', message: 'URL is valid.' }),
+    );
   });
 
-  it('Validate shows error banner with apprise message', async () => {
+  it('Validate pushes an error toast with apprise message', async () => {
     fetchSpy.mockResolvedValueOnce({
       ok: true,
       status: 200,
       json: async () => ({ ok: false, error: 'apprise dry-run: bad URL' }),
     });
-    const { getByText, container } = render(NotificationEditor, {
+    const { getByText } = render(NotificationEditor, {
       notification: seed,
       creating: false,
     });
     await fireEvent.click(getByText(/^validate$/i));
     await flush();
-    expect(container.textContent).toMatch(/bad URL/);
+    expect(get(toasts)).toContainEqual(
+      expect.objectContaining({ kind: 'error', message: 'apprise dry-run: bad URL' }),
+    );
   });
 
-  it('Test sends and shows confirmation', async () => {
+  it('Test pushes a success toast', async () => {
     fetchSpy.mockResolvedValueOnce({
       ok: true,
       status: 200,
       json: async () => ({ sent: true }),
     });
-    const { getByText, container } = render(NotificationEditor, {
+    const { getByText } = render(NotificationEditor, {
       notification: seed,
       creating: false,
     });
     await fireEvent.click(getByText(/^test$/i));
     await flush();
-    expect(container.textContent).toMatch(/test sent/i);
+    expect(get(toasts)).toContainEqual(
+      expect.objectContaining({ kind: 'success', message: 'Test notification sent.' }),
+    );
   });
 
-  it('Test handles 502 with error', async () => {
+  it('Test pushes an error toast on 502', async () => {
     fetchSpy.mockResolvedValueOnce({
       ok: false,
       status: 502,
       text: async () => '{"sent":false,"error":"delivery failed"}',
     });
-    const { getByText, container } = render(NotificationEditor, {
+    const { getByText } = render(NotificationEditor, {
       notification: seed,
       creating: false,
     });
     await fireEvent.click(getByText(/^test$/i));
     await flush();
-    expect(container.textContent).toMatch(/delivery failed/);
+    expect(get(toasts)).toContainEqual(
+      expect.objectContaining({ kind: 'error', message: 'delivery failed' }),
+    );
   });
 
   it('Delete two-step', async () => {
@@ -184,6 +201,9 @@ describe('NotificationEditor', () => {
     expect(fetchSpy).toHaveBeenCalledWith(
       `/api/notifications/${seed.id}`,
       expect.objectContaining({ method: 'DELETE' }),
+    );
+    expect(get(toasts)).toContainEqual(
+      expect.objectContaining({ kind: 'success', message: 'Notification deleted' }),
     );
   });
 });

@@ -4,7 +4,7 @@
 
 {#if $updateAvailable}
   <div
-    class="fixed bottom-4 right-4 z-50 rounded-lg border border-border bg-surface-1 px-4 py-3 shadow-lg"
+    class="fixed bottom-4 left-4 z-50 rounded-lg border border-border bg-surface-1 px-4 py-3 shadow-lg"
     role="status"
   >
     <div class="text-[13px] text-text">A new version is available.</div>

@@ -1,8 +1,10 @@
 import '@testing-library/jest-dom/vitest';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { render, fireEvent, waitFor } from '@testing-library/svelte';
+import { get } from 'svelte/store';
 import SystemSection from './SystemSection.svelte';
 import { settings, drives } from '$lib/store';
+import { toasts } from '$lib/toasts';
 
 const versionResp = { version: '1.0.0', commit: 'abc', build_date: '2026-05-08' };
 const hostResp = {
@@ -83,6 +85,7 @@ describe('SystemSection', () => {
   beforeEach(() => {
     apiPutMock.mockReset();
     mockEndpoints();
+    toasts.set([]);
     settings.set({});
     drives.set([
       {
@@ -159,6 +162,11 @@ describe('SystemSection', () => {
       expect(apiPutMock).toHaveBeenCalledWith('/api/settings', {
         'library.movies': '/srv/films',
       }),
+    );
+    await waitFor(() =>
+      expect(get(toasts)).toContainEqual(
+        expect.objectContaining({ kind: 'success', message: 'Library paths saved' }),
+      ),
     );
   });
 

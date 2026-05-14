@@ -5,6 +5,7 @@
   import { initPWA } from '$lib/pwa';
   import TopNav from '$lib/components/desktop/TopNav.svelte';
   import UpdateToast from '$lib/components/UpdateToast.svelte';
+  import ToastHost from '$lib/components/ToastHost.svelte';
   import IOSInstallHint from '$lib/components/IOSInstallHint.svelte';
 
   let disconnect: (() => void) | null = null;
@@ -28,6 +29,7 @@
 <TopNav />
 <slot />
 <UpdateToast />
+<ToastHost />
 <IOSInstallHint />
 
 <style>

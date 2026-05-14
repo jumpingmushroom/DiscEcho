@@ -1,8 +1,10 @@
 import '@testing-library/jest-dom/vitest';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, fireEvent } from '@testing-library/svelte';
+import { get } from 'svelte/store';
 import RetentionSection from './RetentionSection.svelte';
 import { settings } from '$lib/store';
+import { toasts } from '$lib/toasts';
 
 const updateRetentionMock = vi.fn();
 
@@ -15,6 +17,7 @@ describe('RetentionSection', () => {
   beforeEach(() => {
     updateRetentionMock.mockReset();
     settings.set({ 'retention.forever': 'true', 'retention.days': '30' });
+    toasts.set([]);
   });
 
   it('toggle off reveals days input', async () => {
@@ -50,6 +53,10 @@ describe('RetentionSection', () => {
     await fireEvent.input(days);
     await fireEvent.click(getByText(/save/i));
     await Promise.resolve();
+    await Promise.resolve();
     expect(updateRetentionMock).toHaveBeenCalledWith({ forever: false, days: 60 });
+    expect(get(toasts)).toContainEqual(
+      expect.objectContaining({ kind: 'success', message: 'Retention settings saved' }),
+    );
   });
 });
