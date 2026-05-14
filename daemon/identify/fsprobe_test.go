@@ -63,6 +63,24 @@ func TestParseIsoInfoListing_StripsVersionSuffix(t *testing.T) {
 	}
 }
 
+func TestParseIsoInfoListing_SkipsDotEntries(t *testing.T) {
+	// isoinfo lists the ISO9660 "." and ".." self/parent directory
+	// entries for every directory. They are never useful paths, and
+	// emitting them would make "did we read any real files?" — the
+	// signal the classifier's spin-up retry keys on — unreliable.
+	listing := "Directory listing of /\n" +
+		"d---------   0    0    0      278 Sep 26 2005 [    261 02]  . \n" +
+		"d---------   0    0    0      278 Sep 26 2005 [    261 02]  .. \n" +
+		"----------   0    0    0       56 Sep 22 2005 [    269 00]  SYSTEM.CNF;1 \n"
+	got := identify.ParseIsoInfoListing(listing)
+	if contains(got, "/.") || contains(got, "/..") {
+		t.Errorf("listing should skip . and .. entries, got %v", got)
+	}
+	if !contains(got, "/SYSTEM.CNF") {
+		t.Errorf("listing missing /SYSTEM.CNF, got %v", got)
+	}
+}
+
 func contains(haystack []string, needle string) bool {
 	for _, h := range haystack {
 		if h == needle {

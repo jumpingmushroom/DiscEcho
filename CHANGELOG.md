@@ -6,6 +6,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Fixed
+- Discs whose type is determined by reading the filesystem (PlayStation 2, PSX, DVD, Blu-ray, Xbox) are no longer intermittently misidentified as a generic DATA disc. The classifier's `isoinfo` filesystem probe is now retried through the disc spin-up window — the same way the `cd-info` probe already was. Previously, when `isoinfo` ran in the brief window where `cd-info` had succeeded but the ISO9660 filesystem wasn't yet readable, it returned an empty listing that silently downgraded the disc to DATA, where it became invisible in the UI (no candidates, no card) — so identify appeared to "just stop". The classifier also now logs a breadcrumb when a disc isn't recognised by any probe.
+
 ## [0.9.0] - 2026-05-14
 
 ### Added
