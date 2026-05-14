@@ -94,6 +94,9 @@ func ParseIsoInfoListing(s string) []string {
 		if name == "" {
 			continue
 		}
+		if name == "." || name == ".." {
+			continue // ISO9660 self/parent dir entries — never a useful path
+		}
 		var full string
 		if current == "/" {
 			full = "/" + name

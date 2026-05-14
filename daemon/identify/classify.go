@@ -135,7 +135,15 @@ func (c *multiProbeClassifier) Classify(ctx context.Context, devPath string) (st
 	if err != nil {
 		return "", err
 	}
-	return RefineDiscType(ctx, base, c.fs, c.bd, c.sysCNF, c.saturn, c.xbox, c.dc, devPath), nil
+	fs := c.fs
+	if fs != nil {
+		// The ISO9660 listing can be momentarily empty in the disc
+		// spin-up window even after cd-info already succeeds; retry it
+		// on the same backoff schedule so the disc isn't silently
+		// downgraded to DATA. See retryingFSProber.
+		fs = &retryingFSProber{inner: c.fs, backoff: c.backoff}
+	}
+	return RefineDiscType(ctx, base, fs, c.bd, c.sysCNF, c.saturn, c.xbox, c.dc, devPath), nil
 }
 
 func (c *multiProbeClassifier) runCDInfo(ctx context.Context, devPath string) ([]byte, error) {
@@ -162,6 +170,52 @@ func (c *multiProbeClassifier) runCDInfo(ctx context.Context, devPath string) ([
 		}
 	}
 	return nil, lastErr
+}
+
+// retryingFSProber wraps an FSProber with the same retry-with-backoff
+// the cd-info probe uses. cd-info can report a disc ready a beat
+// before isoinfo can list its ISO9660 filesystem — isoinfo then exits
+// 0 with an empty listing, which would otherwise silently downgrade
+// the disc to generic DATA (and from there it's invisible in the UI).
+// Retrying while the listing stays empty absorbs that spin-up window.
+// A genuinely blank disc exhausts the schedule and returns the empty
+// listing, which RefineDiscType resolves to DATA — same as before.
+type retryingFSProber struct {
+	inner   FSProber
+	backoff []time.Duration
+}
+
+func (r *retryingFSProber) List(ctx context.Context, devPath string) ([]string, error) {
+	var (
+		files   []string
+		lastErr error
+	)
+	for attempt := 0; attempt <= len(r.backoff); attempt++ {
+		files, lastErr = r.inner.List(ctx, devPath)
+		if lastErr == nil && len(files) > 0 {
+			if attempt > 0 {
+				slog.Info("fs probe succeeded after retry", "dev", devPath, "attempts", attempt+1)
+			}
+			return files, nil
+		}
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		if attempt == len(r.backoff) {
+			break
+		}
+		select {
+		case <-time.After(r.backoff[attempt]):
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
+	// Retries exhausted. A persistent error wins; otherwise return the
+	// (empty) listing — a genuinely blank disc.
+	if lastErr != nil {
+		return nil, lastErr
+	}
+	return files, nil
 }
 
 // ClassifyFromCDInfo parses cd-info stdout/stderr and returns the
@@ -284,6 +338,11 @@ func RefineDiscType(ctx context.Context, base state.DiscType, fs FSProber, bd BD
 			return state.DiscTypeDC
 		}
 	}
+	// Breadcrumb: nothing recognised the disc. fs_entries==0 points at a
+	// still-spinning-up read (the retry should normally absorb that);
+	// a non-zero count means a genuinely unsupported data disc.
+	slog.Info("classify: disc not recognised by any probe; treating as DATA",
+		"dev", devPath, "fs_entries", len(files))
 	return state.DiscTypeData
 }
 
