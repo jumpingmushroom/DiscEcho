@@ -1594,6 +1594,56 @@ func (s *Store) PruneHistoryBefore(ctx context.Context, cutoff time.Time) (int, 
 	return int(deleted), nil
 }
 
+// ClearHistory deletes every finished job (done/failed/cancelled), the
+// job_steps and log_lines they own (via FK cascade), and the disc rows
+// left with no job at all once those jobs are gone. In-progress jobs
+// (queued/identifying/running/paused) and their discs are untouched,
+// as are discs that never had a job (e.g. one still awaiting a
+// decision). Ripped files on disk are not touched. Returns the number
+// of jobs deleted. Runs in a single transaction.
+func (s *Store) ClearHistory(ctx context.Context) (int, error) {
+	tx, err := s.db.Conn().BeginTx(ctx, nil)
+	if err != nil {
+		return 0, fmt.Errorf("begin: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	// Count the finished jobs up front — once the deletes (and their FK
+	// cascades) run, RowsAffected can't see cascade-deleted rows.
+	var deleted int
+	if err := tx.QueryRowContext(ctx, `
+		SELECT COUNT(*) FROM jobs
+		WHERE state IN ('done','failed','cancelled')`).Scan(&deleted); err != nil {
+		return 0, fmt.Errorf("count finished jobs: %w", err)
+	}
+
+	// Drop discs whose every job is finished — they had history and have
+	// no active rip. The jobs.disc_id ON DELETE CASCADE removes those
+	// discs' jobs, job_steps and log_lines. The first EXISTS clause
+	// keeps discs that never had a job (one still awaiting a decision).
+	if _, err := tx.ExecContext(ctx, `
+		DELETE FROM discs
+		WHERE EXISTS (SELECT 1 FROM jobs j WHERE j.disc_id = discs.id)
+		  AND NOT EXISTS (
+		    SELECT 1 FROM jobs j WHERE j.disc_id = discs.id
+		      AND j.state IN ('queued','identifying','running','paused'))`); err != nil {
+		return 0, fmt.Errorf("delete history discs: %w", err)
+	}
+
+	// Mop up finished jobs on discs that were KEPT (a disc with both a
+	// finished job and an active re-rip).
+	if _, err := tx.ExecContext(ctx, `
+		DELETE FROM jobs
+		WHERE state IN ('done','failed','cancelled')`); err != nil {
+		return 0, fmt.Errorf("delete finished jobs: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return 0, fmt.Errorf("commit: %w", err)
+	}
+	return deleted, nil
+}
+
 // Stats computes the dashboard's top-widgets payload. Library
 // total_bytes is left zero — that's filled in by the API layer via
 // statfs against the library roots (the daemon's state package

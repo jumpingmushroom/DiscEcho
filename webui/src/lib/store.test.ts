@@ -30,6 +30,7 @@ import {
   historyError,
   historyFilter,
   fetchHistoryPage,
+  clearHistory,
   manualIdentify,
 } from './store';
 import type { Drive, Job, Disc, Profile } from './wire';
@@ -784,5 +785,41 @@ describe('prefs', () => {
     const body = JSON.parse((call[1] as RequestInit).body as string);
     expect(body['retention.forever']).toBe(false);
     expect(body['retention.days']).toBe(60);
+  });
+});
+
+describe('clearHistory', () => {
+  let fetchSpy: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    fetchSpy = vi.fn();
+    vi.stubGlobal('fetch', fetchSpy);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('POSTs to /api/history/clear and returns the deleted count', async () => {
+    fetchSpy.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => ({ deleted: 7 }),
+    });
+    const got = await clearHistory();
+    expect(got).toBe(7);
+    expect(fetchSpy).toHaveBeenCalledWith(
+      '/api/history/clear',
+      expect.objectContaining({ method: 'POST' }),
+    );
+  });
+
+  it('throws on HTTP error', async () => {
+    fetchSpy.mockResolvedValueOnce({
+      ok: false,
+      status: 500,
+      text: async () => 'boom',
+    });
+    await expect(clearHistory()).rejects.toThrow('500');
   });
 });
