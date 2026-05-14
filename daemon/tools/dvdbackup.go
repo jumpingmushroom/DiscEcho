@@ -293,25 +293,6 @@ func formatRate(bps float64) string {
 // information the size-based poller doesn't already surface.
 var dvdBackupProgressRE = regexp.MustCompile(`% done`)
 
-// dvdBackupErrorKeywords flag a line as a genuine warning rather than
-// routine chatter. Matched case-insensitively as substrings.
-var dvdBackupErrorKeywords = []string{
-	"error", "cannot", "could not", "couldn't",
-	"failed", "no such", "unable", "permission denied",
-}
-
-// hasErrorKeyword reports whether line looks like an actual error or
-// failure rather than informational tool output.
-func hasErrorKeyword(line string) bool {
-	l := strings.ToLower(line)
-	for _, kw := range dvdBackupErrorKeywords {
-		if strings.Contains(l, kw) {
-			return true
-		}
-	}
-	return false
-}
-
 // parseDVDBackupStream consumes dvdbackup's textual output (stdout and
 // stderr). Progress is handled separately by the size-based poller, so
 // '% done' chatter is dropped; libdvdread's per-VOB key/seek trace is

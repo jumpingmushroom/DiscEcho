@@ -24,8 +24,8 @@ func TestOpen_AppliesMigrationsOnFreshDB(t *testing.T) {
 	if err := row.Scan(&v); err != nil {
 		t.Fatalf("scan version: %v", err)
 	}
-	if v != 5 {
-		t.Errorf("schema_migrations max version: want 5, got %d", v)
+	if v != 6 {
+		t.Errorf("schema_migrations max version: want 6, got %d", v)
 	}
 
 	for _, tbl := range []string{
@@ -63,8 +63,8 @@ func TestOpen_IsIdempotent(t *testing.T) {
 	if err := row.Scan(&n); err != nil {
 		t.Fatal(err)
 	}
-	if n != 5 {
-		t.Errorf("schema_migrations rows after second open: want 5, got %d", n)
+	if n != 6 {
+		t.Errorf("schema_migrations rows after second open: want 6, got %d", n)
 	}
 }
 
@@ -145,6 +145,63 @@ func TestMigration003_FlipsDVDMovieDefaults(t *testing.T) {
 	}
 	if !strings.Contains(opts, `"dvd_selection_mode":"main_feature"`) {
 		t.Errorf("options_json missing dvd_selection_mode: %s", opts)
+	}
+}
+
+// TestMigration006_BackfillsDVDQualityOptions seeds a pre-006 DVD
+// HandBrake profile (no quality_rf / encoder_preset in its options
+// blob, stale "RF 20" display string), then executes migration 006's
+// SQL directly to confirm it backfills the two new options without
+// clobbering existing keys and refreshes the cosmetic display string.
+// Like the 003 test, we don't re-Open — the migration runner is
+// MAX(version)-based and won't replay 006.
+func TestMigration006_BackfillsDVDQualityOptions(t *testing.T) {
+	dir := t.TempDir()
+	db, err := state.Open(filepath.Join(dir, "test.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+	ctx := context.Background()
+
+	if _, err := db.Conn().ExecContext(ctx, `
+		INSERT INTO profiles (id, disc_type, name, engine, format, preset,
+		                      quality_preset, options_json,
+		                      output_path_template, step_count,
+		                      created_at, updated_at)
+		VALUES ('dvd-q-test', 'DVD', 'DVD-Movie', 'HandBrake', 'MKV',
+		        'x264 RF 20', 'x264 RF 20',
+		        '{"dvd_selection_mode":"main_feature"}',
+		        '{{.Title}}.mkv', 7,
+		        '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')`); err != nil {
+		t.Fatal(err)
+	}
+
+	body, err := migrationBody("006_dvd_quality_options.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Conn().ExecContext(ctx, body); err != nil {
+		t.Fatalf("re-exec migration 006: %v", err)
+	}
+
+	var blob, preset, qualityPreset string
+	if err := db.Conn().QueryRowContext(ctx,
+		`SELECT options_json, preset, quality_preset FROM profiles WHERE id = 'dvd-q-test'`).
+		Scan(&blob, &preset, &qualityPreset); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		`"quality_rf":18`,
+		`"encoder_preset":"slow"`,
+		`"dvd_selection_mode":"main_feature"`, // pre-existing key preserved
+	} {
+		if !strings.Contains(blob, want) {
+			t.Errorf("options_json missing %s: %s", want, blob)
+		}
+	}
+	if preset != "x264 RF 18 · slow" || qualityPreset != "x264 RF 18 · slow" {
+		t.Errorf("display strings not refreshed: preset=%q quality_preset=%q", preset, qualityPreset)
 	}
 }
 

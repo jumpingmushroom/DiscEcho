@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/jumpingmushroom/DiscEcho/daemon/state"
 	"github.com/jumpingmushroom/DiscEcho/daemon/tools"
 )
 
@@ -62,7 +63,7 @@ func TestHandBrake_ParseEncodeProgress(t *testing.T) {
 		t.Fatal(err)
 	}
 	sink := &recordingSink{}
-	tools.ParseHandBrakeEncodeStream(strings.NewReader(string(body)), 1, 1, sink)
+	tools.ParseHandBrakeEncodeStream(strings.NewReader(string(body)), 1, 1, 0, sink)
 
 	progressEvents := 0
 	var lastPct float64
@@ -91,7 +92,7 @@ func TestHandBrake_ParseEncodeProgress_CarriageReturnSeparated(t *testing.T) {
 			"Encoding: task 1 of 1, 99.00 % (avg fps 30.0, ETA 00h00m01s)\r",
 	)
 	sink := &recordingSink{}
-	tools.ParseHandBrakeEncodeStream(stream, 1, 1, sink)
+	tools.ParseHandBrakeEncodeStream(stream, 1, 1, 0, sink)
 
 	progressEvents := 0
 	for _, e := range sink.events {
@@ -106,7 +107,9 @@ func TestHandBrake_ParseEncodeProgress_CarriageReturnSeparated(t *testing.T) {
 
 // HandBrake 1.6.1 (and likely surrounding releases) emits encode
 // progress as a bare percentage when stdout is a pipe — no
-// `(avg fps X, ETA YhYmYs)` tail. The parser must accept both forms.
+// `(avg fps X, ETA YhYmYs)` tail. The parser must accept both forms;
+// ETA/speed for the bare form are derived separately (see
+// deriveEncodeETA and its tests).
 func TestHandBrake_ParseEncodeProgress_NoParensTail(t *testing.T) {
 	stream := strings.NewReader(
 		"Encoding: task 1 of 1, 1.55 %\r" +
@@ -114,7 +117,7 @@ func TestHandBrake_ParseEncodeProgress_NoParensTail(t *testing.T) {
 			"Encoding: task 1 of 1, 65.16 %\r",
 	)
 	sink := &recordingSink{}
-	tools.ParseHandBrakeEncodeStream(stream, 1, 1, sink)
+	tools.ParseHandBrakeEncodeStream(stream, 1, 1, 0, sink)
 
 	progressEvents := 0
 	var pcts []float64
@@ -133,11 +136,6 @@ func TestHandBrake_ParseEncodeProgress_NoParensTail(t *testing.T) {
 	if pcts[2] < 65.0 || pcts[2] > 65.3 {
 		t.Errorf("pct[2]: want ~65.16, got %.2f", pcts[2])
 	}
-	for _, e := range sink.events {
-		if e.kind == "progress" && e.eta != 0 {
-			t.Errorf("eta should be 0 when no ETA tail in input, got %d", e.eta)
-		}
-	}
 }
 
 func TestHandBrake_ProgressForOneOfThreeTitles(t *testing.T) {
@@ -145,7 +143,7 @@ func TestHandBrake_ProgressForOneOfThreeTitles(t *testing.T) {
 	// for intra=50 → overall = (1 + 0.5)/3 * 100 = 50.0
 	stream := strings.NewReader("Encoding: task 1 of 1, 50.00 % (avg fps 30.0, ETA 00h00m10s)\n")
 	sink := &recordingSink{}
-	tools.ParseHandBrakeEncodeStream(stream, 2, 3, sink)
+	tools.ParseHandBrakeEncodeStream(stream, 2, 3, 0, sink)
 	if len(sink.events) != 1 {
 		t.Fatalf("want 1 event, got %d", len(sink.events))
 	}
@@ -177,7 +175,7 @@ func TestHandBrake_ParseEncodeStream_PassesThroughNonProgressLines(t *testing.T)
 			"Encoding: task 1 of 1, 50.00 %\r",
 	)
 	sink := &recordingSink{}
-	tools.ParseHandBrakeEncodeStream(stream, 1, 1, sink)
+	tools.ParseHandBrakeEncodeStream(stream, 1, 1, 0, sink)
 
 	warns := 0
 	for _, e := range sink.events {
@@ -208,13 +206,54 @@ func TestHandBrake_ParseEncodeStream_PassesThroughNonProgressLines(t *testing.T)
 	}
 }
 
+// HandBrake logs its fully-resolved job as pretty-printed JSON to
+// stderr; before 0.7.x those lines (no `[` prefix) all landed at warn
+// and flooded the job log. They must now be dropped, and the
+// remaining lines levelled — info by default, warn on error/warning.
+func TestHandBrake_ParseEncodeStream_DropsJSONDumpAndLevelsLines(t *testing.T) {
+	stream := strings.NewReader(
+		"{\n" +
+			"  \"PresetEncoder\": \"av_aac\",\n" +
+			"  \"Quality\": -3.0,\n" +
+			"}\n" +
+			"x264 [info]: using cpu capabilities: MMX2 SSE2\n" +
+			"x264 [warning]: bad audio sync\n" +
+			"x264 [error]: nal write failed\n",
+	)
+	sink := &recordingSink{}
+	tools.ParseHandBrakeEncodeStream(stream, 1, 1, 0, sink)
+
+	var infos, warns int
+	for _, e := range sink.events {
+		if e.kind != "log" {
+			continue
+		}
+		if strings.Contains(e.message, "PresetEncoder") || strings.Contains(e.message, "Quality") {
+			t.Errorf("JSON dump line should be dropped, got %q", e.message)
+		}
+		switch e.level {
+		case state.LogLevelInfo:
+			infos++
+		case state.LogLevelWarn:
+			warns++
+		}
+	}
+	// x264 [info] → info; x264 [warning] + x264 [error] → warn.
+	if infos != 1 {
+		t.Errorf("want 1 info line, got %d", infos)
+	}
+	if warns != 2 {
+		t.Errorf("want 2 warn lines, got %d", warns)
+	}
+}
+
 func TestHandBrake_ParseEncodeStream_StderrCap(t *testing.T) {
 	var sb strings.Builder
 	for i := 0; i < 250; i++ {
 		fmt.Fprintf(&sb, "x264 [error]: line %d\n", i)
 	}
 	sink := &recordingSink{}
-	tools.ParseHandBrakeEncodeStream(strings.NewReader(sb.String()), 1, 1, sink)
+	tools.ParseHandBrakeEncodeStream(strings.NewReader(sb.String()), 1, 1, 0, sink)
 
 	logs := 0
 	for _, e := range sink.events {

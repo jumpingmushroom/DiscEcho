@@ -354,6 +354,13 @@ func TestLoad_DVDProfilesSeeded(t *testing.T) {
 	if mode, _ := mv.Options["dvd_selection_mode"].(string); mode != "main_feature" {
 		t.Errorf("DVD-Movie dvd_selection_mode: want main_feature, got %q", mode)
 	}
+	// quality_rf round-trips through options_json (TEXT) → float64.
+	if rf, _ := mv.Options["quality_rf"].(float64); rf != 18 {
+		t.Errorf("DVD-Movie quality_rf: want 18, got %v", mv.Options["quality_rf"])
+	}
+	if p, _ := mv.Options["encoder_preset"].(string); p != "slow" {
+		t.Errorf("DVD-Movie encoder_preset: want slow, got %q", p)
+	}
 	if !strings.HasSuffix(mv.OutputPathTemplate, ".mkv") {
 		t.Errorf("DVD-Movie output template should end in .mkv: %s", mv.OutputPathTemplate)
 	}
@@ -364,6 +371,12 @@ func TestLoad_DVDProfilesSeeded(t *testing.T) {
 	}
 	if mode, _ := sr.Options["dvd_selection_mode"].(string); mode != "per_title" {
 		t.Errorf("DVD-Series dvd_selection_mode: want per_title, got %q", mode)
+	}
+	if rf, _ := sr.Options["quality_rf"].(float64); rf != 18 {
+		t.Errorf("DVD-Series quality_rf: want 18, got %v", sr.Options["quality_rf"])
+	}
+	if p, _ := sr.Options["encoder_preset"].(string); p != "slow" {
+		t.Errorf("DVD-Series encoder_preset: want slow, got %q", p)
 	}
 
 	// Idempotent
