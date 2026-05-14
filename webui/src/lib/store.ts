@@ -382,6 +382,19 @@ export async function fetchHistoryPage(filter: DiscType | '', offset: number): P
   }
 }
 
+/**
+ * clearHistory wipes all finished-rip history server-side, then nudges
+ * a debounced /api/stats refresh so the dashboard counters reflect the
+ * now-empty history. Returns the number of jobs deleted. Throws on HTTP
+ * error so the caller can surface it inline; the caller is responsible
+ * for re-fetching the history list afterward.
+ */
+export async function clearHistory(): Promise<number> {
+  const res = await apiPost<{ deleted: number }>('/api/history/clear');
+  scheduleStatsRefresh();
+  return res.deleted;
+}
+
 // ----- Manual identify ------------------------------------------------------
 
 /**
