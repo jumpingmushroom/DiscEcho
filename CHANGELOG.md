@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.6.1] - 2026-05-14
+
 ### Fixed
 - Editing and saving a DVD-Movie or DVD-Series profile in the web UI no longer fails silently. The seeded DVD profiles carry a `dvd_selection_mode` option that was missing from the HandBrake engine's validation schema, so every save was rejected with a 422 — including unrelated changes like switching the video codec.
 
