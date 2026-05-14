@@ -152,3 +152,94 @@ func TestStore_ListHistory_ExcludesActiveJobs(t *testing.T) {
 		t.Errorf("running jobs should not appear in history, got %d rows", len(rows))
 	}
 }
+
+func TestStore_ClearHistory(t *testing.T) {
+	s := openStore(t)
+	ctx := context.Background()
+	drv := newDrive(t, s, "/dev/sr0")
+	prof := newProfile(t, s, "CD-FLAC", state.DiscTypeAudioCD)
+
+	// A finished (done) rip.
+	discDone := &state.Disc{DriveID: drv.ID, Type: state.DiscTypeAudioCD, Title: "done"}
+	_ = s.CreateDisc(ctx, discDone)
+	jobDone := &state.Job{DiscID: discDone.ID, DriveID: drv.ID, ProfileID: prof.ID}
+	_ = s.CreateJob(ctx, jobDone)
+	_ = s.UpdateJobState(ctx, jobDone.ID, state.JobStateDone, "")
+
+	// A finished (failed) rip.
+	discFailed := &state.Disc{DriveID: drv.ID, Type: state.DiscTypeAudioCD, Title: "failed"}
+	_ = s.CreateDisc(ctx, discFailed)
+	jobFailed := &state.Job{DiscID: discFailed.ID, DriveID: drv.ID, ProfileID: prof.ID}
+	_ = s.CreateJob(ctx, jobFailed)
+	_ = s.UpdateJobState(ctx, jobFailed.ID, state.JobStateFailed, "boom")
+
+	// An in-progress rip (job left in the default queued state).
+	discActive := &state.Disc{DriveID: drv.ID, Type: state.DiscTypeAudioCD, Title: "active"}
+	_ = s.CreateDisc(ctx, discActive)
+	jobActive := &state.Job{DiscID: discActive.ID, DriveID: drv.ID, ProfileID: prof.ID}
+	_ = s.CreateJob(ctx, jobActive)
+
+	// A disc still awaiting a decision — no job at all.
+	discAwaiting := &state.Disc{DriveID: drv.ID, Type: state.DiscTypeAudioCD, Title: "awaiting"}
+	_ = s.CreateDisc(ctx, discAwaiting)
+
+	// A re-rip: one finished job AND one active job on the same disc.
+	discRerip := &state.Disc{DriveID: drv.ID, Type: state.DiscTypeAudioCD, Title: "rerip"}
+	_ = s.CreateDisc(ctx, discRerip)
+	jobReripOld := &state.Job{DiscID: discRerip.ID, DriveID: drv.ID, ProfileID: prof.ID}
+	_ = s.CreateJob(ctx, jobReripOld)
+	_ = s.UpdateJobState(ctx, jobReripOld.ID, state.JobStateDone, "")
+	jobReripNew := &state.Job{DiscID: discRerip.ID, DriveID: drv.ID, ProfileID: prof.ID}
+	_ = s.CreateJob(ctx, jobReripNew)
+
+	n, err := s.ClearHistory(ctx)
+	if err != nil {
+		t.Fatalf("ClearHistory: %v", err)
+	}
+	// jobDone + jobFailed + jobReripOld = 3 finished jobs deleted.
+	if n != 3 {
+		t.Errorf("deleted count: want 3, got %d", n)
+	}
+
+	// Finished history is gone.
+	if cnt, _ := s.CountHistory(ctx, state.HistoryFilter{}); cnt != 0 {
+		t.Errorf("CountHistory after clear: want 0, got %d", cnt)
+	}
+	// Discs whose only jobs were finished are gone.
+	if _, err := s.GetDisc(ctx, discDone.ID); err == nil {
+		t.Errorf("discDone should have been deleted")
+	}
+	if _, err := s.GetDisc(ctx, discFailed.ID); err == nil {
+		t.Errorf("discFailed should have been deleted")
+	}
+	// In-progress rip and its disc survive.
+	if _, err := s.GetDisc(ctx, discActive.ID); err != nil {
+		t.Errorf("discActive should remain: %v", err)
+	}
+	if _, err := s.GetJob(ctx, jobActive.ID); err != nil {
+		t.Errorf("jobActive should remain: %v", err)
+	}
+	// Awaiting-decision disc (never had a job) is left alone.
+	if _, err := s.GetDisc(ctx, discAwaiting.ID); err != nil {
+		t.Errorf("discAwaiting should remain: %v", err)
+	}
+	// Re-rip disc kept; its old finished job cleared, its active job kept.
+	if _, err := s.GetDisc(ctx, discRerip.ID); err != nil {
+		t.Errorf("discRerip should remain: %v", err)
+	}
+	if _, err := s.GetJob(ctx, jobReripOld.ID); err == nil {
+		t.Errorf("jobReripOld (finished) should have been deleted")
+	}
+	if _, err := s.GetJob(ctx, jobReripNew.ID); err != nil {
+		t.Errorf("jobReripNew (active) should remain: %v", err)
+	}
+
+	// Second call is a no-op and returns 0.
+	n2, err := s.ClearHistory(ctx)
+	if err != nil {
+		t.Fatalf("ClearHistory (second call): %v", err)
+	}
+	if n2 != 0 {
+		t.Errorf("second ClearHistory: want 0, got %d", n2)
+	}
+}
