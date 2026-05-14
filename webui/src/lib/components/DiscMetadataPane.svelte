@@ -74,7 +74,11 @@
     return d?.candidates?.[0]?.artist ?? '';
   }
 
-  $: hasMetadata = !!disc?.metadata_json && disc.metadata_json !== '{}';
+  // The pane shows whatever identity the disc already carries — a
+  // title set by identify, or the top candidate's title — without
+  // waiting on the rich metadata_json blob (which is best-effort and
+  // often empty mid-rip). Mirrors RipCard's discTitle fallback.
+  $: displayTitle = disc?.title || disc?.candidates?.[0]?.title || '';
   $: kind = computeKind(disc);
   $: tabs = tabsFor(kind);
   let activeTab = 'Overview';
@@ -95,8 +99,8 @@
     <div class="flex items-center gap-3">
       <DiscArt {disc} size={56} ratio={disc.type === 'AUDIO_CD' ? 'square' : 'portrait'} />
       <div class="min-w-0 flex-1">
-        {#if hasMetadata}
-          <div class="text-[15px] font-semibold text-text">{disc.title || 'Unknown'}</div>
+        {#if displayTitle}
+          <div class="text-[15px] font-semibold text-text">{displayTitle}</div>
         {:else}
           <div class="text-[15px] font-semibold text-text-3">Unknown disc</div>
         {/if}

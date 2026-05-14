@@ -69,6 +69,57 @@ func TestDVDBackup_ParseStream_ForwardsErrorsAsWarn(t *testing.T) {
 	}
 }
 
+func TestDVDBackup_ParseStream_DropsProgress(t *testing.T) {
+	// dvdbackup's -p output overstrikes the terminal with '\r'; a whole
+	// run of progress chunks arrives as one '\n'-terminated blob.
+	stream := strings.NewReader(
+		"Copying menu: 9% done (1/11 MiB)\r" +
+			"Copying menu: 100% done (11/11 MiB)\r\n" +
+			"Copying Title, part 1/1: 2% done (1/47 MiB)\r" +
+			"Copying Title, part 1/1: 100% done (47/47 MiB)\n",
+	)
+	sink := &captureSinkDVDBackup{}
+	parseDVDBackupStream(stream, sink)
+
+	for _, e := range sink.events {
+		if e.kind == "log" {
+			t.Errorf("progress line should not be logged, got: %q", e.message)
+		}
+	}
+}
+
+func TestDVDBackup_ParseStream_DropsLibdvdreadTrace(t *testing.T) {
+	stream := strings.NewReader(
+		"libdvdread: Get key for /VIDEO_TS/VTS_02_1.VOB at 0x00021926\n" +
+			"libdvdread: Elapsed time 0\n" +
+			"libdvdread: Found 3 VTS's\n",
+	)
+	sink := &captureSinkDVDBackup{}
+	parseDVDBackupStream(stream, sink)
+
+	for _, e := range sink.events {
+		if e.kind == "log" {
+			t.Errorf("libdvdread trace should not be logged, got: %q", e.message)
+		}
+	}
+}
+
+func TestDVDBackup_ParseStream_KeepsLibdvdreadErrors(t *testing.T) {
+	stream := strings.NewReader("libdvdread: Cannot open /dev/sr0\n")
+	sink := &captureSinkDVDBackup{}
+	parseDVDBackupStream(stream, sink)
+
+	warns := 0
+	for _, e := range sink.events {
+		if e.kind == "log" && e.level == state.LogLevelWarn {
+			warns++
+		}
+	}
+	if warns != 1 {
+		t.Errorf("want 1 warn line for a libdvdread error, got %d", warns)
+	}
+}
+
 func TestDVDBackup_ParseStream_Cap(t *testing.T) {
 	var sb strings.Builder
 	for i := 0; i < 250; i++ {
