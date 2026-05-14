@@ -1,7 +1,6 @@
 <script lang="ts">
   import type { Job, StepID } from '$lib/wire';
   import Icon from '$lib/icons/Icon.svelte';
-  import SpeedEtaChip from './SpeedEtaChip.svelte';
 
   export let job: Job;
 
@@ -133,19 +132,15 @@
     {/each}
   </div>
 
-  <!-- meta row -->
-  {#if activeStep && (job.speed || job.eta_seconds !== undefined)}
-    <div
-      class="mt-3 flex items-center justify-between border-t pt-3"
-      style="border-color: var(--surface-3)"
-    >
-      <div class="flex items-center gap-2">
-        <span class="text-[11px] uppercase tracking-[0.12em] text-text-3">Active</span>
-        <span class="text-[12px] font-medium text-text-2">
-          {activeStep.label} — {activeStep.desc}
-        </span>
-      </div>
-      <SpeedEtaChip speed={job.speed} etaSeconds={job.eta_seconds} />
+  <!-- meta row: names the active step. Speed/ETA for the step is shown
+       once, with the progress bar in the parent (RipCard) — it's the
+       current step's value, so duplicating it here said nothing new. -->
+  {#if activeStep}
+    <div class="mt-3 flex items-center gap-2 border-t pt-3" style="border-color: var(--surface-3)">
+      <span class="text-[11px] uppercase tracking-[0.12em] text-text-3">Active</span>
+      <span class="text-[12px] font-medium text-text-2">
+        {activeStep.label} — {activeStep.desc}
+      </span>
     </div>
   {/if}
 </div>

@@ -96,6 +96,11 @@ describe('RipCard', () => {
     expect(getByText('42%')).toBeInTheDocument();
   });
 
+  it('shows the speed/ETA chip exactly once — not duplicated by the stepper', () => {
+    const { queryAllByText } = render(RipCard, { drive, disc, job, profile });
+    expect(queryAllByText('4.2x')).toHaveLength(1);
+  });
+
   it('shows "No log lines yet" when the store has no entries for the job', () => {
     const { getByText } = render(RipCard, { drive, disc, job, profile });
     expect(getByText('No log lines yet.')).toBeInTheDocument();
