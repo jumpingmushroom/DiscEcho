@@ -15,6 +15,7 @@
   import LiveDot from '$lib/components/LiveDot.svelte';
   import FilterChips from '$lib/components/FilterChips.svelte';
   import HistoryRow from '$lib/components/HistoryRow.svelte';
+  import ClearHistoryButton from '$lib/components/ClearHistoryButton.svelte';
   import { dayGroupLabel } from '$lib/time';
   import type { HistoryRow as HRow, DiscType } from '$lib/wire';
 
@@ -60,6 +61,10 @@
     void loadFirstPage($historyFilter);
   }
 
+  function onCleared(): void {
+    void loadFirstPage($historyFilter);
+  }
+
   onMount(() => {
     void loadFirstPage($historyFilter);
   });
@@ -83,6 +88,7 @@
 <div class="min-h-screen pb-24">
   <AppBar title="History" subtitle="last 30 days">
     <div slot="right" class="flex items-center gap-2">
+      <ClearHistoryButton total={$historyTotal} on:cleared={onCleared} />
       <LiveDot label={$liveStatus === 'live' ? 'LIVE' : 'WAIT'} />
     </div>
   </AppBar>
