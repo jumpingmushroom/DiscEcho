@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.9.3] - 2026-05-15
+
 ### Fixed
 - The History and job-detail pages no longer show two `LIVE`/`WAIT` indicators side-by-side on desktop. The desktop top-nav already renders the SSE-connection dot, and the mobile-chrome AppBar/header rendered a second copy unconditionally; the per-page dot is now hidden on desktop and shown only on mobile.
 
