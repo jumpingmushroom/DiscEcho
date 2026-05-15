@@ -388,7 +388,9 @@ describe('DiscIdSheet — manual search (M2.2)', () => {
 
     const { getByText, getByPlaceholderText } = render(DiscIdSheet, { disc });
     await fireEvent.click(getByText('Search manually'));
-    await fireEvent.input(getByPlaceholderText(/album or artist/i), { target: { value: 'Obscure' } });
+    await fireEvent.input(getByPlaceholderText(/album or artist/i), {
+      target: { value: 'Obscure' },
+    });
     await fireEvent.click(getByText(/Search MusicBrainz/));
 
     await vi.runAllTimersAsync();
