@@ -6,6 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.10.7] - 2026-05-15
+
+### Fixed
+- Audio CDs now return MusicBrainz candidates again instead of an empty list. On the ASUS SDRW-08D2S-U `cdparanoia -Q` reports track offsets *relative to track 1* (track 1 begins at LBA 0), but the MusicBrainz disc-ID algorithm requires *absolute* LBAs that include the 150-frame lead-in pre-gap (track 1 begins at LBA 150). The existing parser took cdparanoia's `begin` value verbatim, which gave us a different disc-ID than MB and produced a guaranteed 404 on every lookup. The parser now detects relative offsets (track 1 below the 150-frame pre-gap) and shifts every track plus the leadout up by 150 to land in the canonical absolute frame.
+
 ## [0.10.6] - 2026-05-15
 
 ### Fixed

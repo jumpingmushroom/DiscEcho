@@ -62,6 +62,38 @@ func TestParseCDParanoiaQ_NoTracks(t *testing.T) {
 	}
 }
 
+// TestParseCDParanoiaQ_RelativeOffsets covers cdparanoia output where
+// the `begin` column is track-relative (track 1 starts at 0) rather
+// than the absolute LBA (track 1 starts at 150). The parser must shift
+// the relative offsets up by the 150-frame lead-in so downstream MB
+// disc-id computation gets canonical LBAs. Real-world: the ASUS
+// SDRW-08D2S-U returns relative offsets, the drive used to capture
+// `cdparanoia-Q-kindofblue.txt` returned absolute offsets.
+func TestParseCDParanoiaQ_RelativeOffsets(t *testing.T) {
+	out, err := os.ReadFile("testdata/cdparanoia-Q-relative.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	toc, err := identify.ParseCDParanoiaQ(string(out))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if len(toc.Tracks) != 11 {
+		t.Fatalf("want 11 tracks, got %d", len(toc.Tracks))
+	}
+	t1 := toc.Tracks[0]
+	if t1.StartLBA != 150 {
+		t.Errorf("track 1 StartLBA: want 150 (post-shift), got %d", t1.StartLBA)
+	}
+	t2 := toc.Tracks[1]
+	if t2.StartLBA != 26936 {
+		t.Errorf("track 2 StartLBA: want 26936 (26786+150), got %d", t2.StartLBA)
+	}
+	if toc.LeadoutLBA != 325553 {
+		t.Errorf("leadout: want 325553 (325403+150), got %d", toc.LeadoutLBA)
+	}
+}
+
 func TestTOCReader_Interface(t *testing.T) {
 	// NewCDParanoiaTOCReader already returns TOCReader, so this is just
 	// a smoke check that construction with both an explicit binary path

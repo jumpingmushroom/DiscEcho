@@ -84,6 +84,21 @@ func ParseCDParanoiaQ(s string) (*TOC, error) {
 	if len(toc.Tracks) == 0 {
 		return nil, ErrNoTracks
 	}
+	// cdparanoia is inconsistent about whether the `begin` column is the
+	// absolute LBA (including the 150-sector lead-in pre-gap) or the
+	// track-relative LBN (track 1 starts at 0). On some drives it returns
+	// absolute (`1. 14955 [03:19.30] 150 [00:02.00]`); on others it
+	// returns relative (`1. 26786 [05:57.11] 0 [00:00.00]`). The
+	// MusicBrainz disc-id algorithm requires absolute LBAs, so when we
+	// see a track 1 starting below the pre-gap we shift everything by
+	// 150 to land in the absolute frame. Audio CDs always start with at
+	// least a 2 s (150-frame) pre-gap, so this is unambiguous.
+	const cdLeadInFrames = 150
+	if toc.Tracks[0].StartLBA < cdLeadInFrames {
+		for i := range toc.Tracks {
+			toc.Tracks[i].StartLBA += cdLeadInFrames
+		}
+	}
 	last := toc.Tracks[len(toc.Tracks)-1]
 	toc.LeadoutLBA = last.StartLBA + last.LengthLBA
 	return &toc, nil
