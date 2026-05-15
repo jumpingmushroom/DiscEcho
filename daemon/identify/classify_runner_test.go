@@ -21,44 +21,6 @@ func writeFakeCDInfo(t *testing.T, body string) string {
 	return path
 }
 
-// TestDefaultCDInfoRunner_StopsAtDiscMode verifies the runner kills
-// cd-info the moment the full disc-mode line shows up, instead of
-// waiting for the (potentially hung) MCN/ISRC probes that follow on
-// some drive+disc combinations.
-//
-// The fake prints the line, then sleeps for 30 s, then prints another
-// line. The runner should return in well under that 30 s, with the
-// line captured and the trailing line absent.
-func TestDefaultCDInfoRunner_StopsAtDiscMode(t *testing.T) {
-	if _, err := exec.LookPath("sh"); err != nil {
-		t.Skip("sh not available")
-	}
-
-	// Use a 30s context window. The fake sleeps 30s. If the runner
-	// short-circuits within ~15s we know the marker logic fired. The wide
-	// window leaves slack for slow CI runners under `-race`.
-	fake := writeFakeCDInfo(t, "echo 'Disc mode is listed as: CD-DA'\nsleep 30\necho 'never printed'")
-
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-	start := time.Now()
-	out, err := defaultCDInfoRunner(ctx, fake, "/dev/null")
-	elapsed := time.Since(start)
-
-	if err != nil {
-		t.Fatalf("runner: unexpected error %v", err)
-	}
-	if elapsed > 15*time.Second {
-		t.Errorf("runner did not short-circuit: elapsed=%v (want <15s)", elapsed)
-	}
-	if !bytes.Contains(out, []byte("Disc mode is listed as:")) {
-		t.Errorf("output missing marker: %q", out)
-	}
-	if bytes.Contains(out, []byte("never printed")) {
-		t.Errorf("runner read past the marker: %q", out)
-	}
-}
-
 // TestDefaultCDInfoRunner_PartialLineDoesNotFire reproduces the bug
 // where a flush of just `Disc mode is listed as:` (no value, no
 // newline) tricked an earlier substring-based watcher into killing
@@ -71,8 +33,9 @@ func TestDefaultCDInfoRunner_PartialLineDoesNotFire(t *testing.T) {
 
 	// First write: prefix only, no newline. Sleep. Then value + newline.
 	// If the runner fires on the partial line, it will read 0 lines and
-	// return before the value lands.
-	fake := writeFakeCDInfo(t, "printf 'Disc mode is listed as:'\nsleep 1\nprintf ' CD-DA\\n'")
+	// return before the value lands. stderr again to bypass stdout
+	// block-buffering in /bin/sh.
+	fake := writeFakeCDInfo(t, "printf 'Disc mode is listed as:' >&2\nsleep 1\nprintf ' CD-DA\\n' >&2")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()

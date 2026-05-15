@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -119,13 +120,27 @@ func stripControlChars(s string) string {
 	return b.String()
 }
 
-// ProbeWritable verifies that dir exists and the daemon can create
-// files inside it by writing and removing a small probe file. Used at
-// the start of the rip step so we fail before any disc reads happen.
+// ProbeWritable verifies that dir is usable as a library root. If dir
+// (or any parent up to the first existing ancestor) doesn't exist yet,
+// it is created with permissive group/other access so other services
+// running on the host with different UIDs (Plex, etc.) can still
+// browse what we land there. Then the function writes and removes a
+// small probe file to confirm we can actually create entries inside.
+// Used at the start of every rip's library step so we fail before any
+// disc reads happen.
 func ProbeWritable(dir string) error {
 	info, err := os.Stat(dir)
 	if err != nil {
-		return fmt.Errorf("library probe: stat %s: %w", dir, err)
+		if !errors.Is(err, fs.ErrNotExist) {
+			return fmt.Errorf("library probe: stat %s: %w", dir, err)
+		}
+		if mkErr := os.MkdirAll(dir, 0o777); mkErr != nil {
+			return fmt.Errorf("library probe: mkdir %s: %w", dir, mkErr)
+		}
+		info, err = os.Stat(dir)
+		if err != nil {
+			return fmt.Errorf("library probe: stat %s after create: %w", dir, err)
+		}
 	}
 	if !info.IsDir() {
 		return fmt.Errorf("library probe: %s is not a directory", dir)

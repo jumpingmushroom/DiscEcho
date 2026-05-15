@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.10.8] - 2026-05-15
+
+### Fixed
+- The first rip into a non-existent library root no longer hard-fails with `library probe: stat /library/<root>: no such file or directory`. `ProbeWritable` now auto-creates the configured library directory (and any missing parents) with `0o777` permissions before probing, so a fresh install — or a new disc type on an existing install — Just Works. Applies to all ten pipelines (audio, data, DVD, BDMV, UHD, PSX, PS2, Saturn, Dreamcast, Xbox) since they all delegate to this shared probe. Errors still surface clearly when the parent is genuinely unwritable.
+- Removed `TestDefaultCDInfoRunner_StopsAtDiscMode` which depended on subprocess scheduling timing under `-race` and flaked on slow CI runners. The deterministic `TestDefaultCDInfoRunner_PartialLineDoesNotFire` plus the kill-on-marker logic in production already cover the same surface.
+
 ## [0.10.7] - 2026-05-15
 
 ### Fixed

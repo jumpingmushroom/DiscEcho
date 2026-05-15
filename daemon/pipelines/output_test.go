@@ -1,7 +1,6 @@
 package pipelines_test
 
 import (
-	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -100,15 +99,44 @@ func TestProbeWritable_ReadOnly(t *testing.T) {
 	}
 }
 
-func TestProbeWritable_Missing(t *testing.T) {
-	err := pipelines.ProbeWritable("/no/such/path")
-	if err == nil {
-		t.Fatalf("missing dir should error")
+// TestProbeWritable_AutoCreates verifies a fresh-install path where
+// the library root (and intermediate parents) don't exist yet — the
+// probe should create them rather than fail. Prevents the "first rip
+// dies because /library/music doesn't exist" surprise.
+func TestProbeWritable_AutoCreates(t *testing.T) {
+	root := t.TempDir()
+	dir := filepath.Join(root, "library", "music")
+	if err := pipelines.ProbeWritable(dir); err != nil {
+		t.Fatalf("ProbeWritable: %v", err)
 	}
-	// Errors may wrap differently across OSes, so we accept either a
-	// wrapped os.ErrNotExist or any non-empty error message.
-	if !errors.Is(err, os.ErrNotExist) && err.Error() == "" {
-		t.Errorf("error should at least carry a message")
+	if info, err := os.Stat(dir); err != nil || !info.IsDir() {
+		t.Fatalf("expected %s to be created as a dir: err=%v", dir, err)
+	}
+	// And it should be usable on the next call (idempotent).
+	if err := pipelines.ProbeWritable(dir); err != nil {
+		t.Errorf("second call: %v", err)
+	}
+}
+
+// TestProbeWritable_UncreatableErrors covers the case where the dir
+// doesn't exist AND we can't create it (parent is read-only). The
+// probe should still surface a clear error.
+func TestProbeWritable_UncreatableErrors(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root bypasses chmod restrictions; can't simulate uncreatable dir")
+	}
+	parent := t.TempDir()
+	if err := os.Chmod(parent, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = os.Chmod(parent, 0o755) }()
+
+	err := pipelines.ProbeWritable(filepath.Join(parent, "sub"))
+	if err == nil {
+		t.Fatalf("expected error on uncreatable dir")
+	}
+	if err.Error() == "" {
+		t.Errorf("error should carry a message")
 	}
 }
 
