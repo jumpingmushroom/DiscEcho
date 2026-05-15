@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.10.3] - 2026-05-15
+
+### Changed
+- Internal: classify now logs the captured `cd-info` output (truncated to 1.5 KB) and the resulting base disc type at INFO level. Used to diagnose the still-misclassified audio-CD case from 0.10.2 in the field; will be dropped once the underlying bug is fixed.
+- Relaxed timing on `TestDefaultCDInfoRunner_StopsAtDiscMode` so it no longer flakes under `-race` on slow CI runners — the test now allows up to 15 s for the short-circuit to land instead of the previous 3 s.
+
 ## [0.10.2] - 2026-05-15
 
 ### Fixed

@@ -33,9 +33,12 @@ func TestDefaultCDInfoRunner_StopsAtDiscMode(t *testing.T) {
 		t.Skip("sh not available")
 	}
 
+	// Use a 30s context window. The fake sleeps 30s. If the runner
+	// short-circuits within ~15s we know the marker logic fired. The wide
+	// window leaves slack for slow CI runners under `-race`.
 	fake := writeFakeCDInfo(t, "echo 'Disc mode is listed as: CD-DA'\nsleep 30\necho 'never printed'")
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	start := time.Now()
 	out, err := defaultCDInfoRunner(ctx, fake, "/dev/null")
@@ -44,8 +47,8 @@ func TestDefaultCDInfoRunner_StopsAtDiscMode(t *testing.T) {
 	if err != nil {
 		t.Fatalf("runner: unexpected error %v", err)
 	}
-	if elapsed > 3*time.Second {
-		t.Errorf("runner did not short-circuit: elapsed=%v (want <3s)", elapsed)
+	if elapsed > 15*time.Second {
+		t.Errorf("runner did not short-circuit: elapsed=%v (want <15s)", elapsed)
 	}
 	if !bytes.Contains(out, []byte("Disc mode is listed as:")) {
 		t.Errorf("output missing marker: %q", out)

@@ -226,6 +226,13 @@ func (c *multiProbeClassifier) Classify(ctx context.Context, devPath string) (st
 	if err != nil {
 		return "", err
 	}
+	// Debug: log what we got and what we decided so we can diagnose misclassification
+	// in the field. Truncate to keep the log line bounded.
+	preview := string(out)
+	if len(preview) > 1500 {
+		preview = preview[:1500] + "...(truncated)"
+	}
+	slog.Info("classify: cd-info captured", "dev", devPath, "base", base, "bytes", len(out), "preview", preview)
 	fs := c.fs
 	if fs != nil {
 		// The ISO9660 listing can be momentarily empty in the disc
