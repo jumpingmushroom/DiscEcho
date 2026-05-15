@@ -157,3 +157,82 @@ func TestStore_CreateDisc_DefaultsMetadataJSONToEmptyObject(t *testing.T) {
 		t.Errorf("default metadata_json: want %q, got %q", "{}", got.MetadataJSON)
 	}
 }
+
+func TestStore_GetDiscByDriveTOC_ReturnsRowForMatch(t *testing.T) {
+	s := openStore(t)
+	ctx := context.Background()
+	drv := newDrive(t, s, "/dev/sr0")
+
+	d := &state.Disc{
+		DriveID: drv.ID,
+		Type:    state.DiscTypeAudioCD,
+		Title:   "Fear and Bullets",
+		TOCHash: "abc123",
+	}
+	if err := s.CreateDisc(ctx, d); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := s.GetDiscByDriveTOC(ctx, drv.ID, "abc123")
+	if err != nil {
+		t.Fatalf("get by toc: %v", err)
+	}
+	if got.ID != d.ID {
+		t.Errorf("ID: want %q, got %q", d.ID, got.ID)
+	}
+	if got.Title != "Fear and Bullets" {
+		t.Errorf("title: got %q", got.Title)
+	}
+}
+
+func TestStore_GetDiscByDriveTOC_RejectsEmptyInputs(t *testing.T) {
+	s := openStore(t)
+	ctx := context.Background()
+
+	if _, err := s.GetDiscByDriveTOC(ctx, "", "abc"); err != state.ErrNotFound {
+		t.Errorf("empty driveID: want ErrNotFound, got %v", err)
+	}
+	if _, err := s.GetDiscByDriveTOC(ctx, "drv-1", ""); err != state.ErrNotFound {
+		t.Errorf("empty tocHash: want ErrNotFound, got %v", err)
+	}
+}
+
+func TestStore_GetDiscByDriveTOC_NotFoundOnMiss(t *testing.T) {
+	s := openStore(t)
+	ctx := context.Background()
+	drv := newDrive(t, s, "/dev/sr0")
+
+	_, err := s.GetDiscByDriveTOC(ctx, drv.ID, "no-such-hash")
+	if err != state.ErrNotFound {
+		t.Errorf("want ErrNotFound, got %v", err)
+	}
+}
+
+// Migration 009 also enforces a partial unique index on
+// (drive_id, toc_hash) with toc_hash != ''. Two empty-toc rows on the
+// same drive are still allowed (so unidentifiable discs can coexist),
+// but a duplicate non-empty toc_hash is rejected at the schema level.
+func TestStore_DiscUniqueIndex_EnforcesOnePerDriveTOC(t *testing.T) {
+	s := openStore(t)
+	ctx := context.Background()
+	drv := newDrive(t, s, "/dev/sr0")
+
+	first := &state.Disc{DriveID: drv.ID, Type: state.DiscTypeAudioCD, TOCHash: "shared"}
+	if err := s.CreateDisc(ctx, first); err != nil {
+		t.Fatalf("first insert: %v", err)
+	}
+	second := &state.Disc{DriveID: drv.ID, Type: state.DiscTypeAudioCD, TOCHash: "shared"}
+	if err := s.CreateDisc(ctx, second); err == nil {
+		t.Fatal("second insert with same (drive, toc) should have failed")
+	}
+
+	// Empty-toc rows are allowed to coexist.
+	a := &state.Disc{DriveID: drv.ID, Type: state.DiscTypeData}
+	b := &state.Disc{DriveID: drv.ID, Type: state.DiscTypeData}
+	if err := s.CreateDisc(ctx, a); err != nil {
+		t.Fatalf("empty-toc first: %v", err)
+	}
+	if err := s.CreateDisc(ctx, b); err != nil {
+		t.Fatalf("empty-toc second: %v", err)
+	}
+}

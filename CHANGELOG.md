@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Changed
+- The disc-detection flow no longer inserts a fresh `discs` row every time the same physical disc is rescanned. Previously, every retry of a failed rip — or every spurious media-change uevent emitted during a long rip — created a new disc row, scattering jobs across many entries with the same `toc_hash`. Disc identification now looks up `(drive_id, toc_hash)` first and refreshes the existing row's metadata when found. A partial unique index on `(drive_id, toc_hash) WHERE toc_hash != ''` enforces the invariant at the schema level.
+
+### Removed
+- **Breaking (DB schema):** Migration 009 collapses pre-existing duplicate `discs` rows that share a non-empty `(drive_id, toc_hash)` and reparents `jobs.disc_id` references onto the most-recent row. The drop is destructive but the rows it removes contained nothing that the keeper row didn't already (same TOC, same drive, fresher metadata). Pre-`1.0` so it ships as a minor bump.
+
 ### Added
 - The drive card (desktop **and** mobile) now shows the elapsed wall-clock time since the rip started, right under the RIPPING pill. Audio CDs sit at 0% progress for the first 1–3 minutes while whipper does its TOC read and AccurateRip lookup, and the elapsed counter is the missing "yes, work is happening" signal during that window.
 - The disc identity row gains a "N tracks · MMm" / "N tracks · 1h MMm" line whenever the disc carries per-track metadata (audio CDs and DVD chapter listings). Renders alongside the existing bus + profile chips so the user knows how long the playback is before deciding to start a rip.

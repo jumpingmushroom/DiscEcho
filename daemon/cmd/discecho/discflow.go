@@ -103,8 +103,8 @@ func (df *discFlow) handle(ev drive.Uevent) {
 		// Persist the disc record anyway so the UI can show "no matches".
 		if disc != nil {
 			disc.DriveID = drv.ID
-			if cerr := df.store.CreateDisc(ctx, disc); cerr != nil {
-				slog.Warn("create disc (no cands)", "err", cerr)
+			if perr := df.persistDisc(ctx, disc, nil); perr != nil {
+				slog.Warn("persist disc (no cands)", "err", perr)
 				df.releaseDriveState(drv.ID, state.DriveStateError)
 				return
 			}
@@ -123,8 +123,8 @@ func (df *discFlow) handle(ev drive.Uevent) {
 	}
 
 	disc.DriveID = drv.ID
-	if err := df.store.CreateDisc(ctx, disc); err != nil {
-		slog.Warn("create disc", "err", err)
+	if err := df.persistDisc(ctx, disc, candidates); err != nil {
+		slog.Warn("persist disc", "err", err)
 		df.releaseDriveState(drv.ID, state.DriveStateError)
 		return
 	}
@@ -143,6 +143,49 @@ func (df *discFlow) handle(ev drive.Uevent) {
 		Name:    "drive.changed",
 		Payload: map[string]any{"drive_id": drv.ID, "state": "idle"},
 	})
+}
+
+// persistDisc inserts a new disc row, or — when the drive already has
+// a disc with the same non-empty toc_hash — refreshes that existing
+// row's metadata fields and rebinds disc.ID to it. The caller then
+// publishes events with the canonical (possibly preexisting) ID so
+// downstream listeners (and the disc-decision UI) attach a job to the
+// reused row rather than spawning yet another duplicate.
+//
+// candidates can be nil for the no-candidates branch; in that case we
+// don't overwrite the existing row's candidates JSON.
+func (df *discFlow) persistDisc(ctx context.Context, disc *state.Disc, candidates []state.Candidate) error {
+	if disc.DriveID == "" || disc.TOCHash == "" {
+		return df.store.CreateDisc(ctx, disc)
+	}
+	existing, err := df.store.GetDiscByDriveTOC(ctx, disc.DriveID, disc.TOCHash)
+	if err != nil {
+		if !errors.Is(err, state.ErrNotFound) {
+			return err
+		}
+		return df.store.CreateDisc(ctx, disc)
+	}
+	// Found a prior row for this physical disc. Refresh the metadata
+	// fields from the fresh identify pass so a re-identify (after the
+	// user picks a different MB release, or after TMDB enriches a TV
+	// series later) sticks. Reuse the existing ID so jobs.disc_id
+	// references stay coherent.
+	if err := df.store.UpdateDiscMetadata(ctx, existing.ID, disc.Title, disc.Year, disc.MetadataProvider, disc.MetadataID); err != nil {
+		return err
+	}
+	if disc.MetadataJSON != "" {
+		if err := df.store.UpdateDiscMetadataBlob(ctx, existing.ID, disc.MetadataJSON); err != nil {
+			return err
+		}
+	}
+	if candidates != nil {
+		if err := df.store.UpdateDiscCandidates(ctx, existing.ID, candidates); err != nil {
+			return err
+		}
+	}
+	disc.ID = existing.ID
+	disc.CreatedAt = existing.CreatedAt
+	return nil
 }
 
 // releaseDriveState writes the drive's terminal state for this handle()

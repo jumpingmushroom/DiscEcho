@@ -24,8 +24,8 @@ func TestOpen_AppliesMigrationsOnFreshDB(t *testing.T) {
 	if err := row.Scan(&v); err != nil {
 		t.Fatalf("scan version: %v", err)
 	}
-	if v != 8 {
-		t.Errorf("schema_migrations max version: want 8, got %d", v)
+	if v != 9 {
+		t.Errorf("schema_migrations max version: want 9, got %d", v)
 	}
 
 	for _, tbl := range []string{
@@ -63,8 +63,8 @@ func TestOpen_IsIdempotent(t *testing.T) {
 	if err := row.Scan(&n); err != nil {
 		t.Fatal(err)
 	}
-	if n != 8 {
-		t.Errorf("schema_migrations rows after second open: want 8, got %d", n)
+	if n != 9 {
+		t.Errorf("schema_migrations rows after second open: want 9, got %d", n)
 	}
 }
 
@@ -202,6 +202,114 @@ func TestMigration006_BackfillsDVDQualityOptions(t *testing.T) {
 	}
 	if preset != "x264 RF 18 · slow" || qualityPreset != "x264 RF 18 · slow" {
 		t.Errorf("display strings not refreshed: preset=%q quality_preset=%q", preset, qualityPreset)
+	}
+}
+
+// TestMigration009_CollapsesDuplicateDiscsAndReparentsJobs seeds three
+// disc rows sharing the same (drive_id, toc_hash) plus jobs scattered
+// across them — the exact prod shape we observed at v0.11.0 with seven
+// "Fear and Bullets" rows on /dev/sr0. The unique index that 009
+// creates blocks fresh dupes, so the test drops it, seeds the
+// pre-migration state, and replays the migration body to confirm the
+// dedup collapses the rows and rebinds the jobs.
+func TestMigration009_CollapsesDuplicateDiscsAndReparentsJobs(t *testing.T) {
+	dir := t.TempDir()
+	db, err := state.Open(filepath.Join(dir, "test.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+	ctx := context.Background()
+
+	// Drop the unique index so we can recreate the pre-migration shape.
+	if _, err := db.Conn().ExecContext(ctx, `DROP INDEX IF EXISTS idx_discs_drive_toc_unique`); err != nil {
+		t.Fatalf("drop unique index: %v", err)
+	}
+
+	// Seed the prerequisites: drive + profile + three dupe discs (same
+	// drive_id + toc_hash, different IDs, ascending created_at so the
+	// last one is the "keeper") + jobs scattered across all three.
+	if _, err := db.Conn().ExecContext(ctx, `
+		INSERT INTO drives (id, model, bus, dev_path, state, last_seen_at)
+		VALUES ('drv-x', 'Test', 'USB', '/dev/sr0', 'idle', '2026-05-15T13:00:00Z');
+
+		INSERT INTO profiles (id, disc_type, name, engine, format, preset,
+		                      container, video_codec, quality_preset,
+		                      drive_policy, options_json,
+		                      output_path_template, enabled, step_count,
+		                      created_at, updated_at)
+		VALUES ('prof-x', 'AUDIO_CD', 'CD-FLAC-test', 'whipper', 'FLAC',
+		        'AccurateRip', 'FLAC', '', 'AccurateRip', 'any',
+		        '{}',
+		        '{{.Title}}/{{.Title}}.flac',
+		        1, 6, '2026-05-15T13:00:00Z', '2026-05-15T13:00:00Z');
+
+		INSERT INTO discs (id, drive_id, type, toc_hash, candidates_json,
+		                   metadata_json, created_at)
+		VALUES
+		  ('d-old',  'drv-x', 'AUDIO_CD', 'fbHash', '[]', '{}', '2026-05-15T12:00:00Z'),
+		  ('d-mid',  'drv-x', 'AUDIO_CD', 'fbHash', '[]', '{}', '2026-05-15T12:30:00Z'),
+		  ('d-new',  'drv-x', 'AUDIO_CD', 'fbHash', '[]', '{}', '2026-05-15T13:00:00Z');
+
+		INSERT INTO jobs (id, disc_id, drive_id, profile_id, state, created_at)
+		VALUES
+		  ('j-old', 'd-old', 'drv-x', 'prof-x', 'failed', '2026-05-15T12:05:00Z'),
+		  ('j-mid', 'd-mid', 'drv-x', 'prof-x', 'failed', '2026-05-15T12:35:00Z'),
+		  ('j-new', 'd-new', 'drv-x', 'prof-x', 'running', '2026-05-15T13:05:00Z');
+	`); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	body, err := migrationBody("009_dedupe_discs.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The migration body re-creates the unique index; drop it first
+	// since Open already added it on this fresh DB.
+	if _, err := db.Conn().ExecContext(ctx, `DROP INDEX IF EXISTS idx_discs_drive_toc_unique`); err != nil {
+		t.Fatalf("drop unique index before replay: %v", err)
+	}
+	if _, err := db.Conn().ExecContext(ctx, body); err != nil {
+		t.Fatalf("replay migration 009: %v", err)
+	}
+
+	// Only the most-recent disc should remain.
+	row := db.Conn().QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM discs WHERE drive_id = 'drv-x' AND toc_hash = 'fbHash'`)
+	var n int
+	if err := row.Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	if n != 1 {
+		t.Errorf("discs after collapse: want 1, got %d", n)
+	}
+
+	// All three jobs should point at d-new (the keeper).
+	rows, err := db.Conn().QueryContext(ctx,
+		`SELECT id, disc_id FROM jobs ORDER BY id`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = rows.Close() }()
+	for rows.Next() {
+		var id, discID string
+		if err := rows.Scan(&id, &discID); err != nil {
+			t.Fatal(err)
+		}
+		if discID != "d-new" {
+			t.Errorf("job %s: disc_id = %s, want d-new", id, discID)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+
+	// The unique index must be back so future dupes are blocked.
+	_, err = db.Conn().ExecContext(ctx, `
+		INSERT INTO discs (id, drive_id, type, toc_hash, candidates_json, metadata_json, created_at)
+		VALUES ('d-dupe', 'drv-x', 'AUDIO_CD', 'fbHash', '[]', '{}', '2026-05-15T14:00:00Z')`)
+	if err == nil {
+		t.Error("insert with duplicate (drive_id, toc_hash) should fail after migration")
 	}
 }
 

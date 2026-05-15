@@ -271,6 +271,26 @@ func (s *Store) CreateDisc(ctx context.Context, d *Disc) error {
 	return err
 }
 
+// GetDiscByDriveTOC returns the most-recently-created disc on driveID
+// with the given non-empty toc_hash, or ErrNotFound when none exists.
+// Callers (notably discflow) use this on detect to reuse an existing
+// disc row instead of inserting a new one on every retry — see
+// migration 009 for the backfill that collapsed pre-existing dupes.
+// An empty driveID or tocHash short-circuits to ErrNotFound because
+// neither identifies a single physical disc.
+func (s *Store) GetDiscByDriveTOC(ctx context.Context, driveID, tocHash string) (*Disc, error) {
+	if driveID == "" || tocHash == "" {
+		return nil, ErrNotFound
+	}
+	row := s.db.Conn().QueryRowContext(ctx, `
+		SELECT id, COALESCE(drive_id, ''), type, title, year, runtime_seconds,
+		       size_bytes_raw, toc_hash, metadata_provider, metadata_id,
+		       candidates_json, metadata_json, created_at
+		FROM discs WHERE drive_id = ? AND toc_hash = ?
+		ORDER BY created_at DESC LIMIT 1`, driveID, tocHash)
+	return scanDisc(row)
+}
+
 // GetDisc fetches a disc by ID, including its candidates.
 func (s *Store) GetDisc(ctx context.Context, id string) (*Disc, error) {
 	row := s.db.Conn().QueryRowContext(ctx, `
