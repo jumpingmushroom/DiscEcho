@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
@@ -222,26 +223,54 @@ func (h *Handler) createWorkDir(discID string) (string, error) {
 }
 
 func (h *Handler) moveOutputs(tmpdir string, disc *state.Disc, prof *state.Profile) ([]string, error) {
-	entries, err := os.ReadDir(tmpdir)
-	if err != nil {
-		return nil, fmt.Errorf("read workdir: %w", err)
+	// Walk the workdir recursively. whipper writes its output into a
+	// nested `album/<Artist> - <Album>/` subdirectory, so a flat
+	// os.ReadDir on tmpdir sees only that subdir (skipped as a
+	// directory) and the move step "succeeds" with zero files moved —
+	// then the deferred RemoveAll wipes the ripped FLACs. Walking the
+	// tree picks up the outputs regardless of how deep whipper buries
+	// them.
+	var candidates []string
+	if err := filepath.WalkDir(tmpdir, func(path string, dEntry fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if dEntry.IsDir() {
+			return nil
+		}
+		ext := strings.ToLower(filepath.Ext(dEntry.Name()))
+		if ext != ".flac" && ext != ".cue" {
+			return nil
+		}
+		candidates = append(candidates, path)
+		return nil
+	}); err != nil {
+		return nil, fmt.Errorf("walk workdir: %w", err)
+	}
+
+	// A successful whipper rip always produces at least one FLAC. If
+	// we find none, fail loud rather than silently "succeeding" with
+	// an empty paths list — that's how we lost a real rip before.
+	flacCount := 0
+	for _, p := range candidates {
+		if strings.EqualFold(filepath.Ext(p), ".flac") {
+			flacCount++
+		}
+	}
+	if flacCount == 0 {
+		return nil, fmt.Errorf("move: no FLAC files found under %s", tmpdir)
 	}
 
 	var moved []string
-	for _, e := range entries {
-		if e.IsDir() {
-			continue
-		}
-		ext := strings.ToLower(filepath.Ext(e.Name()))
-		if ext != ".flac" && ext != ".cue" {
-			continue
-		}
+	for _, src := range candidates {
+		name := filepath.Base(src)
+		ext := strings.ToLower(filepath.Ext(name))
 
 		fields := pipelines.OutputFields{
 			Album:       disc.Title,
 			Year:        disc.Year,
-			TrackNumber: trackNumberFromFilename(e.Name()),
-			Title:       strings.TrimSuffix(e.Name(), ext),
+			TrackNumber: trackNumberFromFilename(name),
+			Title:       strings.TrimSuffix(name, ext),
 		}
 		if len(disc.Candidates) > 0 {
 			fields.Artist = disc.Candidates[0].Artist
@@ -255,7 +284,6 @@ func (h *Handler) moveOutputs(tmpdir string, disc *state.Disc, prof *state.Profi
 			rel += ext
 		}
 		dst := filepath.Join(h.deps.LibraryRoot, rel)
-		src := filepath.Join(tmpdir, e.Name())
 		if err := pipelines.AtomicMove(src, dst); err != nil {
 			return moved, err
 		}

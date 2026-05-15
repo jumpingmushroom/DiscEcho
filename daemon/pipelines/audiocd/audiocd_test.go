@@ -44,14 +44,26 @@ type trackInfo struct {
 
 type fakeWhipper struct {
 	tracks []trackInfo
+	// subdir, if non-empty, is the directory path (relative to workdir)
+	// that whipper writes outputs into. Real whipper writes to
+	// `album/<Artist> - <Album>/` inside the working dir; the empty
+	// default keeps older tests that expected flat output working.
+	subdir string
 }
 
 func (f *fakeWhipper) Name() string { return "whipper" }
 func (f *fakeWhipper) Run(_ context.Context, _ []string, _ map[string]string,
 	workdir string, sink tools.Sink) error {
+	dir := workdir
+	if f.subdir != "" {
+		dir = filepath.Join(workdir, f.subdir)
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return err
+		}
+	}
 	for _, tr := range f.tracks {
 		fname := fmt.Sprintf("track%02d.flac", tr.num)
-		_ = os.WriteFile(filepath.Join(workdir, fname), []byte("fake"), 0o644)
+		_ = os.WriteFile(filepath.Join(dir, fname), []byte("fake"), 0o644)
 		sink.Progress(float64(tr.num)/float64(len(f.tracks))*100, "10×", 5)
 	}
 	sink.Log(state.LogLevelInfo, "whipper: all tracks ripped")
@@ -236,5 +248,116 @@ func TestAudioCD_Run_LibraryNotWritable(t *testing.T) {
 	}
 	if !failed {
 		t.Errorf("expected rip step failure")
+	}
+}
+
+// TestAudioCD_Run_MovesNestedWhipperOutput pins the bug that lost the
+// first prod audio rip: real whipper writes outputs into a nested
+// `album/<Artist> - <Album>/` directory, but the move step used
+// os.ReadDir(workdir) and skipped subdirectories. moveOutputs now
+// walks the workdir recursively; this test bakes that in.
+func TestAudioCD_Run_MovesNestedWhipperOutput(t *testing.T) {
+	libRoot := t.TempDir()
+
+	whip := &fakeWhipper{
+		subdir: "album/Trust Obey - Fear and Bullets",
+		tracks: []trackInfo{
+			{num: 1, title: "Lead Poisoning"},
+			{num: 2, title: "Seven Blackbirds"},
+		},
+	}
+	reg := tools.NewRegistry()
+	reg.Register(whip)
+	reg.Register(tools.NewMockTool("apprise", nil))
+	reg.Register(tools.NewMockTool("eject", nil))
+
+	h := audiocd.New(audiocd.Deps{
+		Tools:        reg,
+		LibraryRoot:  libRoot,
+		WorkRoot:     t.TempDir(),
+		LibraryProbe: func(string) error { return nil },
+	})
+
+	drv := &state.Drive{ID: "drv-1", DevPath: "/dev/sr0"}
+	disc := &state.Disc{
+		ID: "disc-fb", Type: state.DiscTypeAudioCD, DriveID: "drv-1",
+		Title: "Fear and Bullets", Year: 1997,
+		MetadataID: "fb-mb",
+		Candidates: []state.Candidate{
+			{Source: "MusicBrainz", Title: "Fear and Bullets", Artist: "Trust Obey", Year: 1997, MBID: "fb-mb"},
+		},
+	}
+	prof := &state.Profile{
+		DiscType: state.DiscTypeAudioCD, Engine: "whipper", Format: "FLAC",
+		OutputPathTemplate: `{{.Artist}}/{{.Album}} ({{.Year}})/{{printf "%02d" .TrackNumber}}.flac`,
+	}
+
+	sink := testutil.NewRecordingSink()
+	if err := h.Run(context.Background(), drv, disc, prof, sink); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	matches, _ := filepath.Glob(filepath.Join(libRoot, "Trust Obey", "Fear and Bullets (1997)", "*.flac"))
+	if len(matches) != 2 {
+		t.Fatalf("nested output not picked up: want 2 FLACs, got %d (%v)", len(matches), matches)
+	}
+
+	// The move step's notes should carry both destination paths.
+	var moveNotes map[string]any
+	for _, e := range sink.Snapshot() {
+		if e.Kind == testutil.EventDone && e.Step == state.StepMove {
+			moveNotes = e.Notes
+		}
+	}
+	if moveNotes == nil {
+		t.Fatal("move step had no done event")
+	}
+	paths, _ := moveNotes["paths"].([]string)
+	if len(paths) != 2 {
+		t.Errorf("move notes paths: want 2, got %v", paths)
+	}
+}
+
+// TestAudioCD_Run_FailsLoudlyWhenWhipperProducesNoFLACs proves the
+// belt-and-braces guard: if a successful whipper exit leaves an empty
+// (or FLAC-less) workdir, the move step fails rather than silently
+// reporting paths: nil — which is how the missing-files bug looked in
+// the wild.
+func TestAudioCD_Run_FailsLoudlyWhenWhipperProducesNoFLACs(t *testing.T) {
+	libRoot := t.TempDir()
+	whip := &fakeWhipper{tracks: nil}
+	reg := tools.NewRegistry()
+	reg.Register(whip)
+	reg.Register(tools.NewMockTool("apprise", nil))
+	reg.Register(tools.NewMockTool("eject", nil))
+
+	h := audiocd.New(audiocd.Deps{
+		Tools:        reg,
+		LibraryRoot:  libRoot,
+		WorkRoot:     t.TempDir(),
+		LibraryProbe: func(string) error { return nil },
+	})
+
+	sink := testutil.NewRecordingSink()
+	err := h.Run(context.Background(),
+		&state.Drive{DevPath: "/dev/sr0"},
+		&state.Disc{
+			Type: state.DiscTypeAudioCD,
+			Candidates: []state.Candidate{
+				{Source: "MusicBrainz", Artist: "X", Title: "Y"},
+			},
+		},
+		&state.Profile{OutputPathTemplate: `{{.Title}}.flac`}, sink)
+	if err == nil {
+		t.Fatal("expected move failure when no FLACs are present")
+	}
+	moveFailed := false
+	for _, e := range sink.Snapshot() {
+		if e.Kind == testutil.EventFailed && e.Step == state.StepMove {
+			moveFailed = true
+		}
+	}
+	if !moveFailed {
+		t.Error("expected StepMove failure event")
 	}
 }
