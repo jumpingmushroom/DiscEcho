@@ -28,6 +28,10 @@
   $: liveDisc = $discs[disc.id] ?? disc;
   $: candidates = liveDisc.candidates ?? [];
   $: topConfidence = candidates[0]?.confidence ?? 0;
+  // Same backend dispatch as AwaitingDecisionCard: MB for audio CDs,
+  // TMDB for everything else. Keep the strings aligned.
+  $: searchPlaceholder = liveDisc.type === 'AUDIO_CD' ? 'Album or artist…' : 'Movie or show title…';
+  $: searchButtonLabel = liveDisc.type === 'AUDIO_CD' ? 'Search MusicBrainz' : 'Search TMDB';
   // Auto-confirm only fires in batch mode. Manual mode shows the same
   // candidate list but never starts a rip without an explicit click.
   $: autoConfirmAllowed =
@@ -165,7 +169,7 @@
         <input
           type="text"
           bind:value={searchQuery}
-          placeholder="Movie or show title…"
+          placeholder={searchPlaceholder}
           class="min-h-[44px] w-full rounded-xl border border-border bg-surface-2 px-3 text-[15px] text-text"
           on:keydown={(e) => e.key === 'Enter' && submitSearch()}
         />
@@ -181,7 +185,7 @@
             on:click={submitSearch}
             disabled={searchPending || !searchQuery.trim()}
           >
-            {searchPending ? 'Searching…' : 'Search TMDB'}
+            {searchPending ? 'Searching…' : searchButtonLabel}
           </button>
           <button class="min-h-[40px] text-[14px] text-text-3" on:click={cancelSearch}>
             Cancel

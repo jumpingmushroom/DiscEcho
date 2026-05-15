@@ -214,3 +214,103 @@ func TestMusicBrainz_ReleaseDetails_EmptyMBID(t *testing.T) {
 		t.Errorf("want empty AudioCDMetadata for empty mbid: %+v", d)
 	}
 }
+
+func TestMusicBrainz_SearchByName(t *testing.T) {
+	var capturedQuery string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.HasPrefix(r.URL.Path, "/ws/2/release/") {
+			t.Errorf("path: %s", r.URL.Path)
+		}
+		capturedQuery = r.URL.Query().Get("query")
+		w.Header().Set("Content-Type", "application/json")
+		// Two-result response: top hit at score 100, second at 73.
+		_, _ = w.Write([]byte(`{
+			"releases": [
+				{"id":"r1","title":"Fear and Bullets","date":"1997","score":100,
+				 "artist-credit":[{"artist":{"name":"Trust Obey"}}]},
+				{"id":"r2","title":"Fear and Bullets","date":"1999","score":73,
+				 "disambiguation":"Remastered",
+				 "artist-credit":[{"artist":{"name":"Trust Obey"}}]}
+			]
+		}`))
+	}))
+	defer srv.Close()
+
+	c := identify.NewMusicBrainzClient(identify.MusicBrainzConfig{
+		BaseURL: srv.URL, UserAgent: "test/1.0",
+	})
+	got, err := c.SearchByName(context.Background(), "Trust Obey Fear and Bullets")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if capturedQuery == "" {
+		t.Error("query parameter missing from request")
+	}
+	if len(got) != 2 {
+		t.Fatalf("want 2 candidates, got %d", len(got))
+	}
+	if got[0].Confidence != 100 || got[0].MBID != "r1" || got[0].Artist != "Trust Obey" || got[0].Year != 1997 {
+		t.Errorf("first candidate: %+v", got[0])
+	}
+	if got[1].Confidence != 73 || got[1].Title != "Fear and Bullets (Remastered)" {
+		t.Errorf("second candidate: %+v", got[1])
+	}
+}
+
+func TestMusicBrainz_SearchByName_EmptyResults(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"releases":[]}`))
+	}))
+	defer srv.Close()
+
+	c := identify.NewMusicBrainzClient(identify.MusicBrainzConfig{
+		BaseURL: srv.URL, UserAgent: "test/1.0",
+	})
+	got, err := c.SearchByName(context.Background(), "no such album")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != nil {
+		t.Errorf("want nil for empty results, got %+v", got)
+	}
+}
+
+func TestMusicBrainz_SearchByName_EmptyQuery(t *testing.T) {
+	c := identify.NewMusicBrainzClient(identify.MusicBrainzConfig{
+		BaseURL: "https://example.invalid", UserAgent: "test/1.0",
+	})
+	got, err := c.SearchByName(context.Background(), "   ")
+	if err != nil {
+		t.Errorf("empty query should not error: %v", err)
+	}
+	if got != nil {
+		t.Errorf("want nil for empty query, got %+v", got)
+	}
+}
+
+func TestMusicBrainz_SearchByName_EscapesLuceneSpecials(t *testing.T) {
+	var capturedQuery string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		capturedQuery = r.URL.Query().Get("query")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"releases":[]}`))
+	}))
+	defer srv.Close()
+
+	c := identify.NewMusicBrainzClient(identify.MusicBrainzConfig{
+		BaseURL: srv.URL, UserAgent: "test/1.0",
+	})
+	_, err := c.SearchByName(context.Background(), `Bauhaus: Mask (1981)`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The Lucene specials `:`, `(`, `)` should be backslash-escaped so
+	// MB doesn't interpret `Bauhaus:` as a field selector.
+	wantSubstrs := []string{`\:`, `\(`, `\)`}
+	for _, s := range wantSubstrs {
+		if !strings.Contains(capturedQuery, s) {
+			t.Errorf("captured query %q missing escape %q", capturedQuery, s)
+		}
+	}
+}

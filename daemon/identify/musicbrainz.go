@@ -16,6 +16,12 @@ type MusicBrainzClient interface {
 	// pane's audio CD layout. Persisted into disc.metadata_json at
 	// /api/discs/{id}/start.
 	ReleaseDetails(ctx context.Context, mbid string) (AudioCDMetadata, error)
+	// SearchByName runs a free-text search against the MB release
+	// index and returns up to 25 candidates ranked by MB's relevance
+	// score (0-100). Used by /api/discs/{id}/identify on AUDIO_CD discs
+	// when the discID Lookup returned no matches and the user falls
+	// back to a manual query. Empty results return (nil, nil).
+	SearchByName(ctx context.Context, query string) ([]state.Candidate, error)
 }
 
 // AudioCDMetadata is the extended audio-CD payload the pane needs.

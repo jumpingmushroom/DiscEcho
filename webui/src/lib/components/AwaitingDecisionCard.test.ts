@@ -160,18 +160,30 @@ describe('AwaitingDecisionCard', () => {
       expect(queryByText(/No match found · search manually/)).toBeNull();
     });
 
-    it('hides the Search manually button for an audio CD with no candidates', () => {
-      // The /api/discs/:id/identify endpoint only dispatches to TMDB,
-      // so a search button on an audio CD would silently never return
-      // useful results. Hide it until MB-by-name search is wired up.
-      const { queryByText } = render(AwaitingDecisionCard, { disc: audioNoMatch });
-      expect(queryByText('Search manually')).toBeNull();
+    it('renders the Search manually button for an audio CD with no candidates', async () => {
+      const { getByText, getByPlaceholderText } = render(AwaitingDecisionCard, {
+        disc: audioNoMatch,
+      });
+      const btn = getByText('Search manually');
+      expect(btn).toBeInTheDocument();
+      // Clicking Search manually opens the inline search panel with
+      // MusicBrainz-tailored copy.
+      await fireEvent.click(btn);
+      expect(getByPlaceholderText('Album or artist…')).toBeInTheDocument();
+      expect(getByText('Search MusicBrainz')).toBeInTheDocument();
     });
 
-    it('still renders the Search manually button for a non-audio disc with no candidates', () => {
-      const { getByText } = render(AwaitingDecisionCard, { disc: dvdNoMatch });
+    it('still renders the Search manually button for a non-audio disc with no candidates', async () => {
+      const { getByText, getByPlaceholderText } = render(AwaitingDecisionCard, {
+        disc: dvdNoMatch,
+      });
       expect(getByText('Search manually')).toBeInTheDocument();
       expect(getByText(/No match found · search manually/)).toBeInTheDocument();
+      // DVDs still hit TMDB so the placeholder + button keep the
+      // movie/show wording.
+      await fireEvent.click(getByText('Search manually'));
+      expect(getByPlaceholderText('Movie or show title…')).toBeInTheDocument();
+      expect(getByText('Search TMDB')).toBeInTheDocument();
     });
 
     it('hides the Use top match button when there are no candidates to pick', () => {

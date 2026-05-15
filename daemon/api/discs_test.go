@@ -560,6 +560,84 @@ func (f *fakeTMDBForAPI) TVDetails(_ context.Context, _ int) (identify.DiscMetad
 	return f.tvDetails, nil
 }
 
+type fakeMBForAPI struct {
+	cands       []state.Candidate
+	searchCalls []string
+}
+
+func (f *fakeMBForAPI) Lookup(_ context.Context, _ string) ([]state.Candidate, error) {
+	return nil, nil
+}
+func (f *fakeMBForAPI) ReleaseDetails(_ context.Context, _ string) (identify.AudioCDMetadata, error) {
+	return identify.AudioCDMetadata{}, nil
+}
+func (f *fakeMBForAPI) SearchByName(_ context.Context, query string) ([]state.Candidate, error) {
+	f.searchCalls = append(f.searchCalls, query)
+	return f.cands, nil
+}
+
+func TestIdentifyDisc_AudioCD_DispatchesToMusicBrainz(t *testing.T) {
+	h := apitestServer(t)
+	mb := &fakeMBForAPI{
+		cands: []state.Candidate{
+			{Source: "MusicBrainz", Title: "Fear and Bullets", Artist: "Trust Obey", Year: 1997, MBID: "r1", Confidence: 100},
+		},
+	}
+	h.MusicBrainz = mb
+	// Make TMDB fail loudly if it's reached — guards against the audio
+	// path falling through to the video dispatch.
+	h.TMDB = nil
+
+	drv := seedDrive(t, h)
+	d := &state.Disc{DriveID: drv.ID, Type: state.DiscTypeAudioCD, TOCHash: "x"}
+	if err := h.Store.CreateDisc(context.Background(), d); err != nil {
+		t.Fatal(err)
+	}
+
+	r := chi.NewRouter()
+	r.Post("/api/discs/{id}/identify", h.IdentifyDisc)
+	body := bytes.NewReader([]byte(`{"query":"trust obey fear and bullets"}`))
+	req := httptest.NewRequest(http.MethodPost, "/api/discs/"+d.ID+"/identify", body)
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status: %d body=%s", w.Code, w.Body.String())
+	}
+	if len(mb.searchCalls) != 1 || mb.searchCalls[0] != "trust obey fear and bullets" {
+		t.Errorf("MusicBrainz.SearchByName not called with the query: %v", mb.searchCalls)
+	}
+
+	got, _ := h.Store.GetDisc(context.Background(), d.ID)
+	if len(got.Candidates) != 1 || got.Candidates[0].MBID != "r1" {
+		t.Errorf("candidates not persisted: %+v", got.Candidates)
+	}
+}
+
+func TestIdentifyDisc_AudioCD_MBNotConfigured_Returns503(t *testing.T) {
+	h := apitestServer(t)
+	h.MusicBrainz = nil
+
+	drv := seedDrive(t, h)
+	d := &state.Disc{DriveID: drv.ID, Type: state.DiscTypeAudioCD, TOCHash: "x"}
+	if err := h.Store.CreateDisc(context.Background(), d); err != nil {
+		t.Fatal(err)
+	}
+
+	r := chi.NewRouter()
+	r.Post("/api/discs/{id}/identify", h.IdentifyDisc)
+	body := bytes.NewReader([]byte(`{"query":"anything"}`))
+	req := httptest.NewRequest(http.MethodPost, "/api/discs/"+d.ID+"/identify", body)
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusServiceUnavailable {
+		t.Errorf("status: want 503, got %d body=%s", w.Code, w.Body.String())
+	}
+}
+
 func mustJSON(t *testing.T, v any) []byte {
 	t.Helper()
 	b, err := json.Marshal(v)

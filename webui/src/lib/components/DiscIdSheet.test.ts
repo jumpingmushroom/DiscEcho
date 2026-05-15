@@ -329,14 +329,14 @@ describe('DiscIdSheet — manual search (M2.2)', () => {
   it('Search manually replaces candidate list with input', async () => {
     const { getByText, getByPlaceholderText, queryByText } = render(DiscIdSheet, { disc });
     await fireEvent.click(getByText('Search manually'));
-    expect(getByPlaceholderText(/title/i)).toBeInTheDocument();
+    expect(getByPlaceholderText(/album or artist/i)).toBeInTheDocument();
     expect(queryByText('Use top match · Start rip')).toBeNull();
   });
 
   it('disables Search button when query is empty', async () => {
     const { getByText } = render(DiscIdSheet, { disc });
     await fireEvent.click(getByText('Search manually'));
-    const searchBtn = getByText(/Search TMDB/);
+    const searchBtn = getByText(/Search MusicBrainz/);
     expect((searchBtn as HTMLButtonElement).disabled).toBe(true);
   });
 
@@ -362,13 +362,13 @@ describe('DiscIdSheet — manual search (M2.2)', () => {
 
     const { getByText, getByPlaceholderText, queryByText } = render(DiscIdSheet, { disc });
     await fireEvent.click(getByText('Search manually'));
-    await fireEvent.input(getByPlaceholderText(/title/i), { target: { value: 'Found' } });
-    await fireEvent.click(getByText(/Search TMDB/));
+    await fireEvent.input(getByPlaceholderText(/album or artist/i), { target: { value: 'Found' } });
+    await fireEvent.click(getByText(/Search MusicBrainz/));
 
     await vi.runAllTimersAsync();
     await Promise.resolve();
     await Promise.resolve();
-    expect(queryByText(/Search TMDB/)).toBeNull();
+    expect(queryByText(/Search MusicBrainz/)).toBeNull();
 
     expect(fetchSpy).toHaveBeenCalledWith(
       '/api/discs/disc-1/identify',
@@ -388,8 +388,8 @@ describe('DiscIdSheet — manual search (M2.2)', () => {
 
     const { getByText, getByPlaceholderText } = render(DiscIdSheet, { disc });
     await fireEvent.click(getByText('Search manually'));
-    await fireEvent.input(getByPlaceholderText(/title/i), { target: { value: 'Obscure' } });
-    await fireEvent.click(getByText(/Search TMDB/));
+    await fireEvent.input(getByPlaceholderText(/album or artist/i), { target: { value: 'Obscure' } });
+    await fireEvent.click(getByText(/Search MusicBrainz/));
 
     await vi.runAllTimersAsync();
     await Promise.resolve();
@@ -406,8 +406,8 @@ describe('DiscIdSheet — manual search (M2.2)', () => {
 
     const { getByText, getByPlaceholderText, container } = render(DiscIdSheet, { disc });
     await fireEvent.click(getByText('Search manually'));
-    await fireEvent.input(getByPlaceholderText(/title/i), { target: { value: 'X' } });
-    await fireEvent.click(getByText(/Search TMDB/));
+    await fireEvent.input(getByPlaceholderText(/album or artist/i), { target: { value: 'X' } });
+    await fireEvent.click(getByText(/Search MusicBrainz/));
 
     await vi.runAllTimersAsync();
     await Promise.resolve();

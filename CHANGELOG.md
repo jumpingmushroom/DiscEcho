@@ -6,6 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.13.0] - 2026-05-15
+
+### Added
+- Manual MusicBrainz search for audio CDs the disc-id lookup couldn't match. The awaiting-decision card's **Search manually** button now opens an MB-tailored search panel (placeholder "Album or artist…", primary button "Search MusicBrainz") whenever the disc is `AUDIO_CD`, hits `MusicBrainzClient.SearchByName` server-side, and merges the ranked results back onto the disc so the user can pick a release the same way they pick a TMDB match for DVDs. Non-audio discs still use the existing TMDB flow. The new `/ws/2/release/?query=…` call goes through the same rate limiter and User-Agent as the disc-id Lookup; Lucene specials in queries are escaped so artist names containing `:` or `(` don't trip MB's parser.
+
 ## [0.12.1] - 2026-05-15
 
 ### Fixed

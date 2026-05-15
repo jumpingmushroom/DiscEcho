@@ -212,25 +212,36 @@ func (h *Handlers) IdentifyDisc(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if h.TMDB == nil {
-		writeError(w, http.StatusServiceUnavailable, "TMDB not configured")
-		return
-	}
-	mediaType := req.MediaType
-	if mediaType == "" {
-		mediaType = "both"
-	}
+	// Audio CDs are MusicBrainz territory; everything else still
+	// dispatches to TMDB. The request body's media_type field is
+	// ignored for audio (MB has no movie/TV split).
 	var cands []state.Candidate
-	switch mediaType {
-	case "movie":
-		cands, err = h.TMDB.SearchMovie(r.Context(), req.Query)
-	case "tv":
-		cands, err = h.TMDB.SearchTV(r.Context(), req.Query)
-	case "both":
-		cands, err = h.TMDB.SearchBoth(r.Context(), req.Query)
-	default:
-		writeError(w, http.StatusBadRequest, "media_type must be 'movie', 'tv', or 'both'")
-		return
+	if disc.Type == state.DiscTypeAudioCD {
+		if h.MusicBrainz == nil {
+			writeError(w, http.StatusServiceUnavailable, "MusicBrainz not configured")
+			return
+		}
+		cands, err = h.MusicBrainz.SearchByName(r.Context(), req.Query)
+	} else {
+		if h.TMDB == nil {
+			writeError(w, http.StatusServiceUnavailable, "TMDB not configured")
+			return
+		}
+		mediaType := req.MediaType
+		if mediaType == "" {
+			mediaType = "both"
+		}
+		switch mediaType {
+		case "movie":
+			cands, err = h.TMDB.SearchMovie(r.Context(), req.Query)
+		case "tv":
+			cands, err = h.TMDB.SearchTV(r.Context(), req.Query)
+		case "both":
+			cands, err = h.TMDB.SearchBoth(r.Context(), req.Query)
+		default:
+			writeError(w, http.StatusBadRequest, "media_type must be 'movie', 'tv', or 'both'")
+			return
+		}
 	}
 	if err != nil {
 		writeError(w, http.StatusBadGateway, err.Error())

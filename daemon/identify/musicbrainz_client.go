@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"sync"
@@ -83,6 +84,93 @@ func (c *mbClient) Lookup(ctx context.Context, discID string) ([]state.Candidate
 		return nil, fmt.Errorf("decode response: %w", err)
 	}
 	return raw.toCandidates(), nil
+}
+
+// SearchByName runs a free-text search against /ws/2/release/?query=...
+// and returns ranked candidates. The query is Lucene-escaped per MB's
+// search-server docs (special characters in artist / album names — a
+// `:` in "Sade: The Best Of" — would otherwise turn into a syntax
+// error or worse a field selector). Empty results return (nil, nil).
+func (c *mbClient) SearchByName(ctx context.Context, query string) ([]state.Candidate, error) {
+	query = strings.TrimSpace(query)
+	if query == "" {
+		return nil, nil
+	}
+	if err := c.waitForRateLimit(ctx); err != nil {
+		return nil, err
+	}
+
+	u := strings.TrimRight(c.cfg.BaseURL, "/") +
+		"/ws/2/release/?fmt=json&limit=25&query=" +
+		url.QueryEscape(luceneEscape(query))
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		return nil, fmt.Errorf("build request: %w", err)
+	}
+	req.Header.Set("User-Agent", c.cfg.UserAgent)
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := c.cfg.HTTPClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode == http.StatusNotFound {
+		return nil, nil
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
+		return nil, fmt.Errorf("musicbrainz search: status %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+
+	var raw mbDiscIDResponse
+	if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil {
+		return nil, fmt.Errorf("decode search: %w", err)
+	}
+	if len(raw.Releases) == 0 {
+		return nil, nil
+	}
+	out := make([]state.Candidate, 0, len(raw.Releases))
+	for _, rel := range raw.Releases {
+		c := state.Candidate{
+			Source:     "MusicBrainz",
+			Title:      rel.Title,
+			MBID:       rel.ID,
+			Confidence: rel.Score,
+		}
+		if rel.Disambiguation != "" {
+			c.Title = rel.Title + " (" + rel.Disambiguation + ")"
+		}
+		if y := parseYear(rel.Date); y > 0 {
+			c.Year = y
+		}
+		if len(rel.ArtistCredit) > 0 {
+			c.Artist = rel.ArtistCredit[0].Artist.Name
+		}
+		out = append(out, c)
+	}
+	return out, nil
+}
+
+// luceneEscape backslash-escapes the characters that have special
+// meaning in MusicBrainz' Lucene-based search syntax. Without this a
+// query like "Bauhaus: Mask" would be interpreted as a field selector
+// (`Bauhaus:` becomes a field name) and either error or silently
+// match nothing.
+//
+// Reference: https://musicbrainz.org/doc/Indexed_Search_Syntax
+func luceneEscape(s string) string {
+	const special = `+-&|!(){}[]^"~*?:\` + "/"
+	var b strings.Builder
+	b.Grow(len(s))
+	for _, r := range s {
+		if strings.ContainsRune(special, r) {
+			b.WriteByte('\\')
+		}
+		b.WriteRune(r)
+	}
+	return b.String()
 }
 
 // ReleaseDetails fetches /ws/2/release/{mbid}?inc=recordings+labels

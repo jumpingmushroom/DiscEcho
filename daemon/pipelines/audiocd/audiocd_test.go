@@ -36,6 +36,9 @@ func (f *fakeMBClient) Lookup(_ context.Context, _ string) ([]state.Candidate, e
 func (f *fakeMBClient) ReleaseDetails(_ context.Context, _ string) (identify.AudioCDMetadata, error) {
 	return identify.AudioCDMetadata{}, nil
 }
+func (f *fakeMBClient) SearchByName(_ context.Context, _ string) ([]state.Candidate, error) {
+	return nil, nil
+}
 
 type trackInfo struct {
 	num   int

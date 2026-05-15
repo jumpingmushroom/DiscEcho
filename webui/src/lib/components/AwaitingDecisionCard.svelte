@@ -29,6 +29,11 @@
   $: liveDisc = $discs[disc.id] ?? disc;
   $: candidates = liveDisc.candidates ?? [];
   $: topConfidence = candidates[0]?.confidence ?? 0;
+  // The manual-search backend dispatches on disc.type — MB for audio
+  // CDs, TMDB for everything else — so the placeholder + button label
+  // must follow the same split or the user is told the wrong story.
+  $: searchPlaceholder = liveDisc.type === 'AUDIO_CD' ? 'Album or artist…' : 'Movie or show title…';
+  $: searchButtonLabel = liveDisc.type === 'AUDIO_CD' ? 'Search MusicBrainz' : 'Search TMDB';
   // Auto-confirm only fires in batch mode. Manual mode shows the same
   // candidate list but never starts a rip without an explicit click.
   $: autoConfirmAllowed =
@@ -203,7 +208,7 @@
       <input
         type="text"
         bind:value={searchQuery}
-        placeholder="Movie or show title…"
+        placeholder={searchPlaceholder}
         class="min-h-[44px] w-full rounded-xl border border-border bg-surface-2 px-3 text-[15px] text-text"
         on:keydown={(e) => e.key === 'Enter' && submitSearch()}
       />
@@ -219,7 +224,7 @@
           on:click={submitSearch}
           disabled={searchPending || !searchQuery.trim()}
         >
-          {searchPending ? 'Searching…' : 'Search TMDB'}
+          {searchPending ? 'Searching…' : searchButtonLabel}
         </button>
         <button class="min-h-[40px] text-[13px] text-text-3" on:click={cancelSearch}>
           Cancel search
@@ -287,18 +292,12 @@
           Use top match · Start rip
         </button>
       {/if}
-      {#if liveDisc.type !== 'AUDIO_CD' || candidates.length > 0}
-        <!-- Manual search hits TMDB only (see daemon/api/discs.go).
-             AUDIO_CDs with zero candidates have no useful path through
-             this button yet — hide it instead of leading the user into
-             a search that can't possibly return audio releases. -->
-        <button
-          class="min-h-[44px] flex-1 rounded-xl border border-border text-[14px] text-text-2"
-          on:click={openSearch}
-        >
-          Search manually
-        </button>
-      {/if}
+      <button
+        class="min-h-[44px] flex-1 rounded-xl border border-border text-[14px] text-text-2"
+        on:click={openSearch}
+      >
+        Search manually
+      </button>
       <button
         class="min-h-[36px] text-[13px] text-text-3 disabled:opacity-50"
         on:click={skip}
