@@ -49,9 +49,14 @@ func (c *mbClient) Lookup(ctx context.Context, discID string) ([]state.Candidate
 		return nil, err
 	}
 
+	// `inc=releases` used to be accepted here as a no-op (the discid
+	// resource returns its containing releases by default), but the
+	// server tightened validation and now rejects it with a 400. Keep
+	// only the inc parameters that actually decorate the nested release
+	// objects.
 	u := strings.TrimRight(c.cfg.BaseURL, "/") +
 		"/ws/2/discid/" + discID +
-		"?fmt=json&inc=artist-credits+releases"
+		"?fmt=json&inc=artist-credits"
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 	if err != nil {
 		return nil, fmt.Errorf("build request: %w", err)

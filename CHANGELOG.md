@@ -6,6 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.10.6] - 2026-05-15
+
+### Fixed
+- The MusicBrainz disc-id lookup no longer fails with `400: releases is not a valid inc parameter for the discid resource`. MusicBrainz tightened validation on the `/ws/2/discid/{id}` endpoint and now rejects `inc=releases` (it used to be silently ignored — the discid resource already returns its containing releases by default). The client now requests `inc=artist-credits` only, which keeps the artist-credit data we surface in the candidate list.
+
 ## [0.10.5] - 2026-05-15
 
 ### Fixed
