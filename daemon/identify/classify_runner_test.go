@@ -3,6 +3,7 @@ package identify
 import (
 	"bytes"
 	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -84,20 +85,45 @@ func TestDefaultCDInfoRunner_PartialLineDoesNotFire(t *testing.T) {
 	}
 }
 
-// TestDefaultCDInfoRunner_ProcessExitsCleanly covers the path where the
-// fake never prints the marker. The runner should wait for the process
-// and return whatever it exited with.
-func TestDefaultCDInfoRunner_ProcessExitsCleanly(t *testing.T) {
+// TestDefaultCDInfoRunner_ProcessExitsCleanly_NoMarker covers the
+// path where the fake exits with status 0 but never prints a usable
+// disc-mode line. The runner must return errCDInfoDiscNotReady so the
+// retry loop can re-run cd-info — feeding the incomplete output to
+// the parser would silently mis-classify the disc as DATA.
+func TestDefaultCDInfoRunner_ProcessExitsCleanly_NoMarker(t *testing.T) {
 	fake := writeFakeCDInfo(t, "echo 'no marker here'")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	out, err := defaultCDInfoRunner(ctx, fake, "/dev/null")
-	if err != nil {
-		t.Errorf("expected nil error from clean exit, got %v", err)
+	if !errors.Is(err, errCDInfoDiscNotReady) {
+		t.Fatalf("want errCDInfoDiscNotReady, got %v", err)
 	}
 	if !bytes.Contains(out, []byte("no marker here")) {
 		t.Errorf("output missing exit content: %q", out)
+	}
+}
+
+// TestDefaultCDInfoRunner_ErrorValueRetries verifies that when cd-info
+// exits cleanly but the disc-mode value is an error string (the
+// ASUS SDRW-08D2S-U "Error in getting information" spin-up race), the
+// runner returns errCDInfoDiscNotReady so the retry loop kicks in
+// instead of feeding the bad output to the parser.
+func TestDefaultCDInfoRunner_ErrorValueRetries(t *testing.T) {
+	if _, err := exec.LookPath("sh"); err != nil {
+		t.Skip("sh not available")
+	}
+
+	fake := writeFakeCDInfo(t, "echo 'Disc mode is listed as: Error in getting information'")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	out, err := defaultCDInfoRunner(ctx, fake, "/dev/null")
+	if !errors.Is(err, errCDInfoDiscNotReady) {
+		t.Fatalf("runner: want errCDInfoDiscNotReady, got %v", err)
+	}
+	if !bytes.Contains(out, []byte("Error in getting information")) {
+		t.Errorf("expected buffer to retain the error line; got %q", out)
 	}
 }
 

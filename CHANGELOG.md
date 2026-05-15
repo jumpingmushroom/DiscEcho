@@ -6,6 +6,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.10.5] - 2026-05-15
+
+### Fixed
+- Audio CDs are no longer misclassified as DATA when the daemon races the disc spin-up. On the ASUS SDRW-08D2S-U the udev media-change uevent fires 60–100 ms after insert; cd-info ran immediately and the drive answered the TOC read with **No medium found**, so cd-info wrote `Disc mode is listed as: Error in getting information` and **exited cleanly with status 0**. The classify retry loop only kicked in on non-zero exits, so the garbage output was passed straight to the parser, fell through to DATA, and the drive went idle with no disc shown. The runner now treats a clean cd-info exit without a usable disc-mode value as a transient failure — and the line-watcher ignores known cd-info error strings (`Error in getting information`, `Unknown`) so a kill-on-marker doesn't fire on a value that's really a failure indicator. With both changes the existing 11.5 s backoff schedule absorbs the spin-up race correctly.
+
+### Changed
+- Reverted the diagnostic `classify: cd-info captured` log added in 0.10.3 / 0.10.4 now that the underlying bug is fixed.
+
+## [0.10.4] - 2026-05-15
+
+### Changed
+- Internal: the `classify: cd-info captured` debug log added in 0.10.3 now surfaces the *tail* of cd-info's output (last 3 KB) instead of the head — the disc-mode line lands late, after the capabilities listing.
+
 ## [0.10.3] - 2026-05-15
 
 ### Changed

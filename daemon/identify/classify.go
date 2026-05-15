@@ -27,6 +27,25 @@ type cdInfoRunner func(ctx context.Context, bin, devPath string) ([]byte, error)
 // writes, and killing in between leaves the parser without the value.
 var cdInfoDiscModePrefix = []byte("Disc mode is listed as:")
 
+// errCDInfoDiscNotReady is returned by defaultCDInfoRunner when cd-info
+// completed a run but the disc wasn't ready: either the disc-mode line
+// never landed, or it landed with a value matching an error string
+// (e.g. `Error in getting information` on the ASUS SDRW-08D2S-U when
+// the TOC read races the spin-up). The runCDInfo retry loop treats this
+// as a transient failure and re-invokes cd-info on the existing
+// spin-up backoff schedule. Without this, cd-info's exit code 0 on
+// these aborted runs would short-circuit the retry loop and feed
+// garbage to the parser.
+var errCDInfoDiscNotReady = errors.New("cd-info: disc not ready (no valid disc-mode line)")
+
+// cdInfoErrorMarkers lists strings that, when they appear as the
+// disc-mode value in cd-info's output, indicate the run aborted before
+// the drive could answer. They're treated as a retry trigger.
+var cdInfoErrorMarkers = []string{
+	"error in getting information",
+	"unknown",
+}
+
 // defaultCDInfoRunner runs cd-info and kills it the moment the disc-mode
 // line lands in stdout. Some drive+disc combinations hang cd-info for
 // 60–90 s reading the optional Media Catalog Number that follows the
@@ -47,6 +66,15 @@ func defaultCDInfoRunner(ctx context.Context, bin, devPath string) ([]byte, erro
 	go func() { done <- cmd.Wait() }()
 	select {
 	case err := <-done:
+		// cd-info exited on its own. Some drives report a clean exit
+		// (status 0) even when the TOC read failed and the disc-mode
+		// line came back as an error string; runCDInfo's retry loop
+		// needs a non-nil error to trigger the spin-up backoff, so we
+		// upgrade "exited clean but no usable disc-mode line" into
+		// errCDInfoDiscNotReady.
+		if err == nil && !w.Fired() {
+			return w.Bytes(), errCDInfoDiscNotReady
+		}
 		return w.Bytes(), err
 	case <-w.Found():
 		_ = cmd.Process.Kill()
@@ -91,7 +119,7 @@ func (w *cdInfoWatcher) Write(p []byte) (int, error) {
 			line := w.line.Bytes()
 			if bytes.HasPrefix(line, w.prefix) {
 				value := bytes.TrimSpace(line[len(w.prefix):])
-				if len(value) > 0 {
+				if len(value) > 0 && !looksLikeCDInfoError(value) {
 					w.once.Do(func() { close(w.found) })
 				}
 			}
@@ -101,6 +129,34 @@ func (w *cdInfoWatcher) Write(p []byte) (int, error) {
 		}
 	}
 	return n, nil
+}
+
+// Fired reports whether the disc-mode line has been observed (with a
+// non-error value). Safe to call from any goroutine. Used by
+// defaultCDInfoRunner to upgrade a clean-but-incomplete cd-info run
+// into a retry-triggering error.
+func (w *cdInfoWatcher) Fired() bool {
+	select {
+	case <-w.found:
+		return true
+	default:
+		return false
+	}
+}
+
+// looksLikeCDInfoError matches disc-mode values that cd-info writes
+// when it couldn't read the TOC. Catches "Error in getting information"
+// (the ASUS SDRW-08D2S-U spin-up race) and "Unknown" (a few other
+// drives' transient state). Real disc modes — CD-DA, CD-ROM, CD-ROM XA,
+// Mode 2, … — are short and never contain these strings.
+func looksLikeCDInfoError(value []byte) bool {
+	low := bytes.ToLower(value)
+	for _, marker := range cdInfoErrorMarkers {
+		if bytes.Contains(low, []byte(marker)) {
+			return true
+		}
+	}
+	return false
 }
 
 func (w *cdInfoWatcher) Bytes() []byte {
@@ -226,16 +282,6 @@ func (c *multiProbeClassifier) Classify(ctx context.Context, devPath string) (st
 	if err != nil {
 		return "", err
 	}
-	// Debug: log what we got and what we decided so we can diagnose
-	// misclassification in the field. Truncated to keep the log line
-	// bounded — most-relevant content (disc-mode + track list) sits in
-	// the tail of cd-info's output, so we surface the LAST 3 KB rather
-	// than the first.
-	preview := string(out)
-	if len(preview) > 3000 {
-		preview = "...(truncated head)" + preview[len(preview)-3000:]
-	}
-	slog.Info("classify: cd-info captured", "dev", devPath, "base", base, "bytes", len(out), "preview", preview)
 	fs := c.fs
 	if fs != nil {
 		// The ISO9660 listing can be momentarily empty in the disc
