@@ -6,6 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.9.2] - 2026-05-15
+
+### Fixed
+- The drive no longer locks itself out of further disc events after an identify failure or after ejecting a disc. When the classify step timed out (or any cleanup hit a cancelled context), the follow-up "reset to idle/error" write was made with the same cancelled context and silently failed, leaving the drive permanently stuck in `identifying`. Every later eject and re-insert then hit "drive already identifying, ignoring" and the daemon stayed deaf until the SQLite row was manually corrected. Cleanup writes now use a fresh context, errors surface to the log, and any drive left in `identifying` from a previous run is reset to `idle` at daemon startup.
+
 ## [0.9.1] - 2026-05-15
 
 ### Fixed

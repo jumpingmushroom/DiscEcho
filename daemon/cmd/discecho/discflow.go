@@ -87,13 +87,13 @@ func (df *discFlow) handle(ev drive.Uevent) {
 	dt, err := df.classifier.Classify(ctx, devPath)
 	if err != nil {
 		slog.Warn("classify failed", "dev", devPath, "err", err)
-		_ = df.store.UpdateDriveState(ctx, drv.ID, state.DriveStateError)
+		df.releaseDriveState(drv.ID, state.DriveStateError)
 		return
 	}
 	handler, ok := df.pipelines.Get(dt)
 	if !ok {
 		slog.Info("no handler for disc type; skipping", "type", dt)
-		_ = df.store.UpdateDriveState(ctx, drv.ID, state.DriveStateIdle)
+		df.releaseDriveState(drv.ID, state.DriveStateIdle)
 		return
 	}
 
@@ -105,6 +105,7 @@ func (df *discFlow) handle(ev drive.Uevent) {
 			disc.DriveID = drv.ID
 			if cerr := df.store.CreateDisc(ctx, disc); cerr != nil {
 				slog.Warn("create disc (no cands)", "err", cerr)
+				df.releaseDriveState(drv.ID, state.DriveStateError)
 				return
 			}
 			df.bc.Publish(state.Event{Name: "disc.detected", Payload: map[string]any{"disc": disc}})
@@ -113,17 +114,18 @@ func (df *discFlow) handle(ev drive.Uevent) {
 				Payload: map[string]any{"disc": disc, "candidates": []state.Candidate{}},
 			})
 		}
-		_ = df.store.UpdateDriveState(ctx, drv.ID, state.DriveStateIdle)
+		df.releaseDriveState(drv.ID, state.DriveStateIdle)
 		return
 	case err != nil:
 		slog.Warn("identify failed", "err", err)
-		_ = df.store.UpdateDriveState(ctx, drv.ID, state.DriveStateError)
+		df.releaseDriveState(drv.ID, state.DriveStateError)
 		return
 	}
 
 	disc.DriveID = drv.ID
 	if err := df.store.CreateDisc(ctx, disc); err != nil {
 		slog.Warn("create disc", "err", err)
+		df.releaseDriveState(drv.ID, state.DriveStateError)
 		return
 	}
 	df.bc.Publish(state.Event{Name: "disc.detected", Payload: map[string]any{"disc": disc}})
@@ -136,13 +138,27 @@ func (df *discFlow) handle(ev drive.Uevent) {
 	// any work, so flip it back to idle. Leaving it in `identifying`
 	// makes the dashboard lie ("Identifying disc…") and blocks future
 	// uevents from being processed cleanly.
-	if err := df.store.UpdateDriveState(ctx, drv.ID, state.DriveStateIdle); err != nil {
-		slog.Warn("disc-flow: reset drive state", "err", err)
-	}
+	df.releaseDriveState(drv.ID, state.DriveStateIdle)
 	df.bc.Publish(state.Event{
 		Name:    "drive.changed",
 		Payload: map[string]any{"drive_id": drv.ID, "state": "idle"},
 	})
+}
+
+// releaseDriveState writes the drive's terminal state for this handle()
+// invocation using a fresh background context. The identify ctx
+// (df.identifyDur, 30s) is cancelled the moment classify or identify
+// times out, and ExecContext on the original ctx then returns
+// context.Canceled before the SQL runs — silently leaving the drive
+// stuck in `identifying` and locking the daemon out of every later
+// uevent on that drive. Always use a clean context for the cleanup
+// write, and surface failures via the log instead of discarding them.
+func (df *discFlow) releaseDriveState(driveID string, st state.DriveState) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := df.store.UpdateDriveState(ctx, driveID, st); err != nil {
+		slog.Warn("disc-flow: release drive state", "err", err, "drive_id", driveID, "target_state", st)
+	}
 }
 
 func (df *discFlow) findDriveByDevPath(ctx context.Context, dev string) (*state.Drive, error) {

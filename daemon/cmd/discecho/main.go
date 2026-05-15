@@ -81,6 +81,14 @@ func main() {
 	} else {
 		slog.Info("drives discovered", "count", n)
 	}
+	// Recover any drive left in `identifying` by a previous run. Without
+	// this, ClaimDriveForIdentify (which only transitions from idle/error)
+	// refuses every later uevent and the daemon stays deaf on that drive.
+	if n, err := store.ResetIdentifyingDrives(context.Background()); err != nil {
+		slog.Warn("ResetIdentifyingDrives", "err", err)
+	} else if n > 0 {
+		slog.Info("reset stuck identifying drives", "count", n)
+	}
 
 	// Tools — Whipper for ripping, Apprise for notifications, Eject
 	// for the post-rip eject step.

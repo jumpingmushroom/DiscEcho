@@ -193,3 +193,60 @@ func TestStore_Drive_UpdateStateNotFound(t *testing.T) {
 		t.Errorf("want ErrNotFound, got nil")
 	}
 }
+
+// TestStore_ResetIdentifyingDrives is the recovery for a stuck-identify
+// crash: if a previous run left a drive in `identifying` (because the
+// classify ctx timed out and the cleanup UpdateDriveState was called
+// with that same cancelled ctx, silently failing), every subsequent
+// uevent on that drive hits "already identifying, ignoring" and the
+// daemon stays deaf. Boot-time recovery resets stuck rows so a fresh
+// uevent can claim the drive again. Drives in other states must be
+// left alone.
+func TestStore_ResetIdentifyingDrives(t *testing.T) {
+	s := openStore(t)
+	ctx := context.Background()
+
+	stuck := &state.Drive{
+		Model: "ASUS SDRW", Bus: "sr0", DevPath: "/dev/sr0",
+		State: state.DriveStateIdentifying, LastSeenAt: time.Now(),
+	}
+	idle := &state.Drive{
+		Model: "Pioneer BDR", Bus: "sr1", DevPath: "/dev/sr1",
+		State: state.DriveStateIdle, LastSeenAt: time.Now(),
+	}
+	ripping := &state.Drive{
+		Model: "LG WH16", Bus: "sr2", DevPath: "/dev/sr2",
+		State: state.DriveStateRipping, LastSeenAt: time.Now(),
+	}
+	for _, d := range []*state.Drive{stuck, idle, ripping} {
+		if err := s.UpsertDrive(ctx, d); err != nil {
+			t.Fatalf("upsert %s: %v", d.DevPath, err)
+		}
+	}
+
+	n, err := s.ResetIdentifyingDrives(ctx)
+	if err != nil {
+		t.Fatalf("ResetIdentifyingDrives: %v", err)
+	}
+	if n != 1 {
+		t.Errorf("rows reset: want 1, got %d", n)
+	}
+
+	cases := []struct {
+		d    *state.Drive
+		want state.DriveState
+	}{
+		{stuck, state.DriveStateIdle},
+		{idle, state.DriveStateIdle},
+		{ripping, state.DriveStateRipping},
+	}
+	for _, c := range cases {
+		got, err := s.GetDrive(ctx, c.d.ID)
+		if err != nil {
+			t.Fatalf("get %s: %v", c.d.DevPath, err)
+		}
+		if got.State != c.want {
+			t.Errorf("%s: state want %s, got %s", c.d.DevPath, c.want, got.State)
+		}
+	}
+}

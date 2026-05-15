@@ -159,6 +159,28 @@ func (s *Store) UpsertDrive(ctx context.Context, d *Drive) error {
 	return err
 }
 
+// ResetIdentifyingDrives clears any drive left in the `identifying`
+// state, transitioning it back to `idle`. Returns the number of rows
+// updated.
+//
+// A daemon crash, container restart, or classify-ctx timeout whose
+// cleanup write was itself made with the timed-out ctx (and silently
+// failed) can leave a drive stuck in `identifying`. ClaimDriveForIdentify
+// only transitions from `idle` or `error`, so a stuck row means every
+// subsequent uevent hits "already identifying" and the daemon is deaf
+// until the row is corrected. Call this at startup so the next uevent
+// can claim the drive cleanly.
+func (s *Store) ResetIdentifyingDrives(ctx context.Context) (int, error) {
+	res, err := s.db.Conn().ExecContext(ctx,
+		`UPDATE drives SET state = ?, last_seen_at = ? WHERE state = ?`,
+		string(DriveStateIdle), timestamp(time.Now()), string(DriveStateIdentifying))
+	if err != nil {
+		return 0, err
+	}
+	n, _ := res.RowsAffected()
+	return int(n), nil
+}
+
 // UpdateDriveState sets the drive's state and refreshes last_seen_at.
 func (s *Store) UpdateDriveState(ctx context.Context, id string, state DriveState) error {
 	res, err := s.db.Conn().ExecContext(ctx,
