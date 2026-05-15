@@ -4,8 +4,10 @@
   import DiscTypeBadge from '$lib/components/DiscTypeBadge.svelte';
   import ProgressBar from '$lib/components/ProgressBar.svelte';
   import SpeedEtaChip from '$lib/components/SpeedEtaChip.svelte';
-  import { onMount } from 'svelte';
+  import { onMount, onDestroy } from 'svelte';
   import { logs, ensureLogBackfill, cancelJob, ejectDrive, reidentify } from '$lib/store';
+  import { formatDuration } from '$lib/time';
+  import { trackSummary } from '$lib/format';
 
   export let drive: Drive;
   export let disc: Disc | undefined = undefined;
@@ -76,6 +78,33 @@
       void ensureLogBackfill(job.id);
     }
   });
+
+  // Elapsed ticker for the same reason it lives on desktop RipCard:
+  // audio rips sit at 0% for 1-3 min during whipper warmup and the
+  // user needs *some* signal that work is happening.
+  let now = Date.now();
+  let elapsedTimer: ReturnType<typeof setInterval> | null = null;
+  $: jobRunning = !!job && (job.state === 'running' || job.state === 'queued');
+  $: if (jobRunning && elapsedTimer === null) {
+    elapsedTimer = setInterval(() => {
+      now = Date.now();
+    }, 1000);
+  } else if (!jobRunning && elapsedTimer !== null) {
+    clearInterval(elapsedTimer);
+    elapsedTimer = null;
+  }
+  onDestroy(() => {
+    if (elapsedTimer !== null) clearInterval(elapsedTimer);
+  });
+
+  $: elapsedSeconds = (() => {
+    if (!job?.started_at) return 0;
+    const startMs = new Date(job.started_at).getTime();
+    if (!Number.isFinite(startMs)) return 0;
+    return Math.max(0, Math.floor((now - startMs) / 1000));
+  })();
+
+  $: tracks = trackSummary(disc?.metadata_json);
 
   $: busy = job !== undefined && (drive.state === 'ripping' || drive.state === 'identifying');
 
@@ -151,14 +180,21 @@
           {drive.model}
         </div>
       </div>
-      <span
-        class="shrink-0 rounded px-2 py-0.5 font-bold uppercase tracking-[0.14em]"
-        style="font-size: 10px; background: {busy
-          ? 'var(--accent-soft)'
-          : 'var(--surface-2)'}; color: {busy ? 'var(--accent)' : 'var(--text-3)'}"
-      >
-        {stateLabel(job, drive)}
-      </span>
+      <div class="flex shrink-0 flex-col items-end gap-0.5">
+        <span
+          class="rounded px-2 py-0.5 font-bold uppercase tracking-[0.14em]"
+          style="font-size: 10px; background: {busy
+            ? 'var(--accent-soft)'
+            : 'var(--surface-2)'}; color: {busy ? 'var(--accent)' : 'var(--text-3)'}"
+        >
+          {stateLabel(job, drive)}
+        </span>
+        {#if jobRunning && elapsedSeconds > 0}
+          <span class="font-mono text-text-3" style="font-size: 10px" data-testid="elapsed">
+            {formatDuration(elapsedSeconds)}
+          </span>
+        {/if}
+      </div>
     </div>
 
     {#if busy && job}
@@ -172,6 +208,9 @@
           <div class="mt-0.5 text-text-3" style="font-size: var(--ts-overline)">
             {disc?.year ?? ''}{disc?.year && profile ? ' · ' : ''}{profile?.name ?? ''}
           </div>
+          {#if tracks}
+            <div class="mt-0.5 text-text-3" style="font-size: var(--ts-overline)">{tracks}</div>
+          {/if}
         </div>
       </div>
       {#if activeStepLabel(job)}

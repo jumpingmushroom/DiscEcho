@@ -1,7 +1,9 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, onDestroy } from 'svelte';
   import type { Drive, Disc, Job, Profile, StepID } from '$lib/wire';
   import { logs, ensureLogBackfill } from '$lib/store';
+  import { formatDuration } from '$lib/time';
+  import { trackSummary } from '$lib/format';
   import DiscArt from './DiscArt.svelte';
   import DiscTypeBadge from './DiscTypeBadge.svelte';
   import PipelineStepperHorizontal from './PipelineStepperHorizontal.svelte';
@@ -25,6 +27,34 @@
       void ensureLogBackfill(job.id);
     }
   });
+
+  // Elapsed wall-clock ticker. Audio rips can sit at 0% progress for
+  // 1-3 min during whipper's pre-track warmup; without an elapsed
+  // counter there's no signal of liveness besides the spinning step
+  // icon. Ticks every second only while the job is non-terminal.
+  let now = Date.now();
+  let elapsedTimer: ReturnType<typeof setInterval> | null = null;
+  $: isRunning = job.state === 'running' || job.state === 'queued';
+  $: if (isRunning && elapsedTimer === null) {
+    elapsedTimer = setInterval(() => {
+      now = Date.now();
+    }, 1000);
+  } else if (!isRunning && elapsedTimer !== null) {
+    clearInterval(elapsedTimer);
+    elapsedTimer = null;
+  }
+  onDestroy(() => {
+    if (elapsedTimer !== null) clearInterval(elapsedTimer);
+  });
+
+  $: elapsedSeconds = (() => {
+    if (!job.started_at) return 0;
+    const startMs = new Date(job.started_at).getTime();
+    if (!Number.isFinite(startMs)) return 0;
+    return Math.max(0, Math.floor((now - startMs) / 1000));
+  })();
+
+  $: tracks = trackSummary(disc?.metadata_json);
 
   // State pill — derived from active_step where possible so the user sees
   // "TRANSCODING" instead of a generic "RIPPING" once the laser is done.
@@ -81,12 +111,19 @@
       </div>
       <div class="mt-1 truncate text-[15px] font-semibold text-text">{drive.model}</div>
     </div>
-    <span
-      class="shrink-0 rounded px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.14em]"
-      style="background: var(--accent-soft); color: var(--accent)"
-    >
-      {stateLabel(job, drive)}
-    </span>
+    <div class="flex shrink-0 flex-col items-end gap-1">
+      <span
+        class="rounded px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.14em]"
+        style="background: var(--accent-soft); color: var(--accent)"
+      >
+        {stateLabel(job, drive)}
+      </span>
+      {#if isRunning && elapsedSeconds > 0}
+        <span class="font-mono text-[11px] text-text-3" data-testid="elapsed">
+          {formatDuration(elapsedSeconds)}
+        </span>
+      {/if}
+    </div>
   </div>
 
   <!-- Disc identity row -->
@@ -103,6 +140,7 @@
       <div class="mt-2 flex items-center gap-2 font-mono text-[11px] text-text-3">
         <span>{drive.bus.toLowerCase()}</span>
         {#if profile}<span>·</span><span>{profile.name}</span>{/if}
+        {#if tracks}<span>·</span><span>{tracks}</span>{/if}
       </div>
     </div>
   </div>

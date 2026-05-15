@@ -163,4 +163,48 @@ describe('RipCard', () => {
       expect(fetchSpy).not.toHaveBeenCalled();
     });
   });
+
+  describe('elapsed timer + track summary', () => {
+    beforeEach(() => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2026-05-13T12:05:30Z'));
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it('renders the elapsed time computed from job.started_at', () => {
+      const running: Job = {
+        ...job,
+        state: 'running',
+        started_at: '2026-05-13T12:00:00Z',
+      };
+      const { getByTestId } = render(RipCard, { drive, disc, job: running, profile });
+      expect(getByTestId('elapsed').textContent?.trim()).toBe('5m 30s');
+    });
+
+    it('hides the elapsed chip on terminal jobs', () => {
+      const done: Job = {
+        ...job,
+        state: 'done',
+        active_step: undefined,
+        started_at: '2026-05-13T12:00:00Z',
+      };
+      const { queryByTestId } = render(RipCard, { drive, disc, job: done, profile });
+      expect(queryByTestId('elapsed')).toBeNull();
+    });
+
+    it('renders "N tracks · MMm" when disc.metadata_json carries tracks', () => {
+      const audioDisc: Disc = {
+        ...disc,
+        type: 'AUDIO_CD',
+        metadata_json: JSON.stringify({
+          tracks: [{ duration_seconds: 357 }, { duration_seconds: 661 }, { duration_seconds: 97 }],
+        }),
+      };
+      const { getByText } = render(RipCard, { drive, disc: audioDisc, job, profile });
+      expect(getByText('3 tracks · 19m')).toBeInTheDocument();
+    });
+  });
 });

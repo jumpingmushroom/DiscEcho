@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+- The drive card (desktop **and** mobile) now shows the elapsed wall-clock time since the rip started, right under the RIPPING pill. Audio CDs sit at 0% progress for the first 1–3 minutes while whipper does its TOC read and AccurateRip lookup, and the elapsed counter is the missing "yes, work is happening" signal during that window.
+- The disc identity row gains a "N tracks · MMm" / "N tracks · 1h MMm" line whenever the disc carries per-track metadata (audio CDs and DVD chapter listings). Renders alongside the existing bus + profile chips so the user knows how long the playback is before deciding to start a rip.
+
 ### Fixed
 - The dashboard drive cards (desktop **and** mobile) no longer sit at "No log lines yet" for the entire whipper warmup phase when the page is opened mid-rip. The log-tail panel only had SSE-pushed lines, so any lines the daemon had already logged before the page mounted stayed invisible. The card now backfills the in-memory log ring from `/api/jobs/:id/logs` on mount for running jobs, with de-duplication against SSE lines that arrive during the fetch.
 
