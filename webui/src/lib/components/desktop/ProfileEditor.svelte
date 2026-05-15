@@ -21,6 +21,11 @@
 
   export let profile: Profile | null = null;
   export let creating: boolean = false;
+  // `chromeless` strips the in-form header (name input + duplicate / save /
+  // enabled checkbox) and the in-form Delete button. The mobile drill-down
+  // route (`/profiles/[id]`) renders its own AppBar and sticky action bar
+  // and drives onSave / onDelete via component bindings instead.
+  export let chromeless: boolean = false;
 
   const dispatch = createEventDispatcher<{ saved: void; duplicate: Profile }>();
 
@@ -111,7 +116,7 @@
     working.format = working.container;
   }
 
-  async function onSave(): Promise<void> {
+  export async function onSave(): Promise<void> {
     saving = true;
     fieldErrors = {};
     genericError = null;
@@ -152,7 +157,7 @@
     }
   }
 
-  async function onDelete(): Promise<void> {
+  export async function onDelete(): Promise<void> {
     if (!confirmingDelete) {
       confirmingDelete = true;
       return;
@@ -220,70 +225,72 @@
       </div>
     {/if}
 
-    <header class="mb-7 flex items-start justify-between gap-4">
-      <div class="min-w-0">
-        <div class="mb-1 flex items-center gap-2">
-          {#if discMeta}
-            <DiscTypeBadge type={discType} />
+    {#if !chromeless}
+      <header class="mb-7 flex items-start justify-between gap-4">
+        <div class="min-w-0">
+          <div class="mb-1 flex items-center gap-2">
+            {#if discMeta}
+              <DiscTypeBadge type={discType} />
+            {/if}
+            <span class="text-[11px] font-medium uppercase tracking-[0.14em] text-text-3">
+              profile
+            </span>
+          </div>
+          {#if creating}
+            <label class="block">
+              <span class="sr-only">Name</span>
+              <input
+                name="name"
+                type="text"
+                bind:value={working.name}
+                placeholder="New profile"
+                class="w-full bg-transparent text-[24px] font-bold tracking-tight text-text outline-none placeholder:text-text-3"
+              />
+            </label>
+          {:else}
+            <label class="block">
+              <span class="sr-only">Name</span>
+              <input
+                name="name"
+                type="text"
+                bind:value={working.name}
+                class="w-full bg-transparent text-[24px] font-bold tracking-tight text-text outline-none"
+              />
+            </label>
           {/if}
-          <span class="text-[11px] font-medium uppercase tracking-[0.14em] text-text-3">
-            profile
-          </span>
+          <div class="mt-1 font-mono text-[12px] text-text-3">
+            applies to all {discMeta?.label ?? working.disc_type} discs
+          </div>
+          {#if fieldErrors.name}
+            <div class="mt-1 text-[11px] text-error">{fieldErrors.name}</div>
+          {/if}
         </div>
-        {#if creating}
-          <label class="block">
-            <span class="sr-only">Name</span>
-            <input
-              name="name"
-              type="text"
-              bind:value={working.name}
-              placeholder="New profile"
-              class="w-full bg-transparent text-[24px] font-bold tracking-tight text-text outline-none placeholder:text-text-3"
-            />
-          </label>
-        {:else}
-          <label class="block">
-            <span class="sr-only">Name</span>
-            <input
-              name="name"
-              type="text"
-              bind:value={working.name}
-              class="w-full bg-transparent text-[24px] font-bold tracking-tight text-text outline-none"
-            />
-          </label>
-        {/if}
-        <div class="mt-1 font-mono text-[12px] text-text-3">
-          applies to all {discMeta?.label ?? working.disc_type} discs
-        </div>
-        {#if fieldErrors.name}
-          <div class="mt-1 text-[11px] text-error">{fieldErrors.name}</div>
-        {/if}
-      </div>
 
-      <div class="flex flex-shrink-0 items-center gap-3">
-        <label class="flex items-center gap-2">
-          <input type="checkbox" bind:checked={working.enabled} />
-          <span class="text-[12px] text-text-2">Enabled</span>
-        </label>
-        {#if !creating}
+        <div class="flex flex-shrink-0 items-center gap-3">
+          <label class="flex items-center gap-2">
+            <input type="checkbox" bind:checked={working.enabled} />
+            <span class="text-[12px] text-text-2">Enabled</span>
+          </label>
+          {#if !creating}
+            <button
+              type="button"
+              on:click={onDuplicate}
+              disabled={saving}
+              class="rounded-md border border-border px-3 py-1.5 text-[13px] text-text-2 transition-colors hover:border-border-strong disabled:opacity-50"
+            >
+              Duplicate
+            </button>
+          {/if}
           <button
-            type="button"
-            on:click={onDuplicate}
+            type="submit"
             disabled={saving}
-            class="rounded-md border border-border px-3 py-1.5 text-[13px] text-text-2 transition-colors hover:border-border-strong disabled:opacity-50"
+            class="rounded-md bg-accent px-4 py-1.5 text-[13px] font-semibold text-black disabled:opacity-50"
           >
-            Duplicate
+            {creating ? 'Create' : 'Save changes'}
           </button>
-        {/if}
-        <button
-          type="submit"
-          disabled={saving}
-          class="rounded-md bg-accent px-4 py-1.5 text-[13px] font-semibold text-black disabled:opacity-50"
-        >
-          {creating ? 'Create' : 'Save changes'}
-        </button>
-      </div>
-    </header>
+        </div>
+      </header>
+    {/if}
 
     <div class="space-y-7">
       {#if creating}
@@ -413,7 +420,7 @@
 
       <div class="text-[11px] text-text-3">Step count: {working.step_count}</div>
 
-      {#if !creating}
+      {#if !creating && !chromeless}
         <div class="flex justify-end">
           <button
             type="button"

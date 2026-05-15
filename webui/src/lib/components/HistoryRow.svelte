@@ -20,7 +20,7 @@
          last:border-0 hover:bg-surface-2"
   on:click={() => dispatch('click')}
 >
-  <ArtPlaceholder label={artLabel} size={40} ratio={artRatio} />
+  <ArtPlaceholder label={artLabel} size={44} ratio={artRatio} />
   <div class="min-w-0 flex-1">
     <div class="mb-0.5 flex items-center gap-2">
       <DiscTypeBadge type={row.disc.type} />
@@ -32,8 +32,8 @@
         </span>
       {/if}
     </div>
-    <div class="truncate text-[13px] font-medium text-text">{title}</div>
-    <div class="mt-0.5 truncate font-mono text-[11px] text-text-3">
+    <div class="truncate font-medium text-text" style="font-size: var(--ts-body)">{title}</div>
+    <div class="mt-0.5 truncate font-mono text-text-3" style="font-size: var(--ts-meta)">
       {row.disc.year ? row.disc.year + ' · ' : ''}{completedAt.slice(11, 16)}
     </div>
   </div>

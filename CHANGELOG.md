@@ -6,13 +6,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-05-15
+
 ### Added
 - A phase-filter chip row on the per-job log viewer (`/jobs/[id]`). Each log line is now tagged with the pipeline step it was emitted from, so you can flip between **Rip / Transcode / Move / …** without losing the earlier-phase context when a chatty step starts spamming. Live jobs auto-track the active phase; finished jobs default to **All**. A new `GET /api/jobs/:id/logs?step=…` endpoint serves the persisted log so a page reload (or visiting a finished rip) repopulates the viewer instead of starting empty.
 - A **Delete from history** button on the per-job page for finished rips — single-row counterpart to *Clear history*. Files on disk are untouched.
+- Profiles and Settings are now fully editable on mobile. `/profiles` lists every profile grouped by disc type with a **+** affordance that drills into a full-screen editor at `/profiles/[id]` or `/profiles/new`; the desktop two-pane flow is unchanged. `/settings` is now a section index that drills into `/settings/system`, `/settings/notifications`, and `/settings/retention` — each renders the same editable section the desktop has, no more "edit on desktop" footer.
+
+### Changed
+- The mobile dashboard is reworked. A 2×2 stats grid (Active jobs / Today ripped / Library size / Failures 7d) replaces the empty "today —" placeholder strip, the running job is no longer duplicated as both a full-bleed card and an Active-queue row, and each drive renders a single compact card with state pill, disc art, active-step subtitle, and progress — the home screen no longer carries a stepper or log tail, both of which live on the job detail page. The Queue section now lists only queued (not-yet-running) jobs.
+- The per-job page (`/jobs/[id]`) on mobile is now tabbed into **Pipeline / Log / Summary** rather than one long scroll, so each view fits a phone screen without competing for space.
+- Mobile navigation gained a **Profiles** tab. Mobile shell components moved into `webui/src/lib/components/mobile/` to mirror `desktop/`.
 
 ### Fixed
 - The history detail page is no longer the running-job page in disguise. Finishing rips reached from `/history` now show real cover art, an outcome pill (DONE / FAILED / CANCELLED), the elapsed time, output size, and profile, plus the per-phase log viewer — replacing the stale ETA chip, placeholder cover, empty live-log tail, and disabled Pause/Override/Cancel buttons that previously rendered. Running rips keep their existing layout, minus the two disabled buttons.
 - A finished job's progress no longer reads as **0%**. The pipeline now persists 100% on each step's completion, so the final step's percentage doesn't linger at whatever the last sub-100 progress sample happened to be.
+- The mobile AppBar no longer clips its title under the iOS status bar / notch. The sticky header now respects `env(safe-area-inset-top)`.
+- Settings and profile forms on mobile no longer cram a 200px label column onto a phone-width screen; `FormRow` now stacks label-above-input below the `md` breakpoint and keeps the side-by-side desktop layout at `md+`.
 
 ## [0.9.3] - 2026-05-15
 

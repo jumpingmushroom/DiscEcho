@@ -3,7 +3,7 @@
   export let error: string | null = null;
 </script>
 
-<div class="grid items-center gap-4 px-4 py-3" style="grid-template-columns: 200px 1fr">
+<div class="grid items-start gap-2 px-4 py-3 md:items-center md:gap-4 md:grid-cols-[200px_1fr]">
   <span class="text-[12px] text-text-2">{label}</span>
   <div class="min-w-0">
     <slot />

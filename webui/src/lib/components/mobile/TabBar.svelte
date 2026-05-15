@@ -1,16 +1,17 @@
 <script lang="ts">
   import Icon, { type IconName } from '$lib/icons/Icon.svelte';
 
-  export let active: 'dashboard' | 'history' | 'settings';
+  export let active: 'dashboard' | 'history' | 'profiles' | 'settings' = 'dashboard';
 
   const tabs: Array<{
-    id: 'dashboard' | 'history' | 'settings';
+    id: 'dashboard' | 'history' | 'profiles' | 'settings';
     label: string;
     href: string;
     icon: IconName;
   }> = [
     { id: 'dashboard', label: 'Drives', href: '/', icon: 'home' },
     { id: 'history', label: 'History', href: '/history', icon: 'history' },
+    { id: 'profiles', label: 'Profiles', href: '/profiles', icon: 'disc' },
     { id: 'settings', label: 'Settings', href: '/settings', icon: 'settings' },
   ];
 </script>
@@ -27,8 +28,7 @@
       {#each tabs as t (t.id)}
         <a
           href={t.href}
-          class="flex min-h-[44px] flex-1 flex-col items-center justify-center gap-0.5 py-2
-                 text-[10px] font-medium transition-colors"
+          class="flex min-h-[44px] flex-1 flex-col items-center justify-center gap-0.5 py-2 text-[10px] font-medium transition-colors"
           class:active={t.id === active}
           data-sveltekit-preload-data="hover"
         >

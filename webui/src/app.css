@@ -25,6 +25,13 @@
     --canvas-image:
       radial-gradient(circle at 20% 10%, var(--accent-soft), transparent 40%),
       radial-gradient(circle at 80% 90%, rgba(94, 163, 255, 0.03), transparent 40%);
+
+    /* Typography scale used by the mobile shells. */
+    --ts-overline: 11px;
+    --ts-meta: 12px;
+    --ts-body: 14px;
+    --ts-title: 16px;
+    --ts-display: 22px;
   }
 
   html,

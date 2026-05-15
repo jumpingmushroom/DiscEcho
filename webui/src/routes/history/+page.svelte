@@ -10,8 +10,8 @@
     fetchHistoryPage,
     liveStatus,
   } from '$lib/store';
-  import AppBar from '$lib/components/AppBar.svelte';
-  import TabBar from '$lib/components/TabBar.svelte';
+  import AppBar from '$lib/components/mobile/AppBar.svelte';
+  import TabBar from '$lib/components/mobile/TabBar.svelte';
   import LiveDot from '$lib/components/LiveDot.svelte';
   import FilterChips from '$lib/components/FilterChips.svelte';
   import HistoryRow from '$lib/components/HistoryRow.svelte';
