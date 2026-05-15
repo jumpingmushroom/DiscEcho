@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/jumpingmushroom/DiscEcho/daemon/state"
@@ -19,14 +20,22 @@ type recordedEvent struct {
 	message string
 }
 
+// recordingSink captures events for assertions. The lock is needed
+// for ParseWhipperStreams, which fans out to stdout + stderr parser
+// goroutines that both call into the sink concurrently.
 type recordingSink struct {
+	mu     sync.Mutex
 	events []recordedEvent
 }
 
 func (r *recordingSink) Progress(pct float64, speed string, eta int) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	r.events = append(r.events, recordedEvent{kind: "progress", pct: pct, speed: speed, eta: eta})
 }
 func (r *recordingSink) Log(level state.LogLevel, format string, args ...any) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	r.events = append(r.events, recordedEvent{
 		kind: "log", level: level,
 		message: tools.FormatLog(format, args...),
@@ -63,6 +72,25 @@ func TestWhipper_ParseStdout_KindOfBlue(t *testing.T) {
 	}
 	if first.speed != "8.0×" {
 		t.Errorf("first speed: got %q", first.speed)
+	}
+}
+
+func TestParseWhipperStreams_AnnouncePreparingDriveOnce(t *testing.T) {
+	// Both streams produce output; the shared announce flag should
+	// limit the "preparing drive" log line to a single occurrence.
+	stdout := strings.NewReader("INFO:whipper.command.cd:checking device /dev/sr0\n")
+	stderr := strings.NewReader("INFO:whipper.image.cue:reading TOC\n")
+	sink := &recordingSink{}
+	tools.ParseWhipperStreams(stdout, stderr, sink)
+
+	count := 0
+	for _, e := range sink.events {
+		if e.kind == "log" && strings.Contains(e.message, "preparing drive") {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Errorf("expected one 'preparing drive' log line, got %d", count)
 	}
 }
 

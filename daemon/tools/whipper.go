@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	"github.com/jumpingmushroom/DiscEcho/daemon/state"
 )
@@ -66,19 +67,33 @@ func (w *Whipper) Run(ctx context.Context, args []string, env map[string]string,
 		return fmt.Errorf("whipper start: %w", err)
 	}
 
+	ParseWhipperStreams(stdout, stderr, sink)
+
+	return cmd.Wait()
+}
+
+// ParseWhipperStreams drains stdout + stderr in parallel through the
+// whipper parser with a single shared "preparing drive" announce flag.
+// Exposed so tests can exercise the shared-flag invariant without
+// shelling out to a fake binary.
+func ParseWhipperStreams(stdout, stderr io.Reader, sink Sink) {
+	// announcedStart is shared by both parser goroutines so the
+	// "preparing drive" hint fires exactly once per run, not once per
+	// stream. Without this, whipper's stdout and stderr each trigger
+	// the message — historically seen as the same log line twice in
+	// the dashboard, ~80s apart.
+	var announcedStart atomic.Bool
 	var wg sync.WaitGroup
 	wg.Add(2)
 	go func() {
 		defer wg.Done()
-		ParseWhipperStream(stdout, sink)
+		parseWhipperStreamShared(stdout, sink, &announcedStart)
 	}()
 	go func() {
 		defer wg.Done()
-		ParseWhipperStream(stderr, sink)
+		parseWhipperStreamShared(stderr, sink, &announcedStart)
 	}()
 	wg.Wait()
-
-	return cmd.Wait()
 }
 
 var (
@@ -96,27 +111,36 @@ var (
 )
 
 // ParseWhipperStream scans r line-by-line and emits events to sink.
-// Exposed for testing.
+// Exposed for testing — uses an internal announce-once flag so a
+// single ParseWhipperStream call emits "preparing drive" at most once.
+// Production calls go through parseWhipperStreamShared which threads
+// a shared flag across both stdout and stderr parsers.
 func ParseWhipperStream(r io.Reader, sink Sink) {
+	var announced atomic.Bool
+	parseWhipperStreamShared(r, sink, &announced)
+}
+
+func parseWhipperStreamShared(r io.Reader, sink Sink, announced *atomic.Bool) {
 	drainAfterScan(r, func(scanner *bufio.Scanner) {
-		parseWhipperLines(scanner, sink)
+		parseWhipperLines(scanner, sink, announced)
 	})
 }
 
-func parseWhipperLines(scanner *bufio.Scanner, sink Sink) {
+func parseWhipperLines(scanner *bufio.Scanner, sink Sink, announced *atomic.Bool) {
 	currentTrack := 0
 	totalTracks := 0
-	announcedStart := false
 
 	for scanner.Scan() {
 		line := scanner.Text()
 		trimmed := stripLeadingSpaces(line)
 
-		// First non-empty line we see — emit a "preparing" hint so the
-		// dashboard's drive card doesn't sit at "0% / no speed / no
-		// ETA" with no apparent activity while whipper warms up.
-		if !announcedStart && trimmed != "" {
-			announcedStart = true
+		// First non-empty line we see (across both stdout + stderr) —
+		// emit a "preparing" hint so the dashboard's drive card doesn't
+		// sit at "0% / no speed / no ETA" with no apparent activity
+		// while whipper warms up. The CompareAndSwap guard ensures
+		// exactly one log line per Whipper.Run, no matter which stream
+		// produces output first.
+		if trimmed != "" && announced.CompareAndSwap(false, true) {
 			sink.Log(state.LogLevelInfo, "whipper: preparing drive (this can take 1–3 min)")
 		}
 

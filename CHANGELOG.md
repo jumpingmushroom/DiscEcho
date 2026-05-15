@@ -13,6 +13,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Fixed
 - The dashboard drive cards (desktop **and** mobile) no longer sit at "No log lines yet" for the entire whipper warmup phase when the page is opened mid-rip. The log-tail panel only had SSE-pushed lines, so any lines the daemon had already logged before the page mounted stayed invisible. The card now backfills the in-memory log ring from `/api/jobs/:id/logs` on mount for running jobs, with de-duplication against SSE lines that arrive during the fetch.
+- The "whipper: preparing drive (this can take 1–3 min)" log line no longer appears twice per audio rip. `Whipper.Run` spawns one parser per stream (stdout + stderr); each parser had its own local "first line" flag, so when stderr emitted before stdout (or vice versa) the hint fired again later as the second stream produced its first line. The two parsers now share a single atomic flag.
 
 ## [0.11.0] - 2026-05-15
 
