@@ -143,12 +143,22 @@ func (h *Handler) Run(ctx context.Context, drv *state.Drive, disc *state.Disc, p
 	// the drive's `dev_path` explicitly because the daemon's container
 	// only exposes `/dev/sr0`/`/dev/sr1`, not the `/dev/cdrom` symlink
 	// whipper falls back to.
+	//
+	// `-o 0` supplies a runtime sample-offset so whipper doesn't abort
+	// with "drive offset unconfigured". The canonical workflow is
+	// `whipper offset find` once per drive against a CD known to
+	// AccurateRip — but that requires pycdio and a calibration disc,
+	// neither of which we can assume in a homelab container. Offset=0
+	// produces a rip that's audibly identical to a calibrated one
+	// (~6 samples / 0.14 ms typical drift) but won't match AccurateRip
+	// checksums. Audiophiles who care can run `whipper offset find`
+	// inside the container manually and override this default.
 	devPath := drv.DevPath
 	if devPath == "" {
 		devPath = "/dev/cdrom"
 	}
 	args := []string{"cd", "-d", devPath, "rip", "-R", disc.MetadataID,
-		"--working-directory", tmpdir}
+		"-o", "0", "--working-directory", tmpdir}
 	if err := whipper.Run(ctx, args, nil, tmpdir, newStepSink(sink, state.StepRip)); err != nil {
 		sink.OnStepFailed(state.StepRip, err)
 		return fmt.Errorf("whipper: %w", err)

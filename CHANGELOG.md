@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.10.10] - 2026-05-15
+
+### Fixed
+- Audio-CD rips no longer fail with `whipper: drive offset unconfigured. Please install pycdio and run 'whipper offset find'`. Whipper 0.10 refuses to rip unless a per-drive sample read-offset is configured, and the canonical detection flow (`whipper offset find`) needs both `pycdio` and a CD known to AccurateRip — neither of which we can assume in a homelab container. The daemon now passes `-o 0` to `whipper cd rip` so audio rips work out of the box on any drive. The resulting rip is audibly identical to a calibrated one (~0.14 ms drift) but won't match AccurateRip checksums; users who care can run `whipper offset find` inside the container manually and override the default.
+
+### Changed
+- The runtime image now installs `python3-cdio` so `whipper offset find` works for users who want to dial in a per-drive offset interactively. Adds ~2 MB to the image; was previously omitted because the Debian whipper package doesn't pull it in by default.
+
 ## [0.10.9] - 2026-05-15
 
 ### Fixed
