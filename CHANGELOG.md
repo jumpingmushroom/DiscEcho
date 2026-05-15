@@ -6,6 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.10.2] - 2026-05-15
+
+### Fixed
+- Audio CDs are no longer misclassified as DATA on drives that flush the disc-mode label and its value (`CD-DA`, `Mode 2`, …) in two separate writes. The 0.10.1 early-kill watcher fired on the prefix `Disc mode is listed as:` regardless of whether the value had landed yet, so when stdout flushed mid-line we'd kill `cd-info` with only the prefix in our buffer; the classifier then fell through to `RefineDiscType`, the ISO9660 probe failed, and the disc landed back in `idle` with no UI update. The watcher now waits for the full newline-terminated line with a non-empty value before stopping `cd-info`.
+
 ## [0.10.1] - 2026-05-15
 
 ### Fixed

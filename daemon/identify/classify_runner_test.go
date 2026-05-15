@@ -21,13 +21,13 @@ func writeFakeCDInfo(t *testing.T, body string) string {
 }
 
 // TestDefaultCDInfoRunner_StopsAtDiscMode verifies the runner kills
-// cd-info the moment the disc-mode marker shows up, instead of waiting
-// for the (potentially hung) MCN/ISRC probes that follow on some
-// drive+disc combinations.
+// cd-info the moment the full disc-mode line shows up, instead of
+// waiting for the (potentially hung) MCN/ISRC probes that follow on
+// some drive+disc combinations.
 //
-// The fake prints the marker, then sleeps for 30 s, then prints another
+// The fake prints the line, then sleeps for 30 s, then prints another
 // line. The runner should return in well under that 30 s, with the
-// marker captured and the trailing line absent.
+// line captured and the trailing line absent.
 func TestDefaultCDInfoRunner_StopsAtDiscMode(t *testing.T) {
 	if _, err := exec.LookPath("sh"); err != nil {
 		t.Skip("sh not available")
@@ -52,6 +52,32 @@ func TestDefaultCDInfoRunner_StopsAtDiscMode(t *testing.T) {
 	}
 	if bytes.Contains(out, []byte("never printed")) {
 		t.Errorf("runner read past the marker: %q", out)
+	}
+}
+
+// TestDefaultCDInfoRunner_PartialLineDoesNotFire reproduces the bug
+// where a flush of just `Disc mode is listed as:` (no value, no
+// newline) tricked an earlier substring-based watcher into killing
+// cd-info before the value (`CD-DA`) followed. The runner must wait
+// for the newline and a non-empty value before short-circuiting.
+func TestDefaultCDInfoRunner_PartialLineDoesNotFire(t *testing.T) {
+	if _, err := exec.LookPath("sh"); err != nil {
+		t.Skip("sh not available")
+	}
+
+	// First write: prefix only, no newline. Sleep. Then value + newline.
+	// If the runner fires on the partial line, it will read 0 lines and
+	// return before the value lands.
+	fake := writeFakeCDInfo(t, "printf 'Disc mode is listed as:'\nsleep 1\nprintf ' CD-DA\\n'")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	out, err := defaultCDInfoRunner(ctx, fake, "/dev/null")
+	if err != nil {
+		t.Fatalf("runner: %v", err)
+	}
+	if !bytes.Contains(out, []byte("Disc mode is listed as: CD-DA")) {
+		t.Errorf("runner killed before value landed; out=%q", out)
 	}
 }
 

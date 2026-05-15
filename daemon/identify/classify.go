@@ -18,11 +18,14 @@ import (
 // Exposed for tests; real callers use defaultCDInfoRunner.
 type cdInfoRunner func(ctx context.Context, bin, devPath string) ([]byte, error)
 
-// cdInfoDiscModeMarker is the substring the runner watches for to decide
+// cdInfoDiscModePrefix is the prefix the runner watches for to decide
 // it has enough output to stop cd-info early. The classifier only needs
 // the disc-mode line; everything after it (track listing, MCN, ISRC,
-// CD-Text) is discarded by ClassifyFromCDInfo.
-var cdInfoDiscModeMarker = []byte("Disc mode is listed as:")
+// CD-Text) is discarded by ClassifyFromCDInfo. We wait for the full
+// line — prefix plus value plus newline — because cd-info on some drives
+// flushes the label and the value (`CD-DA`, `Mode 2`, etc.) in separate
+// writes, and killing in between leaves the parser without the value.
+var cdInfoDiscModePrefix = []byte("Disc mode is listed as:")
 
 // defaultCDInfoRunner runs cd-info and kills it the moment the disc-mode
 // line lands in stdout. Some drive+disc combinations hang cd-info for
@@ -34,7 +37,7 @@ var cdInfoDiscModeMarker = []byte("Disc mode is listed as:")
 // for the rest of the run.
 func defaultCDInfoRunner(ctx context.Context, bin, devPath string) ([]byte, error) {
 	cmd := exec.CommandContext(ctx, bin, devPath) //nolint:gosec // bin path is configured by the operator.
-	w := newCDInfoWatcher(cdInfoDiscModeMarker)
+	w := newCDInfoWatcher(cdInfoDiscModePrefix)
 	cmd.Stdout = w
 	cmd.Stderr = w
 	if err := cmd.Start(); err != nil {
@@ -57,29 +60,47 @@ func defaultCDInfoRunner(ctx context.Context, bin, devPath string) ([]byte, erro
 }
 
 // cdInfoWatcher is a thread-safe io.Writer that closes a channel the
-// first time `target` appears in the accumulated buffer. Used by
-// defaultCDInfoRunner to drop cd-info as soon as the disc-mode marker
-// shows up.
+// first time a complete newline-terminated line starting with `prefix`
+// (with a non-empty value after the prefix) lands in the accumulated
+// buffer. Used by defaultCDInfoRunner to drop cd-info as soon as the
+// disc-mode line is fully written — we only close `found` after the
+// line's trailing `\n` so a partial flush like `Disc mode is listed as:`
+// without its value (`CD-DA`, `Mode 2`, …) doesn't fire the kill.
 type cdInfoWatcher struct {
 	mu     sync.Mutex
 	buf    bytes.Buffer
-	target []byte
+	line   bytes.Buffer // accumulates the current in-progress line
+	prefix []byte
 	found  chan struct{}
 	once   sync.Once
 }
 
-func newCDInfoWatcher(target []byte) *cdInfoWatcher {
-	return &cdInfoWatcher{target: target, found: make(chan struct{})}
+func newCDInfoWatcher(prefix []byte) *cdInfoWatcher {
+	return &cdInfoWatcher{prefix: prefix, found: make(chan struct{})}
 }
 
 func (w *cdInfoWatcher) Write(p []byte) (int, error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	n, err := w.buf.Write(p)
-	if bytes.Contains(w.buf.Bytes(), w.target) {
-		w.once.Do(func() { close(w.found) })
+	if err != nil {
+		return n, err
 	}
-	return n, err
+	for _, b := range p {
+		if b == '\n' {
+			line := w.line.Bytes()
+			if bytes.HasPrefix(line, w.prefix) {
+				value := bytes.TrimSpace(line[len(w.prefix):])
+				if len(value) > 0 {
+					w.once.Do(func() { close(w.found) })
+				}
+			}
+			w.line.Reset()
+		} else {
+			w.line.WriteByte(b)
+		}
+	}
+	return n, nil
 }
 
 func (w *cdInfoWatcher) Bytes() []byte {
