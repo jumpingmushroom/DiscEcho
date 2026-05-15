@@ -226,11 +226,14 @@ func (c *multiProbeClassifier) Classify(ctx context.Context, devPath string) (st
 	if err != nil {
 		return "", err
 	}
-	// Debug: log what we got and what we decided so we can diagnose misclassification
-	// in the field. Truncate to keep the log line bounded.
+	// Debug: log what we got and what we decided so we can diagnose
+	// misclassification in the field. Truncated to keep the log line
+	// bounded — most-relevant content (disc-mode + track list) sits in
+	// the tail of cd-info's output, so we surface the LAST 3 KB rather
+	// than the first.
 	preview := string(out)
-	if len(preview) > 1500 {
-		preview = preview[:1500] + "...(truncated)"
+	if len(preview) > 3000 {
+		preview = "...(truncated head)" + preview[len(preview)-3000:]
 	}
 	slog.Info("classify: cd-info captured", "dev", devPath, "base", base, "bytes", len(out), "preview", preview)
 	fs := c.fs
