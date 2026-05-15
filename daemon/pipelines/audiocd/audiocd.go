@@ -134,8 +134,21 @@ func (h *Handler) Run(ctx context.Context, drv *state.Drive, disc *state.Disc, p
 		sink.OnStepFailed(state.StepRip, err)
 		return err
 	}
-	args := []string{"cd", "rip", "-R", disc.MetadataID,
-		"--working-directory", tmpdir, "--keep-bad-files=no"}
+	// Whipper 0.10's `cd rip` doesn't accept a `--keep-bad-files` flag;
+	// passing one trips Python's argparse and the process exits 2 before
+	// any disc reads happen. The default behaviour (fail the run if a
+	// track can't be ripped) is what we want.
+	//
+	// `-d` is on the `cd` subcommand and must come before `rip`. We pass
+	// the drive's `dev_path` explicitly because the daemon's container
+	// only exposes `/dev/sr0`/`/dev/sr1`, not the `/dev/cdrom` symlink
+	// whipper falls back to.
+	devPath := drv.DevPath
+	if devPath == "" {
+		devPath = "/dev/cdrom"
+	}
+	args := []string{"cd", "-d", devPath, "rip", "-R", disc.MetadataID,
+		"--working-directory", tmpdir}
 	if err := whipper.Run(ctx, args, nil, tmpdir, newStepSink(sink, state.StepRip)); err != nil {
 		sink.OnStepFailed(state.StepRip, err)
 		return fmt.Errorf("whipper: %w", err)

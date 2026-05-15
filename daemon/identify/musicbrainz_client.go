@@ -205,12 +205,25 @@ type mbArtist struct {
 
 func (r mbDiscIDResponse) toCandidates() []state.Candidate {
 	out := make([]state.Candidate, 0, len(r.Releases))
+	// MusicBrainz' /ws/2/discid/{id} endpoint returns only releases
+	// whose disc table-of-contents hash matches the supplied id, so
+	// every returned release is by definition an exact match.
+	// `release.score` is left as 0 for this resource (it's a search
+	// concept). If the response contains a single release, that's a
+	// confident auto-confirm candidate; if it has multiple (re-issues,
+	// remasters with the same TOC), we surface them as 0 so the
+	// AwaitingDecision card forces a manual pick rather than silently
+	// ripping with whichever release happens to be first.
+	confidence := 0
+	if len(r.Releases) == 1 {
+		confidence = 100
+	}
 	for _, rel := range r.Releases {
 		c := state.Candidate{
 			Source:     "MusicBrainz",
 			Title:      rel.Title,
 			MBID:       rel.ID,
-			Confidence: rel.Score,
+			Confidence: confidence,
 		}
 		if rel.Disambiguation != "" {
 			c.Title = rel.Title + " (" + rel.Disambiguation + ")"

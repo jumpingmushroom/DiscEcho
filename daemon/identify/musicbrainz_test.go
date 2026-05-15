@@ -50,14 +50,45 @@ func TestMusicBrainz_Lookup_ReturnsCandidates(t *testing.T) {
 	if cands[0].Artist != "Miles Davis" {
 		t.Errorf("artist mismatch: %q", cands[0].Artist)
 	}
-	if cands[0].Confidence != 94 {
-		t.Errorf("confidence: want 94, got %d", cands[0].Confidence)
+	// Multiple-release responses get confidence=0 so the
+	// AwaitingDecision card forces a manual pick instead of
+	// auto-confirming one of an ambiguous set. The MB `score` field
+	// isn't meaningful for the discid resource — it's a search concept.
+	if cands[0].Confidence != 0 {
+		t.Errorf("confidence: want 0 (multi-release), got %d", cands[0].Confidence)
 	}
 	if cands[0].Source != "MusicBrainz" {
 		t.Errorf("source: want MusicBrainz, got %q", cands[0].Source)
 	}
 	if cands[0].MBID != "kb-1959" {
 		t.Errorf("MBID: %q", cands[0].MBID)
+	}
+}
+
+// TestMusicBrainz_Lookup_SingleReleaseIsConfident covers the
+// auto-confirm path: when the disc-id lookup returns exactly one
+// release, the candidate is marked confident (100) so the
+// AwaitingDecision card can start the rip without a manual pick.
+func TestMusicBrainz_Lookup_SingleReleaseIsConfident(t *testing.T) {
+	body := []byte(`{"releases":[{"id":"mb-1","title":"Solo","date":"2020-01-01","artist-credit":[{"artist":{"name":"Solo Artist"}}]}]}`)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(body)
+	}))
+	defer srv.Close()
+
+	c := identify.NewMusicBrainzClient(identify.MusicBrainzConfig{
+		BaseURL: srv.URL, UserAgent: "x",
+	})
+	cands, err := c.Lookup(context.Background(), "solo-disc-id")
+	if err != nil {
+		t.Fatalf("lookup: %v", err)
+	}
+	if len(cands) != 1 {
+		t.Fatalf("want 1 candidate, got %d", len(cands))
+	}
+	if cands[0].Confidence != 100 {
+		t.Errorf("confidence: want 100 (single release), got %d", cands[0].Confidence)
 	}
 }
 

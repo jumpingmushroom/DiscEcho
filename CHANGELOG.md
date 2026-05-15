@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.10.9] - 2026-05-15
+
+### Fixed
+- Audio-CD rips no longer fail instantly with `whipper: exit status 2`. Two bugs in the whipper invocation:
+  - The args list passed `--keep-bad-files=no`, a flag whipper 0.10 doesn't recognise — Python argparse rejected it before whipper opened the drive, so every audio rip aborted at the rip step.
+  - No `-d` was passed, so whipper fell back to its default device `/dev/cdrom`. That symlink doesn't exist in the daemon container (only `/dev/sr0`/`/dev/sr1` are exposed), so even with the flag fixed whipper would have errored opening the drive. The drive's `dev_path` is now explicitly passed via `cd -d <path> rip …`.
+
+### Changed
+- MusicBrainz disc-ID lookups that return exactly one release are now marked confident (100%) so the AwaitingDecision card's 8-second auto-rip countdown actually starts. Multi-release responses (re-issues, remasters with the same TOC) stay at 0% so the user has to pick the right release manually instead of the dashboard silently picking the first one. MB's `score` field is left ignored — it's a search concept that's not meaningful for the discid resource.
+- The candidate metadata line on the AwaitingDecision card now includes the artist (e.g. `MusicBrainz · 1997 · Trust Obey`), so you can tell two same-titled releases apart without opening MusicBrainz.
+
 ## [0.10.8] - 2026-05-15
 
 ### Fixed

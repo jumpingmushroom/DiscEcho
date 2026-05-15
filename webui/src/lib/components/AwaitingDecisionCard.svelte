@@ -247,7 +247,7 @@
               <span class="truncate text-[14px] font-medium text-text">{c.title}</span>
             </div>
             <div class="mt-0.5 font-mono text-[11px] text-text-3">
-              {c.source}{c.year ? ` · ${c.year}` : ''}
+              {c.source}{c.year ? ` · ${c.year}` : ''}{c.artist ? ` · ${c.artist}` : ''}
             </div>
           </div>
           <span
