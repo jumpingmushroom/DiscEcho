@@ -209,9 +209,10 @@ func TestStore_GetDiscByDriveTOC_NotFoundOnMiss(t *testing.T) {
 }
 
 // Migration 009 also enforces a partial unique index on
-// (drive_id, toc_hash) with toc_hash != ''. Two empty-toc rows on the
-// same drive are still allowed (so unidentifiable discs can coexist),
-// but a duplicate non-empty toc_hash is rejected at the schema level.
+// (drive_id, toc_hash) when the toc_hash is non-empty. Two empty-toc
+// rows on the same drive are still allowed (so unidentifiable discs
+// can coexist), but a duplicate non-empty toc_hash is rejected at the
+// schema level.
 func TestStore_DiscUniqueIndex_EnforcesOnePerDriveTOC(t *testing.T) {
 	s := openStore(t)
 	ctx := context.Background()
