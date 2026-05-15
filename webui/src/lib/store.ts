@@ -14,11 +14,15 @@ import type {
   Candidate,
   Notification,
   Stats,
+  StepID,
+  JobDetailResponse,
+  JobLogsResponse,
 } from './wire';
 
 export interface LogLine {
   job_id: string;
   t: string;
+  step?: StepID | '';
   level: LogLevel;
   message: string;
 }
@@ -57,7 +61,12 @@ function scheduleStatsRefresh(delayMs: number = 1000): void {
 }
 export const selectedProfileID = writable<string | null>(null);
 
-const LOG_RING_SIZE = 50;
+// LOG_RING_SIZE caps the per-job in-memory log buffer. Raised from 50
+// so a chatty HandBrake transcode doesn't push earlier rip-phase lines
+// out of the ring before the user can switch to the Rip filter chip
+// on /jobs/[id]. ~300 lines is ~12KB per active job and GC'd when the
+// job leaves $jobs.
+const LOG_RING_SIZE = 300;
 const SSE_EVENT_NAMES = [
   'state.snapshot',
   'drive.changed',
@@ -198,9 +207,11 @@ export function handleSSEEvent(name: string, payload: unknown): void {
 
     case 'job.log': {
       const jobID = p.job_id as string;
+      const step = p.step as StepID | '' | undefined;
       const line: LogLine = {
         job_id: jobID,
         t: p.t as string,
+        step: step ?? '',
         level: p.level as LogLevel,
         message: p.message as string,
       };
@@ -322,6 +333,55 @@ export async function startDisc(
 
 export async function cancelJob(jobID: string): Promise<void> {
   await apiPost<void>(`/api/jobs/${jobID}/cancel`);
+}
+
+// fetchJob loads a single job + its disc from the daemon. Used by
+// /jobs/[id] when the requested id isn't in the live $jobs snapshot
+// (i.e. a terminal job reached from /history). Side-effects: upserts
+// the disc into the `discs` store so DiscArt + DiscTypeBadge can read
+// it the same way they do for live jobs.
+export async function fetchJob(jobID: string): Promise<JobDetailResponse> {
+  const res = await apiGet<JobDetailResponse>(`/api/jobs/${jobID}`);
+  discs.update((m) => ({ ...m, [res.disc.id]: res.disc }));
+  return res;
+}
+
+export interface FetchJobLogsParams {
+  step?: StepID | '';
+  limit?: number;
+  offset?: number;
+}
+
+// fetchJobLogs loads persisted log lines for one job, optionally
+// filtered by phase. Used by LogPhaseViewer for terminal jobs and on
+// page-reload during a live job (the SSE ring starts empty after a
+// reload — the daemon stream only forwards new lines).
+export async function fetchJobLogs(
+  jobID: string,
+  params: FetchJobLogsParams = {},
+): Promise<JobLogsResponse> {
+  const q = new URLSearchParams();
+  if (params.step) q.set('step', params.step);
+  if (params.limit !== undefined) q.set('limit', String(params.limit));
+  if (params.offset !== undefined) q.set('offset', String(params.offset));
+  const qs = q.toString();
+  const suffix = qs ? `?${qs}` : '';
+  return apiGet<JobLogsResponse>(`/api/jobs/${jobID}/logs${suffix}`);
+}
+
+// deleteJob removes a single terminal job from history. The daemon
+// refuses non-terminal states with 409; callers should only call this
+// from the terminal-state branch of /jobs/[id]. Clears the local
+// $jobs / $logs entries on success so the page can navigate away
+// without stale data popping back.
+export async function deleteJob(jobID: string): Promise<void> {
+  await apiDelete(`/api/jobs/${jobID}`);
+  jobs.update((arr) => arr.filter((j) => j.id !== jobID));
+  logs.update((m) => {
+    const { [jobID]: _drop, ...rest } = m;
+    return rest;
+  });
+  scheduleStatsRefresh();
 }
 
 // skipDisc removes the disc row server-side so the awaiting-decision

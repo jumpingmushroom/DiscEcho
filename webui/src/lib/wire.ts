@@ -76,6 +76,26 @@ export interface HistoryResponse {
   offset: number;
 }
 
+export interface JobDetailResponse {
+  job: Job;
+  disc: Disc;
+}
+
+export interface JobLogLine {
+  job_id: string;
+  t: string;
+  step?: StepID | '';
+  level: LogLevel;
+  message: string;
+}
+
+export interface JobLogsResponse {
+  lines: JobLogLine[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
 export interface Disc {
   id: string;
   drive_id?: string;
@@ -112,6 +132,7 @@ export interface Job {
   speed?: string;
   eta_seconds?: number;
   elapsed_seconds?: number;
+  output_bytes?: number;
   started_at?: string;
   finished_at?: string;
   error_message?: string;
@@ -201,7 +222,10 @@ export type SSEEvent =
       event: 'job.progress';
       data: { job_id: string; step: StepID; pct: number; speed: string; eta_seconds: number };
     }
-  | { event: 'job.log'; data: { job_id: string; t: string; level: LogLevel; message: string } }
+  | {
+      event: 'job.log';
+      data: { job_id: string; t: string; step?: StepID | ''; level: LogLevel; message: string };
+    }
   | { event: 'job.done'; data: { job_id: string } }
   | { event: 'job.failed'; data: { job_id: string; error?: string; state?: 'cancelled' } }
   | { event: 'state.snapshot'; data: SnapshotPayload };

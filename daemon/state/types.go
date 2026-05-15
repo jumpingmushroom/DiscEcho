@@ -251,10 +251,13 @@ type Notification struct {
 	UpdatedAt time.Time `json:"updated_at"`
 }
 
-// LogLine is a row of the `log_lines` table.
+// LogLine is a row of the `log_lines` table. Step names the pipeline
+// step active when the line was emitted; empty string means the line
+// pre-dates migration 007 or was emitted outside a step.
 type LogLine struct {
 	JobID   string    `json:"job_id"`
 	T       time.Time `json:"t"`
+	Step    StepID    `json:"step,omitempty"`
 	Level   LogLevel  `json:"level"`
 	Message string    `json:"message"`
 }

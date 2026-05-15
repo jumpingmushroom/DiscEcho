@@ -213,8 +213,8 @@ describe('handleSSEEvent', () => {
     expect(j.steps?.[0].state).toBe('running');
   });
 
-  it('job.log ring-buffers up to 50 lines per job', () => {
-    for (let i = 0; i < 60; i++) {
+  it('job.log ring-buffers up to 300 lines per job', () => {
+    for (let i = 0; i < 320; i++) {
       handleSSEEvent('job.log', {
         job_id: 'job-1',
         t: '2026-05-07T12:00:00.000Z',
@@ -223,9 +223,21 @@ describe('handleSSEEvent', () => {
       });
     }
     const buf = get(logs)['job-1'];
-    expect(buf).toHaveLength(50);
-    expect(buf[0].message).toBe('line 10');
-    expect(buf[49].message).toBe('line 59');
+    expect(buf).toHaveLength(300);
+    expect(buf[0].message).toBe('line 20');
+    expect(buf[299].message).toBe('line 319');
+  });
+
+  it('job.log carries the daemon-provided step tag', () => {
+    handleSSEEvent('job.log', {
+      job_id: 'job-1',
+      t: '2026-05-07T12:00:00.000Z',
+      step: 'rip',
+      level: 'info',
+      message: 'rip line',
+    });
+    const buf = get(logs)['job-1'];
+    expect(buf?.[0].step).toBe('rip');
   });
 
   it('job.done sets state=done', () => {

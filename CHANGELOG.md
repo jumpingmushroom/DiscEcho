@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+- A phase-filter chip row on the per-job log viewer (`/jobs/[id]`). Each log line is now tagged with the pipeline step it was emitted from, so you can flip between **Rip / Transcode / Move / …** without losing the earlier-phase context when a chatty step starts spamming. Live jobs auto-track the active phase; finished jobs default to **All**. A new `GET /api/jobs/:id/logs?step=…` endpoint serves the persisted log so a page reload (or visiting a finished rip) repopulates the viewer instead of starting empty.
+- A **Delete from history** button on the per-job page for finished rips — single-row counterpart to *Clear history*. Files on disk are untouched.
+
+### Fixed
+- The history detail page is no longer the running-job page in disguise. Finishing rips reached from `/history` now show real cover art, an outcome pill (DONE / FAILED / CANCELLED), the elapsed time, output size, and profile, plus the per-phase log viewer — replacing the stale ETA chip, placeholder cover, empty live-log tail, and disabled Pause/Override/Cancel buttons that previously rendered. Running rips keep their existing layout, minus the two disabled buttons.
+- A finished job's progress no longer reads as **0%**. The pipeline now persists 100% on each step's completion, so the final step's percentage doesn't linger at whatever the last sub-100 progress sample happened to be.
+
 ## [0.9.3] - 2026-05-15
 
 ### Fixed

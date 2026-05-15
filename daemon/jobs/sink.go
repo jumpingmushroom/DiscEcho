@@ -31,6 +31,10 @@ type PersistentSink struct {
 	mu              sync.Mutex
 	lastProgressAt  time.Time
 	pendingProgress *pendingProgress
+	// currentStep is the pipeline step that's been started but not yet
+	// completed/failed. OnLog stamps each line with this so the webui can
+	// group lines by phase. Empty between steps.
+	currentStep state.StepID
 }
 
 type pendingProgress struct {
@@ -71,6 +75,7 @@ func (s *PersistentSink) OnStepStart(step state.StepID) {
 	s.mu.Lock()
 	s.pendingProgress = nil
 	s.lastProgressAt = time.Time{}
+	s.currentStep = step
 	s.mu.Unlock()
 	s.bc.Publish(state.Event{
 		Name: "job.step",
@@ -140,12 +145,17 @@ func (s *PersistentSink) flushProgress(p pendingProgress) {
 	})
 }
 
-// OnLog appends to the log_lines table and broadcasts.
+// OnLog appends to the log_lines table and broadcasts. The line is
+// stamped with whichever step is currently active so the webui can
+// group lines by phase.
 func (s *PersistentSink) OnLog(level state.LogLevel, format string, args ...any) {
 	msg := fmt.Sprintf(format, args...)
+	s.mu.Lock()
+	step := s.currentStep
+	s.mu.Unlock()
 	line := state.LogLine{
 		JobID: s.jobID, T: time.Now(),
-		Level: level, Message: msg,
+		Step: step, Level: level, Message: msg,
 	}
 	if err := s.store.AppendLogLine(context.Background(), line); err != nil {
 		slog.Warn("PersistentSink: AppendLogLine", "job", s.jobID, "err", err)
@@ -155,6 +165,7 @@ func (s *PersistentSink) OnLog(level state.LogLevel, format string, args ...any)
 		Payload: map[string]any{
 			"job_id":  s.jobID,
 			"t":       line.T.UTC().Format(time.RFC3339Nano),
+			"step":    string(step),
 			"level":   string(level),
 			"message": msg,
 		},
@@ -162,9 +173,31 @@ func (s *PersistentSink) OnLog(level state.LogLevel, format string, args ...any)
 }
 
 // OnStepDone marks done, merges notes, broadcasts. Calls Flush first
-// so any pending progress lands as 100% before "done".
+// so any pending progress lands, then forces progress to 100 — the
+// previous OnProgress almost never lands exactly at 100, and without
+// this final bump a finished job (whose last step won't get the
+// OnStepStart reset that masks the gap mid-pipeline) is stuck reading
+// some sub-100 value forever.
 func (s *PersistentSink) OnStepDone(step state.StepID, notes map[string]any) {
 	s.Flush()
+	if err := s.store.UpdateJobProgress(context.Background(), s.jobID, step, 100, "", 0, 0); err != nil {
+		slog.Warn("PersistentSink: UpdateJobProgress 100 on step done", "job", s.jobID, "step", step, "err", err)
+	}
+	s.bc.Publish(state.Event{
+		Name: "job.progress",
+		Payload: map[string]any{
+			"job_id":      s.jobID,
+			"step":        string(step),
+			"pct":         float64(100),
+			"speed":       "",
+			"eta_seconds": 0,
+		},
+	})
+	s.mu.Lock()
+	if s.currentStep == step {
+		s.currentStep = ""
+	}
+	s.mu.Unlock()
 	if err := s.store.UpdateJobStepState(context.Background(), s.jobID, step, state.JobStepStateDone); err != nil {
 		slog.Warn("PersistentSink: UpdateJobStepState done", "job", s.jobID, "step", step, "err", err)
 	}
@@ -197,6 +230,11 @@ func (s *PersistentSink) OnStepDone(step state.StepID, notes map[string]any) {
 
 // OnStepFailed marks the step failed and broadcasts.
 func (s *PersistentSink) OnStepFailed(step state.StepID, err error) {
+	s.mu.Lock()
+	if s.currentStep == step {
+		s.currentStep = ""
+	}
+	s.mu.Unlock()
 	if uerr := s.store.UpdateJobStepState(context.Background(), s.jobID, step, state.JobStepStateFailed); uerr != nil {
 		slog.Warn("PersistentSink: UpdateJobStepState failed", "job", s.jobID, "step", step, "err", uerr)
 	}

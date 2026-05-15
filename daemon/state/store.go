@@ -1191,8 +1191,9 @@ func (s *Store) AppendJobStepNotes(ctx context.Context, jobID string, step StepI
 // AppendLogLine inserts one row.
 func (s *Store) AppendLogLine(ctx context.Context, l LogLine) error {
 	_, err := s.db.Conn().ExecContext(ctx, `
-		INSERT INTO log_lines (job_id, t, level, message) VALUES (?, ?, ?, ?)`,
-		l.JobID, timestamp(l.T), string(l.Level), l.Message)
+		INSERT INTO log_lines (job_id, t, step, level, message)
+		VALUES (?, ?, ?, ?, ?)`,
+		l.JobID, timestamp(l.T), string(l.Step), string(l.Level), l.Message)
 	return err
 }
 
@@ -1204,7 +1205,7 @@ func (s *Store) TailLogLines(ctx context.Context, jobID string, n int) ([]LogLin
 		n = 200
 	}
 	rows, err := s.db.Conn().QueryContext(ctx, `
-		SELECT job_id, t, level, message FROM log_lines
+		SELECT job_id, t, step, level, message FROM log_lines
 		WHERE job_id = ? ORDER BY id DESC LIMIT ?`, jobID, n)
 	if err != nil {
 		return nil, err
@@ -1213,10 +1214,11 @@ func (s *Store) TailLogLines(ctx context.Context, jobID string, n int) ([]LogLin
 	var reversed []LogLine
 	for rows.Next() {
 		var l LogLine
-		var tStr, level string
-		if err := rows.Scan(&l.JobID, &tStr, &level, &l.Message); err != nil {
+		var tStr, step, level string
+		if err := rows.Scan(&l.JobID, &tStr, &step, &level, &l.Message); err != nil {
 			return nil, err
 		}
+		l.Step = StepID(step)
 		l.Level = LogLevel(level)
 		t, err := parseTime(tStr)
 		if err != nil {
@@ -1232,6 +1234,72 @@ func (s *Store) TailLogLines(ctx context.Context, jobID string, n int) ([]LogLin
 		reversed[i], reversed[j] = reversed[j], reversed[i]
 	}
 	return reversed, nil
+}
+
+// LogFilter narrows ListLogLines. Empty Step matches every line. Limit
+// is clamped to (0, 2000]; Offset is clamped to >= 0.
+type LogFilter struct {
+	Step   StepID
+	Limit  int
+	Offset int
+}
+
+// ListLogLines returns log lines for a job in insertion order
+// (oldest → newest), optionally filtered by step, paginated by
+// limit/offset. Also returns the total matching count (ignoring the
+// limit/offset window) so the webui can size its paging.
+func (s *Store) ListLogLines(ctx context.Context, jobID string, f LogFilter) ([]LogLine, int, error) {
+	if f.Limit <= 0 {
+		f.Limit = 500
+	}
+	if f.Limit > 2000 {
+		f.Limit = 2000
+	}
+	if f.Offset < 0 {
+		f.Offset = 0
+	}
+
+	args := []any{jobID}
+	where := "WHERE job_id = ?"
+	if f.Step != "" {
+		where += " AND step = ?"
+		args = append(args, string(f.Step))
+	}
+
+	var total int
+	if err := s.db.Conn().QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM log_lines `+where, args...).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+
+	args = append(args, f.Limit, f.Offset)
+	rows, err := s.db.Conn().QueryContext(ctx, `
+		SELECT job_id, t, step, level, message FROM log_lines
+		`+where+` ORDER BY id ASC LIMIT ? OFFSET ?`, args...)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer func() { _ = rows.Close() }()
+	var out []LogLine
+	for rows.Next() {
+		var l LogLine
+		var tStr, step, level string
+		if err := rows.Scan(&l.JobID, &tStr, &step, &level, &l.Message); err != nil {
+			return nil, 0, err
+		}
+		l.Step = StepID(step)
+		l.Level = LogLevel(level)
+		t, err := parseTime(tStr)
+		if err != nil {
+			return nil, 0, fmt.Errorf("parse t: %w", err)
+		}
+		l.T = t
+		out = append(out, l)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, 0, err
+	}
+	return out, total, nil
 }
 
 // triggersInclude reports whether `triggers` (a comma-separated list)
@@ -1614,6 +1682,43 @@ func (s *Store) PruneHistoryBefore(ctx context.Context, cutoff time.Time) (int, 
 		return 0, fmt.Errorf("commit: %w", err)
 	}
 	return int(deleted), nil
+}
+
+// DeleteJobAndOrphans removes one job (and its FK-cascaded step + log
+// rows), then drops the disc if no other job references it. Used by
+// DELETE /api/jobs/:id for single-row history pruning; callers are
+// responsible for refusing non-terminal states before invoking this.
+func (s *Store) DeleteJobAndOrphans(ctx context.Context, jobID string) error {
+	tx, err := s.db.Conn().BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	var discID string
+	if err := tx.QueryRowContext(ctx,
+		`SELECT disc_id FROM jobs WHERE id = ?`, jobID).Scan(&discID); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrNotFound
+		}
+		return fmt.Errorf("lookup disc_id: %w", err)
+	}
+
+	if _, err := tx.ExecContext(ctx,
+		`DELETE FROM jobs WHERE id = ?`, jobID); err != nil {
+		return fmt.Errorf("delete job: %w", err)
+	}
+
+	// Drop the disc only if no other job references it. Active rips on
+	// the same disc keep the row alive.
+	if _, err := tx.ExecContext(ctx, `
+		DELETE FROM discs
+		WHERE id = ?
+		  AND NOT EXISTS (SELECT 1 FROM jobs WHERE jobs.disc_id = discs.id)`, discID); err != nil {
+		return fmt.Errorf("delete orphan disc: %w", err)
+	}
+
+	return tx.Commit()
 }
 
 // ClearHistory deletes every finished job (done/failed/cancelled), the

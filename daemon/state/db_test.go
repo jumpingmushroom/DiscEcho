@@ -24,8 +24,8 @@ func TestOpen_AppliesMigrationsOnFreshDB(t *testing.T) {
 	if err := row.Scan(&v); err != nil {
 		t.Fatalf("scan version: %v", err)
 	}
-	if v != 6 {
-		t.Errorf("schema_migrations max version: want 6, got %d", v)
+	if v != 7 {
+		t.Errorf("schema_migrations max version: want 7, got %d", v)
 	}
 
 	for _, tbl := range []string{
@@ -63,8 +63,8 @@ func TestOpen_IsIdempotent(t *testing.T) {
 	if err := row.Scan(&n); err != nil {
 		t.Fatal(err)
 	}
-	if n != 6 {
-		t.Errorf("schema_migrations rows after second open: want 6, got %d", n)
+	if n != 7 {
+		t.Errorf("schema_migrations rows after second open: want 7, got %d", n)
 	}
 }
 

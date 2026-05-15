@@ -241,6 +241,68 @@ func TestPersistentSink_OnStepDoneMove_RecordsOutputBytes(t *testing.T) {
 	}
 }
 
+func TestPersistentSink_OnLog_TagsCurrentStep(t *testing.T) {
+	fx := newJobFixture(t)
+	defer fx.bc.Close()
+	ch, cancel := fx.bc.Subscribe(64)
+	defer cancel()
+
+	s := jobs.NewPersistentSink(fx.store, fx.bc, fx.job.ID)
+	s.OnStepStart(state.StepRip)
+	s.OnLog(state.LogLevelInfo, "rip line")
+	s.OnStepDone(state.StepRip, nil)
+	s.OnStepStart(state.StepTranscode)
+	s.OnLog(state.LogLevelInfo, "transcode line")
+
+	// Drain events; collect each job.log payload's step.
+	seenSteps := []string{}
+	timeout := time.After(150 * time.Millisecond)
+loop:
+	for {
+		select {
+		case ev := <-ch:
+			if ev.Name == "job.log" {
+				p := ev.Payload.(map[string]any)
+				seenSteps = append(seenSteps, p["step"].(string))
+			}
+		case <-timeout:
+			break loop
+		}
+	}
+	if len(seenSteps) != 2 || seenSteps[0] != "rip" || seenSteps[1] != "transcode" {
+		t.Errorf("step tagging in broadcast: %+v", seenSteps)
+	}
+
+	all, _, err := fx.store.ListLogLines(context.Background(), fx.job.ID, state.LogFilter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(all) != 2 {
+		t.Fatalf("persisted lines: %d", len(all))
+	}
+	if all[0].Step != state.StepRip || all[1].Step != state.StepTranscode {
+		t.Errorf("persisted step tags: %+v", all)
+	}
+}
+
+func TestPersistentSink_OnStepDone_PersistsProgress100(t *testing.T) {
+	fx := newJobFixture(t)
+	defer fx.bc.Close()
+
+	s := jobs.NewPersistentSink(fx.store, fx.bc, fx.job.ID)
+	s.OnStepStart(state.StepRip)
+	s.OnProgress(state.StepRip, 87, "5×", 12)
+	s.OnStepDone(state.StepRip, nil)
+
+	got, err := fx.store.GetJob(context.Background(), fx.job.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Progress != 100 {
+		t.Errorf("progress after step done: want 100, got %v", got.Progress)
+	}
+}
+
 func TestPersistentSink_OnStepDoneMove_SinglePathShape(t *testing.T) {
 	fx := newJobFixture(t)
 	defer fx.bc.Close()

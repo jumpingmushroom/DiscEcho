@@ -46,6 +46,8 @@ func NewRouter(h *Handlers, static http.Handler) http.Handler {
 
 			authed.Get("/jobs", h.ListJobs)
 			authed.Get("/jobs/{id}", h.GetJob)
+			authed.Delete("/jobs/{id}", h.DeleteJob)
+			authed.Get("/jobs/{id}/logs", h.ListJobLogs)
 			authed.Post("/jobs/{id}/cancel", h.CancelJob)
 
 			authed.Post("/discs/{id}/identify", h.IdentifyDisc)
