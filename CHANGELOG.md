@@ -6,6 +6,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Fixed
+- The dashboard drive cards (desktop **and** mobile) no longer sit at "No log lines yet" for the entire whipper warmup phase when the page is opened mid-rip. The log-tail panel only had SSE-pushed lines, so any lines the daemon had already logged before the page mounted stayed invisible. The card now backfills the in-memory log ring from `/api/jobs/:id/logs` on mount for running jobs, with de-duplication against SSE lines that arrive during the fetch.
+
 ## [0.11.0] - 2026-05-15
 
 ### Added

@@ -4,7 +4,8 @@
   import DiscTypeBadge from '$lib/components/DiscTypeBadge.svelte';
   import ProgressBar from '$lib/components/ProgressBar.svelte';
   import SpeedEtaChip from '$lib/components/SpeedEtaChip.svelte';
-  import { logs, cancelJob, ejectDrive, reidentify } from '$lib/store';
+  import { onMount } from 'svelte';
+  import { logs, ensureLogBackfill, cancelJob, ejectDrive, reidentify } from '$lib/store';
 
   export let drive: Drive;
   export let disc: Disc | undefined = undefined;
@@ -66,6 +67,15 @@
   // for minutes. Limited to 3 lines so the card stays compact.
   const LOG_TAIL_LINES = 3;
   $: tail = job ? ($logs[job.id] ?? []).slice(-LOG_TAIL_LINES) : [];
+
+  // Same rationale as the desktop RipCard — if the page mounts after
+  // the rip is already running, the tail panel would otherwise sit at
+  // empty until the next SSE line.
+  onMount(() => {
+    if (job && job.state === 'running') {
+      void ensureLogBackfill(job.id);
+    }
+  });
 
   $: busy = job !== undefined && (drive.state === 'ripping' || drive.state === 'identifying');
 

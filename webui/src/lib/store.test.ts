@@ -32,6 +32,7 @@ import {
   fetchHistoryPage,
   clearHistory,
   manualIdentify,
+  ensureLogBackfill,
 } from './store';
 import type { Drive, Job, Disc, Profile } from './wire';
 
@@ -830,5 +831,107 @@ describe('clearHistory', () => {
       text: async () => 'boom',
     });
     await expect(clearHistory()).rejects.toThrow('500');
+  });
+});
+
+describe('ensureLogBackfill', () => {
+  let fetchSpy: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    reset();
+    fetchSpy = vi.fn();
+    vi.stubGlobal('fetch', fetchSpy);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('fetches /api/jobs/:id/logs and seeds the ring when empty', async () => {
+    fetchSpy.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        lines: [
+          { job_id: 'job-1', t: '2026-05-15T12:49:10Z', level: 'info', message: 'A' },
+          { job_id: 'job-1', t: '2026-05-15T12:49:11Z', level: 'info', message: 'B' },
+        ],
+        total: 2,
+        limit: 300,
+        offset: 0,
+      }),
+    });
+    await ensureLogBackfill('job-1');
+    const ring = get(logs)['job-1'] ?? [];
+    expect(ring.map((l) => l.message)).toEqual(['A', 'B']);
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(fetchSpy.mock.calls[0][0]).toContain('/api/jobs/job-1/logs');
+  });
+
+  it('no-ops when the ring already has entries', async () => {
+    logs.set({
+      'job-1': [{ job_id: 'job-1', t: '2026-05-15T12:49:10Z', level: 'info', message: 'live' }],
+    });
+    await ensureLogBackfill('job-1');
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(get(logs)['job-1']).toHaveLength(1);
+  });
+
+  it('de-dupes against SSE lines that arrived while the fetch was in flight', async () => {
+    let resolve: (v: unknown) => void = () => {};
+    fetchSpy.mockReturnValueOnce(
+      new Promise((r) => {
+        resolve = r;
+      }),
+    );
+    const inFlight = ensureLogBackfill('job-1');
+    // SSE landed "B" between the empty-ring check and the response.
+    logs.set({
+      'job-1': [{ job_id: 'job-1', t: '2026-05-15T12:49:11Z', level: 'info', message: 'B' }],
+    });
+    resolve({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        lines: [
+          { job_id: 'job-1', t: '2026-05-15T12:49:10Z', level: 'info', message: 'A' },
+          { job_id: 'job-1', t: '2026-05-15T12:49:11Z', level: 'info', message: 'B' },
+        ],
+        total: 2,
+        limit: 300,
+        offset: 0,
+      }),
+    });
+    await inFlight;
+    const ring = get(logs)['job-1'] ?? [];
+    // A is prepended; B already in the ring from SSE, so not duplicated.
+    expect(ring.map((l) => l.message)).toEqual(['A', 'B']);
+  });
+
+  it('soft-fails on HTTP error without touching the ring', async () => {
+    fetchSpy.mockResolvedValueOnce({
+      ok: false,
+      status: 500,
+      text: async () => 'boom',
+    });
+    await ensureLogBackfill('job-1');
+    expect(get(logs)['job-1']).toBeUndefined();
+  });
+
+  it('does not race a second concurrent call for the same job', async () => {
+    let resolve: (v: unknown) => void = () => {};
+    const pending = new Promise((r) => {
+      resolve = r;
+    });
+    fetchSpy.mockReturnValueOnce(pending);
+    const first = ensureLogBackfill('job-1');
+    const second = ensureLogBackfill('job-1');
+    resolve({
+      ok: true,
+      status: 200,
+      json: async () => ({ lines: [], total: 0, limit: 300, offset: 0 }),
+    });
+    await Promise.all([first, second]);
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
   });
 });

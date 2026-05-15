@@ -1,5 +1,5 @@
 import '@testing-library/jest-dom/vitest';
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { render } from '@testing-library/svelte';
 import RipCard from './RipCard.svelte';
 import { logs } from '$lib/store';
@@ -115,5 +115,52 @@ describe('RipCard', () => {
     const { getByText } = render(RipCard, { drive, disc, job, profile });
     expect(getByText('first')).toBeInTheDocument();
     expect(getByText('second')).toBeInTheDocument();
+  });
+
+  describe('log-tail backfill on mount', () => {
+    let fetchSpy: ReturnType<typeof vi.fn>;
+
+    beforeEach(() => {
+      fetchSpy = vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          lines: [
+            {
+              job_id: 'job-1',
+              t: '2026-05-13T11:59:59.000Z',
+              level: 'info',
+              message: 'backfilled',
+            },
+          ],
+          total: 1,
+          limit: 300,
+          offset: 0,
+        }),
+      });
+      vi.stubGlobal('fetch', fetchSpy);
+    });
+
+    afterEach(() => {
+      vi.unstubAllGlobals();
+    });
+
+    it('fetches the log tail when the ring is empty for a running job', async () => {
+      render(RipCard, { drive, disc, job, profile });
+      await vi.waitFor(() =>
+        expect(fetchSpy).toHaveBeenCalledWith(
+          expect.stringContaining('/api/jobs/job-1/logs'),
+          expect.any(Object),
+        ),
+      );
+    });
+
+    it('does not fetch when the job is terminal', async () => {
+      const terminal: Job = { ...job, state: 'done', active_step: undefined };
+      render(RipCard, { drive, disc, job: terminal, profile });
+      // Give any unwanted onMount fetch a tick to fire.
+      await new Promise((r) => setTimeout(r, 0));
+      expect(fetchSpy).not.toHaveBeenCalled();
+    });
   });
 });

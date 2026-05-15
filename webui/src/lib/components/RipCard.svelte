@@ -1,6 +1,7 @@
 <script lang="ts">
+  import { onMount } from 'svelte';
   import type { Drive, Disc, Job, Profile, StepID } from '$lib/wire';
-  import { logs } from '$lib/store';
+  import { logs, ensureLogBackfill } from '$lib/store';
   import DiscArt from './DiscArt.svelte';
   import DiscTypeBadge from './DiscTypeBadge.svelte';
   import PipelineStepperHorizontal from './PipelineStepperHorizontal.svelte';
@@ -15,6 +16,15 @@
   const LOG_TAIL_LINES = 12;
 
   $: tail = ($logs[job.id] ?? []).slice(-LOG_TAIL_LINES);
+
+  // Page-load-mid-rip: SSE only delivers new lines, so the log tail
+  // sits empty until something fresh happens. Backfill from the
+  // /api/jobs/:id/logs endpoint once on mount when the ring is empty.
+  onMount(() => {
+    if (job.state === 'running') {
+      void ensureLogBackfill(job.id);
+    }
+  });
 
   // State pill — derived from active_step where possible so the user sees
   // "TRANSCODING" instead of a generic "RIPPING" once the laser is done.

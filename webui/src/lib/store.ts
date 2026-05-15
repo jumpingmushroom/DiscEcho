@@ -1,4 +1,4 @@
-import { writable, derived, type Readable } from 'svelte/store';
+import { writable, derived, get, type Readable } from 'svelte/store';
 import { apiGet, apiPost, apiPut, apiDelete } from './api';
 import { connectSSE, type LiveStatus } from './sse';
 import type {
@@ -367,6 +367,47 @@ export async function fetchJobLogs(
   const qs = q.toString();
   const suffix = qs ? `?${qs}` : '';
   return apiGet<JobLogsResponse>(`/api/jobs/${jobID}/logs${suffix}`);
+}
+
+// In-flight set keyed by jobID so two cards mounting for the same
+// running job don't race the same HTTP fetch.
+const logBackfillInFlight = new Set<string>();
+
+// ensureLogBackfill fetches persisted log lines for a running job
+// when the in-memory ring is empty — i.e. the page mounted after the
+// job started and SSE has no lines for it yet. Without this the
+// dashboard's log tail panel sits at "No log lines yet" for the entire
+// pre-rip warmup phase (1–3 min) even though the daemon has been
+// logging the whole time. Safe to call multiple times: it no-ops when
+// there's anything already in the ring, when an identical fetch is
+// already running, or on network failure.
+export async function ensureLogBackfill(jobID: string): Promise<void> {
+  if (!jobID) return;
+  const existing = get(logs)[jobID];
+  if (existing && existing.length > 0) return;
+  if (logBackfillInFlight.has(jobID)) return;
+  logBackfillInFlight.add(jobID);
+  try {
+    const res = await fetchJobLogs(jobID, { limit: LOG_RING_SIZE });
+    const fetched = res.lines ?? [];
+    if (fetched.length === 0) return;
+    logs.update((m) => {
+      const live = m[jobID] ?? [];
+      // De-dup by (t + message): SSE may have raced in between the
+      // backfill request and this merge, so an identical line could
+      // appear in both. Backfill is older — prepend it.
+      const seen = new Set(live.map((l) => `${l.t} ${l.message}`));
+      const merged = [...fetched.filter((l) => !seen.has(`${l.t} ${l.message}`)), ...live];
+      if (merged.length > LOG_RING_SIZE) {
+        merged.splice(0, merged.length - LOG_RING_SIZE);
+      }
+      return { ...m, [jobID]: merged };
+    });
+  } catch {
+    // Soft fail: SSE will eventually fill the tail with new lines.
+  } finally {
+    logBackfillInFlight.delete(jobID);
+  }
 }
 
 // deleteJob removes a single terminal job from history. The daemon
