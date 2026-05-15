@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-05-15
+
 ### Added
 - A new **Batch / Manual** mode toggle in Settings → Rip behaviour. Batch (default) keeps the existing flow: detect, identify, auto-rip after the 8 s countdown, eject when finished. Manual leaves the rip and the eject to you — pick a candidate, click Start, click Eject when you're ready. Disc detection + identification still happen automatically in both modes.
 - **Stop**, **Re-identify**, and **Eject** controls on every drive card (mobile and desktop). Stop cancels a running rip, Re-identify re-runs the classify + lookup pipeline when MusicBrainz/TMDB picked the wrong release, Eject opens the tray. All three are visible in both modes — mode only changes whether the rip starts and ends automatically.
@@ -15,7 +17,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - The 8-second "Auto-rip in Ns" countdown is now suppressed in manual mode; the awaiting-decision card shows "Manual mode · pick a title to rip" instead.
 
 ### Removed
-- The per-profile `auto_eject` field is gone (replaced by the global `rip.eject_on_finish` setting above). Migration 008 drops the column from `profiles`; the profile editor no longer renders the checkbox.
+- **Breaking:** The per-profile `auto_eject` field is gone (replaced by the global `rip.eject_on_finish` setting above). Migration 008 drops the column from `profiles`; the profile editor no longer renders the checkbox. API clients that PUT profiles with `auto_eject` will silently ignore the field — it's no longer in the wire format.
 
 ## [0.10.11] - 2026-05-15
 
