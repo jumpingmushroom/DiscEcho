@@ -16,7 +16,6 @@ const cd: Profile = {
   quality_preset: '',
   hdr_pipeline: '',
   drive_policy: 'any',
-  auto_eject: true,
   options: {},
   output_path_template: '',
   enabled: true,

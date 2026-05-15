@@ -96,7 +96,8 @@ func main() {
 	toolReg.Register(tools.NewWhipper(cfg.WhipperBin))
 	appriseTool := tools.NewApprise(cfg.AppriseBin)
 	toolReg.Register(appriseTool)
-	toolReg.Register(tools.NewEject(cfg.EjectBin))
+	ejectTool := tools.NewEject(cfg.EjectBin)
+	toolReg.Register(ejectTool)
 
 	// Identify (TOC + MusicBrainz)
 	tocReader := identify.NewCDParanoiaTOCReader(cfg.CDParanoiaBin)
@@ -128,6 +129,14 @@ func main() {
 		return urls
 	}
 
+	// shouldEjectOnFinish is consulted by every pipeline at its rip-end
+	// eject step. It reads operation.mode + rip.eject_on_finish at call
+	// time so a settings change during a long rip takes effect on the
+	// next job, not the next restart.
+	shouldEjectOnFinish := func(ctx context.Context) bool {
+		return pipelines.ShouldEjectOnFinish(ctx, store)
+	}
+
 	// Pipelines: register the audio-CD handler.
 	pipeReg := pipelines.NewRegistry()
 	pipeReg.Register(audiocd.New(audiocd.Deps{
@@ -137,6 +146,7 @@ func main() {
 		LibraryRoot:    cfg.LibraryMusic,
 		WorkRoot:       filepath.Join(cfg.DataPath, "work"),
 		URLsForTrigger: urlsForTrigger,
+		ShouldEject:    shouldEjectOnFinish,
 	}))
 
 	// DVD-Video pipeline
@@ -178,6 +188,7 @@ func main() {
 		URLsForTrigger:   urlsForTrigger,
 		MetadataStore:    store,
 		NVENCAvailable:   nvencAvailable,
+		ShouldEject:      shouldEjectOnFinish,
 	}))
 
 	// BDMV + UHD pipelines (M3.1).
@@ -193,6 +204,7 @@ func main() {
 		SubsLang:       cfg.SubsLang,
 		URLsForTrigger: urlsForTrigger,
 		NVENCAvailable: nvencAvailable,
+		ShouldEject:    shouldEjectOnFinish,
 	}))
 
 	pipeReg.Register(uhd.New(uhd.Deps{
@@ -206,6 +218,7 @@ func main() {
 		SubsLang:       cfg.SubsLang,
 		AACS2KeyDB:     filepath.Join(cfg.MakeMKVDataDir, "KEYDB.cfg"),
 		URLsForTrigger: urlsForTrigger,
+		ShouldEject:    shouldEjectOnFinish,
 	}))
 
 	// PSX + PS2 pipelines (M5.1).
@@ -227,6 +240,7 @@ func main() {
 		LibraryRoot:    cfg.LibraryGames,
 		WorkRoot:       filepath.Join(cfg.DataPath, "work"),
 		URLsForTrigger: urlsForTrigger,
+		ShouldEject:    shouldEjectOnFinish,
 	}))
 	pipeReg.Register(ps2.New(ps2.Deps{
 		Redumper:       redumperTool,
@@ -237,6 +251,7 @@ func main() {
 		LibraryRoot:    cfg.LibraryGames,
 		WorkRoot:       filepath.Join(cfg.DataPath, "work"),
 		URLsForTrigger: urlsForTrigger,
+		ShouldEject:    shouldEjectOnFinish,
 	}))
 	pipeReg.Register(saturn.New(saturn.Deps{
 		Redumper:       redumperTool,
@@ -247,6 +262,7 @@ func main() {
 		LibraryRoot:    cfg.LibraryGames,
 		WorkRoot:       filepath.Join(cfg.DataPath, "work"),
 		URLsForTrigger: urlsForTrigger,
+		ShouldEject:    shouldEjectOnFinish,
 	}))
 	pipeReg.Register(dreamcast.New(dreamcast.Deps{
 		Redumper:       redumperTool,
@@ -256,6 +272,7 @@ func main() {
 		LibraryRoot:    cfg.LibraryGames,
 		WorkRoot:       filepath.Join(cfg.DataPath, "work"),
 		URLsForTrigger: urlsForTrigger,
+		ShouldEject:    shouldEjectOnFinish,
 	}))
 	pipeReg.Register(xbox.New(xbox.Deps{
 		Redumper:       redumperTool,
@@ -265,6 +282,7 @@ func main() {
 		LibraryRoot:    cfg.LibraryGames,
 		WorkRoot:       filepath.Join(cfg.DataPath, "work"),
 		URLsForTrigger: urlsForTrigger,
+		ShouldEject:    shouldEjectOnFinish,
 	}))
 	pipeReg.Register(data.New(data.Deps{
 		DD:             &tools.DD{Bin: cfg.DDBin},
@@ -273,6 +291,7 @@ func main() {
 		LibraryRoot:    cfg.LibraryData,
 		WorkRoot:       filepath.Join(cfg.DataPath, "work"),
 		URLsForTrigger: urlsForTrigger,
+		ShouldEject:    shouldEjectOnFinish,
 	}))
 
 	// Orchestrator drives jobs through the pipeline.
@@ -297,6 +316,9 @@ func main() {
 		Apprise:        appriseTool,
 		Settings:       cfg,
 		NVENCAvailable: nvencAvailable,
+		Ejector: func(ctx context.Context, devPath string) error {
+			return ejectTool.Run(ctx, []string{devPath}, nil, "", tools.NopSink{})
+		},
 	}
 
 	embedFS, err := embed.FS()

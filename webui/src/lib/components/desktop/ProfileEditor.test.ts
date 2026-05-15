@@ -26,7 +26,6 @@ const seed: Profile = {
   quality_preset: 'AccurateRip',
   hdr_pipeline: '',
   drive_policy: 'any',
-  auto_eject: true,
   options: {},
   output_path_template: '{{.Title}}.flac',
   enabled: true,
@@ -47,7 +46,6 @@ const bd: Profile = {
   quality_preset: 'x265 RF 19 10-bit',
   hdr_pipeline: 'passthrough',
   drive_policy: 'any',
-  auto_eject: true,
   output_path_template: '/library/movies/{{.Title}} ({{.Year}}).mkv',
   step_count: 7,
 };

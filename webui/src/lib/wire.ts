@@ -152,7 +152,6 @@ export interface Profile {
   quality_preset: string;
   hdr_pipeline: string;
   drive_policy: string;
-  auto_eject: boolean;
   options: Record<string, unknown>;
   output_path_template: string;
   enabled: boolean;

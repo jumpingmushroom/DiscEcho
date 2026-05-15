@@ -3,11 +3,13 @@ package api_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/jumpingmushroom/DiscEcho/daemon/api"
 	"github.com/jumpingmushroom/DiscEcho/daemon/state"
 )
 
@@ -65,9 +67,18 @@ func TestGetDrive_OK(t *testing.T) {
 	}
 }
 
-func TestEjectDrive_TransitionsState(t *testing.T) {
+func TestEjectDrive_FiresEjectorAndReturnsToIdle(t *testing.T) {
 	h := apitestServer(t)
 	d := seedDrive(t, h)
+
+	called := false
+	gotDev := ""
+	h.Ejector = func(_ context.Context, dev string) error {
+		called = true
+		gotDev = dev
+		return nil
+	}
+
 	r := chi.NewRouter()
 	r.Post("/api/drives/{id}/eject", h.EjectDrive)
 
@@ -77,17 +88,58 @@ func TestEjectDrive_TransitionsState(t *testing.T) {
 	if w.Code != http.StatusNoContent {
 		t.Fatalf("status %d", w.Code)
 	}
+	if !called {
+		t.Fatal("ejector not called")
+	}
+	if gotDev != d.DevPath {
+		t.Errorf("ejector got dev %q want %q", gotDev, d.DevPath)
+	}
 	got, err := h.Store.GetDrive(context.Background(), d.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.State != state.DriveStateEjecting {
-		t.Errorf("state %s", got.State)
+	if got.State != state.DriveStateIdle {
+		t.Errorf("post-eject state %s want idle", got.State)
+	}
+}
+
+func TestEjectDrive_NoEjectorReturns503(t *testing.T) {
+	h := apitestServer(t)
+	d := seedDrive(t, h)
+	// h.Ejector is nil by default in apitestServer.
+	r := chi.NewRouter()
+	r.Post("/api/drives/{id}/eject", h.EjectDrive)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/drives/"+d.ID+"/eject", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusServiceUnavailable {
+		t.Errorf("status %d want 503", w.Code)
+	}
+}
+
+func TestEjectDrive_EjectorFailureRestoresIdle(t *testing.T) {
+	h := apitestServer(t)
+	d := seedDrive(t, h)
+	h.Ejector = func(_ context.Context, _ string) error { return errors.New("boom") }
+	r := chi.NewRouter()
+	r.Post("/api/drives/{id}/eject", h.EjectDrive)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/drives/"+d.ID+"/eject", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusInternalServerError {
+		t.Errorf("status %d want 500", w.Code)
+	}
+	got, _ := h.Store.GetDrive(context.Background(), d.ID)
+	if got.State != state.DriveStateIdle {
+		t.Errorf("post-failed-eject state %s want idle", got.State)
 	}
 }
 
 func TestEjectDrive_NotFound(t *testing.T) {
 	h := apitestServer(t)
+	h.Ejector = func(_ context.Context, _ string) error { return nil }
 	r := chi.NewRouter()
 	r.Post("/api/drives/{id}/eject", h.EjectDrive)
 
@@ -98,3 +150,7 @@ func TestEjectDrive_NotFound(t *testing.T) {
 		t.Errorf("status %d", w.Code)
 	}
 }
+
+// Compile-time use of the api package import for the Ejector type when
+// the file would otherwise not need it directly.
+var _ api.Ejector = func(context.Context, string) error { return nil }

@@ -48,7 +48,10 @@ func TestStore_Settings_GetAll(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(all) != 3 || all["b"] != "2" {
+	// Migration 008 seeds operation.mode + rip.eject_on_finish, so
+	// GetAllSettings always returns at least those two plus whatever
+	// this test wrote.
+	if all["a"] != "1" || all["b"] != "2" || all["c"] != "3" {
 		t.Errorf("got %+v", all)
 	}
 }

@@ -27,9 +27,21 @@
   const libraryPath = derived(settings, ($s) => ($s['library.path'] ?? '—') as string);
   const retainForever = derived(settings, ($s) => $s['retention.forever'] === 'true');
   const retentionDays = derived(settings, ($s) => ($s['retention.days'] ?? '?') as string);
+  const opMode = derived(settings, ($s) =>
+    $s['operation.mode'] === 'manual' ? 'manual' : 'batch',
+  );
+  const ejectAtEnd = derived(settings, ($s) =>
+    $s['rip.eject_on_finish'] === undefined ? true : $s['rip.eject_on_finish'] === 'true',
+  );
 
   $: enabledNotifs = $notifications.filter((n) => n.enabled).length;
   $: retentionSummary = $retainForever ? 'Keep forever' : `Delete after ${$retentionDays} days`;
+  $: ripSummary =
+    $opMode === 'manual'
+      ? 'Manual · no auto-rip or eject'
+      : $ejectAtEnd
+        ? 'Batch · auto-rip + auto-eject'
+        : 'Batch · auto-rip, manual eject';
 </script>
 
 <div class="min-h-screen pb-24">
@@ -46,6 +58,22 @@
           <div class="font-medium text-text" style="font-size: var(--ts-title)">System</div>
           <div class="mt-0.5 truncate font-mono text-text-3" style="font-size: var(--ts-overline)">
             Library: {$libraryPath}
+          </div>
+        </div>
+        <Icon name="chevron-right" size={16} />
+      </div>
+    </a>
+
+    <a
+      href="/settings/rip"
+      data-sveltekit-preload-data="hover"
+      class="block min-h-[44px] rounded-2xl border border-border bg-surface-1 p-4 transition-colors hover:border-border-strong"
+    >
+      <div class="flex items-center justify-between gap-2">
+        <div class="min-w-0">
+          <div class="font-medium text-text" style="font-size: var(--ts-title)">Rip behaviour</div>
+          <div class="mt-0.5 text-text-3" style="font-size: var(--ts-overline)">
+            {ripSummary}
           </div>
         </div>
         <Icon name="chevron-right" size={16} />

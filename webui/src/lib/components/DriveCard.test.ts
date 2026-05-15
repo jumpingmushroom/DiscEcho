@@ -83,11 +83,59 @@ describe('DriveCard', () => {
     expect(container.querySelector('span')).not.toBeNull();
   });
 
-  it('dispatches click when tapped', async () => {
+  it('dispatches click when the body button is tapped', async () => {
     const onClick = vi.fn();
     const { container, component } = render(DriveCard, { drive: idleDrive });
     component.$on('click', onClick);
+    // The body button is the first <button> child; action buttons come after.
     await fireEvent.click(container.querySelector('button')!);
     expect(onClick).toHaveBeenCalled();
+  });
+
+  it('hides Stop when no active job', () => {
+    const { queryByTestId } = render(DriveCard, { drive: idleDrive, disc: dvdDisc });
+    expect(queryByTestId('drive-stop')).toBeNull();
+  });
+
+  it('shows Stop while a rip is active', () => {
+    const { queryByTestId } = render(DriveCard, {
+      drive: rippingDrive,
+      disc: dvdDisc,
+      job: ripJob,
+    });
+    expect(queryByTestId('drive-stop')).not.toBeNull();
+  });
+
+  it('Re-identify hidden without a disc', () => {
+    const { queryByTestId } = render(DriveCard, { drive: idleDrive });
+    expect(queryByTestId('drive-reidentify')).toBeNull();
+  });
+
+  it('Re-identify visible when disc present and drive idle', () => {
+    const { queryByTestId } = render(DriveCard, { drive: idleDrive, disc: dvdDisc });
+    expect(queryByTestId('drive-reidentify')).not.toBeNull();
+  });
+
+  it('Re-identify hidden while ripping', () => {
+    const { queryByTestId } = render(DriveCard, {
+      drive: rippingDrive,
+      disc: dvdDisc,
+      job: ripJob,
+    });
+    expect(queryByTestId('drive-reidentify')).toBeNull();
+  });
+
+  it('Eject hidden while ripping', () => {
+    const { queryByTestId } = render(DriveCard, {
+      drive: rippingDrive,
+      disc: dvdDisc,
+      job: ripJob,
+    });
+    expect(queryByTestId('drive-eject')).toBeNull();
+  });
+
+  it('Eject visible when idle', () => {
+    const { queryByTestId } = render(DriveCard, { drive: idleDrive });
+    expect(queryByTestId('drive-eject')).not.toBeNull();
   });
 });

@@ -2,16 +2,57 @@ package pipelines
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"text/template"
 	"time"
 )
+
+// SettingsReader is the minimal store interface ShouldEjectOnFinish
+// needs. *state.Store satisfies it; tests can pass a fake.
+type SettingsReader interface {
+	GetSetting(ctx context.Context, key string) (string, error)
+}
+
+// ShouldEjectOnFinish returns whether a pipeline's rip-end eject step
+// should actually call the eject tool. In manual mode the tray always
+// stays closed; otherwise the global rip.eject_on_finish setting wins,
+// defaulting to true when unset or unparseable. Read errors fall back
+// to the default-true behaviour so a transient DB hiccup doesn't leave
+// the tray stuck.
+func ShouldEjectOnFinish(ctx context.Context, r SettingsReader) bool {
+	mode, _ := r.GetSetting(ctx, "operation.mode")
+	if mode == "manual" {
+		return false
+	}
+	v, err := r.GetSetting(ctx, "rip.eject_on_finish")
+	if err != nil || v == "" {
+		return true
+	}
+	b, perr := strconv.ParseBool(v)
+	if perr != nil {
+		return true
+	}
+	return b
+}
+
+// ResolveShouldEject lets each pipeline guard its rip-end eject step
+// with a closure-shaped knob. nil means "always eject" (legacy default
+// — keeps tests building without a setup change); otherwise we defer to
+// the caller. In main.go the closure is bound to ShouldEjectOnFinish.
+func ResolveShouldEject(ctx context.Context, f func(context.Context) bool) bool {
+	if f == nil {
+		return true
+	}
+	return f(ctx)
+}
 
 // OutputFields is the data passed to a profile's output_path_template.
 // Add fields here as new disc types need them; templates that reference

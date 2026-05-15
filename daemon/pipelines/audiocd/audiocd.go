@@ -27,6 +27,8 @@ type Deps struct {
 	WorkRoot       string
 	LibraryProbe   func(string) error                                 // defaults to pipelines.ProbeWritable
 	URLsForTrigger func(ctx context.Context, trigger string) []string // returns Apprise URLs; nil → no notifications
+	// ShouldEject gates the rip-end eject step; nil = always eject.
+	ShouldEject func(ctx context.Context) bool
 }
 
 // Handler implements pipelines.Handler for audio CDs.
@@ -194,10 +196,12 @@ func (h *Handler) Run(ctx context.Context, drv *state.Drive, disc *state.Disc, p
 	// failed, but does not fail the whole job — the bits are already
 	// in the library).
 	sink.OnStepStart(state.StepEject)
-	if eject, ok := h.deps.Tools.Get("eject"); ok && drv != nil && drv.DevPath != "" {
-		if err := eject.Run(ctx, []string{drv.DevPath}, nil, "", newStepSink(sink, state.StepEject)); err != nil {
-			sink.OnStepFailed(state.StepEject, err)
-			// fall through; do NOT return — eject failure doesn't fail the job
+	if pipelines.ResolveShouldEject(ctx, h.deps.ShouldEject) {
+		if eject, ok := h.deps.Tools.Get("eject"); ok && drv != nil && drv.DevPath != "" {
+			if err := eject.Run(ctx, []string{drv.DevPath}, nil, "", newStepSink(sink, state.StepEject)); err != nil {
+				sink.OnStepFailed(state.StepEject, err)
+				// fall through; do NOT return — eject failure doesn't fail the job
+			}
 		}
 	}
 	sink.OnStepDone(state.StepEject, nil)

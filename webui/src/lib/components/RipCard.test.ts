@@ -34,7 +34,6 @@ const profile: Profile = {
   quality_preset: 'x264 RF 20',
   hdr_pipeline: '',
   drive_policy: 'any',
-  auto_eject: true,
   options: {},
   output_path_template: '',
   enabled: true,

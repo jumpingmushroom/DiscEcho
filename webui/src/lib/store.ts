@@ -1,4 +1,4 @@
-import { writable } from 'svelte/store';
+import { writable, derived, type Readable } from 'svelte/store';
 import { apiGet, apiPost, apiPut, apiDelete } from './api';
 import { connectSSE, type LiveStatus } from './sse';
 import type {
@@ -483,6 +483,50 @@ export async function manualIdentify(
   return cands;
 }
 
+/**
+ * reidentify re-runs the full classify + identify pipeline against the
+ * drive the disc is currently in, replacing candidates and metadata
+ * fields. Used by the drive card's "Re-identify" button when the prober
+ * picked the wrong release. Updates the local discs store on success.
+ */
+export async function reidentify(discID: string): Promise<Candidate[]> {
+  const payload = await apiPost<{ disc: Disc; candidates: Candidate[] }>(
+    `/api/discs/${discID}/identify`,
+    { force: true },
+  );
+  const cands = payload.candidates ?? [];
+  const fresh = payload.disc;
+  discs.update((m) => {
+    const existing = m[discID];
+    if (!existing) return m;
+    return { ...m, [discID]: { ...existing, ...fresh, candidates: cands } };
+  });
+  return cands;
+}
+
+// ----- Derived settings -----------------------------------------------------
+
+/**
+ * operationMode reflects the daemon's operation.mode setting. "batch"
+ * (default) keeps today's auto-confirm-after-8s behaviour; "manual"
+ * suppresses the countdown so the user explicitly clicks Start on each
+ * disc. Falls back to "batch" when the setting hasn't loaded yet.
+ */
+export const operationMode: Readable<'batch' | 'manual'> = derived(settings, ($s) =>
+  $s['operation.mode'] === 'manual' ? 'manual' : 'batch',
+);
+
+/**
+ * ejectOnFinish reflects rip.eject_on_finish. Defaults to true when
+ * unset. Note: in manual mode the daemon ignores this and never ejects;
+ * the UI surfaces it as disabled in that case.
+ */
+export const ejectOnFinish: Readable<boolean> = derived(settings, ($s) => {
+  const v = $s['rip.eject_on_finish'];
+  if (v === undefined || v === '') return true;
+  return v === 'true';
+});
+
 // ----- Profile mutations -----------------------------------------------------
 
 /**
@@ -568,5 +612,21 @@ export async function updateRetention(r: { forever: boolean; days: number }): Pr
   await apiPut('/api/settings', {
     'retention.forever': r.forever,
     'retention.days': r.days,
+  });
+}
+
+/**
+ * updateRipBehaviour persists the batch/manual mode toggle plus the
+ * global eject-on-finish flag. The daemon broadcasts settings.changed
+ * after a successful PUT, which the SSE handler folds back into
+ * `$settings` and the derived `operationMode` / `ejectOnFinish` stores.
+ */
+export async function updateRipBehaviour(r: {
+  mode: 'batch' | 'manual';
+  ejectOnFinish: boolean;
+}): Promise<void> {
+  await apiPut('/api/settings', {
+    'operation.mode': r.mode,
+    'rip.eject_on_finish': r.ejectOnFinish,
   });
 }

@@ -50,6 +50,8 @@ type Deps struct {
 	WorkRoot       string
 	LibraryProbe   func(string) error
 	URLsForTrigger func(ctx context.Context, trigger string) []string
+	// ShouldEject gates the rip-end eject step; nil = always eject.
+	ShouldEject func(ctx context.Context) bool
 }
 
 // Handler implements pipelines.Handler for PSX.
@@ -205,7 +207,7 @@ func (h *Handler) Run(ctx context.Context, drv *state.Drive, disc *state.Disc, p
 
 	// eject
 	sink.OnStepStart(state.StepEject)
-	if h.deps.Tools != nil {
+	if h.deps.Tools != nil && pipelines.ResolveShouldEject(ctx, h.deps.ShouldEject) {
 		if eject, ok := h.deps.Tools.Get("eject"); ok && drv != nil && drv.DevPath != "" {
 			if err := eject.Run(ctx, []string{drv.DevPath}, nil, "", newStepSink(sink, state.StepEject)); err != nil {
 				sink.OnStepFailed(state.StepEject, err)

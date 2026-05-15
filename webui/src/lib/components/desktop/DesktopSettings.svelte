@@ -2,6 +2,7 @@
   import SystemSection from './SystemSection.svelte';
   import NotificationsSection from './NotificationsSection.svelte';
   import RetentionSection from './RetentionSection.svelte';
+  import RipBehaviourSection from './RipBehaviourSection.svelte';
 </script>
 
 <div class="mx-auto max-w-3xl space-y-7 px-7 py-6">
@@ -10,6 +11,7 @@
     <h1 class="mt-1 text-[24px] font-bold tracking-tight text-text">System</h1>
   </div>
   <SystemSection />
+  <RipBehaviourSection />
   <NotificationsSection />
   <RetentionSection />
 </div>

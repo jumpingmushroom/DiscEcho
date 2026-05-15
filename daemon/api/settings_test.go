@@ -195,6 +195,73 @@ func TestSettings_Put_LibraryPathEmpty_422(t *testing.T) {
 	}
 }
 
+func TestSettings_Put_OperationMode_Batch(t *testing.T) {
+	h := apitestServer(t)
+	body := mustMarshal(t, map[string]any{"operation.mode": "batch"})
+	req := authedReq(t, http.MethodPut, "/api/settings", bytes.NewReader(body))
+	rec := httptest.NewRecorder()
+	h.PutSettings(rec, req)
+	if rec.Code != 200 {
+		t.Fatalf("status: %d body: %s", rec.Code, rec.Body.String())
+	}
+	v, _ := h.Store.GetSetting(context.Background(), "operation.mode")
+	if v != "batch" {
+		t.Errorf("operation.mode = %q", v)
+	}
+}
+
+func TestSettings_Put_OperationMode_Manual(t *testing.T) {
+	h := apitestServer(t)
+	body := mustMarshal(t, map[string]any{"operation.mode": "manual"})
+	req := authedReq(t, http.MethodPut, "/api/settings", bytes.NewReader(body))
+	rec := httptest.NewRecorder()
+	h.PutSettings(rec, req)
+	if rec.Code != 200 {
+		t.Fatalf("status: %d body: %s", rec.Code, rec.Body.String())
+	}
+	v, _ := h.Store.GetSetting(context.Background(), "operation.mode")
+	if v != "manual" {
+		t.Errorf("operation.mode = %q", v)
+	}
+}
+
+func TestSettings_Put_OperationMode_Invalid_422(t *testing.T) {
+	h := apitestServer(t)
+	body := mustMarshal(t, map[string]any{"operation.mode": "bogus"})
+	req := authedReq(t, http.MethodPut, "/api/settings", bytes.NewReader(body))
+	rec := httptest.NewRecorder()
+	h.PutSettings(rec, req)
+	if rec.Code != 422 {
+		t.Fatalf("status: %d body: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestSettings_Put_EjectOnFinish(t *testing.T) {
+	h := apitestServer(t)
+	body := mustMarshal(t, map[string]any{"rip.eject_on_finish": false})
+	req := authedReq(t, http.MethodPut, "/api/settings", bytes.NewReader(body))
+	rec := httptest.NewRecorder()
+	h.PutSettings(rec, req)
+	if rec.Code != 200 {
+		t.Fatalf("status: %d body: %s", rec.Code, rec.Body.String())
+	}
+	v, _ := h.Store.GetSetting(context.Background(), "rip.eject_on_finish")
+	if v != "false" {
+		t.Errorf("rip.eject_on_finish = %q", v)
+	}
+}
+
+func TestSettings_Put_EjectOnFinish_NonBool_422(t *testing.T) {
+	h := apitestServer(t)
+	body := mustMarshal(t, map[string]any{"rip.eject_on_finish": "no"})
+	req := authedReq(t, http.MethodPut, "/api/settings", bytes.NewReader(body))
+	rec := httptest.NewRecorder()
+	h.PutSettings(rec, req)
+	if rec.Code != 422 {
+		t.Fatalf("status: %d body: %s", rec.Code, rec.Body.String())
+	}
+}
+
 func TestSettings_Put_UnknownKey_422(t *testing.T) {
 	h := apitestServer(t)
 	body := mustMarshal(t, map[string]any{"unknown.key": "value"})

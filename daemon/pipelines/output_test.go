@@ -1,12 +1,59 @@
 package pipelines_test
 
 import (
+	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
 
 	"github.com/jumpingmushroom/DiscEcho/daemon/pipelines"
 )
+
+// fakeSettings stubs SettingsReader for the truth-table tests below.
+type fakeSettings map[string]string
+
+func (f fakeSettings) GetSetting(_ context.Context, key string) (string, error) {
+	v, ok := f[key]
+	if !ok {
+		return "", errors.New("missing")
+	}
+	return v, nil
+}
+
+func TestShouldEjectOnFinish_TruthTable(t *testing.T) {
+	cases := []struct {
+		name     string
+		settings fakeSettings
+		want     bool
+	}{
+		{"batch + true", fakeSettings{"operation.mode": "batch", "rip.eject_on_finish": "true"}, true},
+		{"batch + false", fakeSettings{"operation.mode": "batch", "rip.eject_on_finish": "false"}, false},
+		{"manual + true", fakeSettings{"operation.mode": "manual", "rip.eject_on_finish": "true"}, false},
+		{"manual + false", fakeSettings{"operation.mode": "manual", "rip.eject_on_finish": "false"}, false},
+		{"unset mode + true", fakeSettings{"rip.eject_on_finish": "true"}, true},
+		{"unset mode + false", fakeSettings{"rip.eject_on_finish": "false"}, false},
+		{"unset both → default true", fakeSettings{}, true},
+		{"garbage value → default true", fakeSettings{"rip.eject_on_finish": "yes please"}, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := pipelines.ShouldEjectOnFinish(context.Background(), tc.settings)
+			if got != tc.want {
+				t.Errorf("got %v want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestResolveShouldEject_NilDefaultsTrue(t *testing.T) {
+	if !pipelines.ResolveShouldEject(context.Background(), nil) {
+		t.Error("nil ShouldEject should default to true")
+	}
+	if pipelines.ResolveShouldEject(context.Background(), func(context.Context) bool { return false }) {
+		t.Error("explicit false ignored")
+	}
+}
 
 func TestRenderOutputPath_Standard(t *testing.T) {
 	got, err := pipelines.RenderOutputPath(

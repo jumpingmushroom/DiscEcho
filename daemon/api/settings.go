@@ -127,6 +127,24 @@ var allowedSettings = map[string]func(any) (string, error){
 	"library.music":  absolutePathValidator,
 	"library.games":  absolutePathValidator,
 	"library.data":   absolutePathValidator,
+	"operation.mode": func(v any) (string, error) {
+		s, ok := v.(string)
+		if !ok {
+			return "", fmt.Errorf("must be string")
+		}
+		s = strings.TrimSpace(s)
+		if s != "batch" && s != "manual" {
+			return "", fmt.Errorf("must be \"batch\" or \"manual\"")
+		}
+		return s, nil
+	},
+	"rip.eject_on_finish": func(v any) (string, error) {
+		b, ok := v.(bool)
+		if !ok {
+			return "", fmt.Errorf("must be boolean")
+		}
+		return strconv.FormatBool(b), nil
+	},
 }
 
 func absolutePathValidator(v any) (string, error) {

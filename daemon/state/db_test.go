@@ -24,8 +24,8 @@ func TestOpen_AppliesMigrationsOnFreshDB(t *testing.T) {
 	if err := row.Scan(&v); err != nil {
 		t.Fatalf("scan version: %v", err)
 	}
-	if v != 7 {
-		t.Errorf("schema_migrations max version: want 7, got %d", v)
+	if v != 8 {
+		t.Errorf("schema_migrations max version: want 8, got %d", v)
 	}
 
 	for _, tbl := range []string{
@@ -63,8 +63,8 @@ func TestOpen_IsIdempotent(t *testing.T) {
 	if err := row.Scan(&n); err != nil {
 		t.Fatal(err)
 	}
-	if n != 7 {
-		t.Errorf("schema_migrations rows after second open: want 7, got %d", n)
+	if n != 8 {
+		t.Errorf("schema_migrations rows after second open: want 8, got %d", n)
 	}
 }
 
@@ -105,11 +105,11 @@ func TestMigration003_FlipsDVDMovieDefaults(t *testing.T) {
 	if _, err := db.Conn().ExecContext(ctx, `
 		INSERT INTO profiles (id, disc_type, name, engine, format, preset,
 		                      container, video_codec, quality_preset,
-		                      drive_policy, auto_eject, options_json,
+		                      drive_policy, options_json,
 		                      output_path_template, enabled, step_count,
 		                      created_at, updated_at)
 		VALUES ('dvd-mov-test', 'DVD', 'DVD-Movie', 'HandBrake', 'MP4',
-		        'x264 RF 20', 'MP4', 'x264', 'x264 RF 20', 'any', 1,
+		        'x264 RF 20', 'MP4', 'x264', 'x264 RF 20', 'any',
 		        '{}',
 		        '{{.Title}} ({{.Year}})/{{.Title}} ({{.Year}}).mp4',
 		        1, 7, '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')`); err != nil {

@@ -48,6 +48,8 @@ type Deps struct {
 	LibraryProbe   func(string) error
 	URLsForTrigger func(ctx context.Context, trigger string) []string
 	SubsLang       string
+	// ShouldEject gates the rip-end eject step; nil = always eject.
+	ShouldEject func(ctx context.Context) bool
 
 	// NVENCAvailable signals that NVIDIA NVENC is usable on the host.
 	// When true and the profile requests an nvenc_* video_codec, the
@@ -274,9 +276,11 @@ func (h *Handler) Run(ctx context.Context, drv *state.Drive, disc *state.Disc, p
 
 	// eject
 	sink.OnStepStart(state.StepEject)
-	if eject, ok := h.deps.Tools.Get("eject"); ok && drv != nil && drv.DevPath != "" {
-		if err := eject.Run(ctx, []string{drv.DevPath}, nil, "", newStepSink(sink, state.StepEject)); err != nil {
-			sink.OnStepFailed(state.StepEject, err)
+	if pipelines.ResolveShouldEject(ctx, h.deps.ShouldEject) {
+		if eject, ok := h.deps.Tools.Get("eject"); ok && drv != nil && drv.DevPath != "" {
+			if err := eject.Run(ctx, []string{drv.DevPath}, nil, "", newStepSink(sink, state.StepEject)); err != nil {
+				sink.OnStepFailed(state.StepEject, err)
+			}
 		}
 	}
 	sink.OnStepDone(state.StepEject, nil)

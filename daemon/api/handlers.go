@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"sync"
 
 	"github.com/jumpingmushroom/DiscEcho/daemon/identify"
@@ -9,6 +10,10 @@ import (
 	"github.com/jumpingmushroom/DiscEcho/daemon/settings"
 	"github.com/jumpingmushroom/DiscEcho/daemon/state"
 )
+
+// Ejector releases the tray for devPath. Production binds this to the
+// system `eject` binary; tests inject a fake.
+type Ejector func(ctx context.Context, devPath string) error
 
 // Handlers bundles every dependency the API endpoints need. Constructed
 // in main.go and passed to NewRouter. Methods on *Handlers implement
@@ -26,6 +31,9 @@ type Handlers struct {
 	Token         string
 	Apprise       Apprise // defined in notifications.go; nil-safe in handlers
 	Settings      *settings.Settings
+	// Ejector releases the tray for a drive's dev_path. Nil disables the
+	// manual eject endpoint (it 503s). Production binds via tools.Eject.
+	Ejector Ejector
 
 	// NVENCAvailable is set at boot by tools.ProbeNVENC. It controls
 	// the "GPU transcoding" Settings row and is threaded into the

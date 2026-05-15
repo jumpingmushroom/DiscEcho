@@ -4,11 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
 	"strconv"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/jumpingmushroom/DiscEcho/daemon/identify"
+	"github.com/jumpingmushroom/DiscEcho/daemon/pipelines"
 	"github.com/jumpingmushroom/DiscEcho/daemon/state"
 )
 
@@ -162,16 +164,21 @@ func (h *Handlers) DeleteDisc(w http.ResponseWriter, r *http.Request) {
 }
 
 // identifyRequest is the optional body for POST /api/discs/:id/identify.
-// Both fields are optional: an empty body re-reads the stored disc.
+// All fields are optional: an empty body re-reads the stored disc.
 type identifyRequest struct {
 	Query     string `json:"query,omitempty"`
 	MediaType string `json:"media_type,omitempty"` // 'movie' | 'tv' | 'both' (default both)
+	// Force re-runs the full classify + identify pipeline against the
+	// drive the disc lives in. Used by the drive card's "Re-identify"
+	// button when MusicBrainz / TMDB pick the wrong release.
+	Force bool `json:"force,omitempty"`
 }
 
-// IdentifyDisc returns the disc plus its candidates. If the body
-// contains a non-empty Query, it triggers a manual TMDB search for the
-// chosen media type and persists the new candidates back onto the disc.
-// Empty body → returns the current stored disc + candidates.
+// IdentifyDisc returns the disc plus its candidates. With Force=true it
+// re-runs the full classify + identify pipeline against the drive the
+// disc lives in (replaces candidates + metadata fields). With a non-
+// empty Query it triggers a manual TMDB search. Empty body → returns
+// the current stored disc + candidates.
 func (h *Handlers) IdentifyDisc(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	disc, err := h.Store.GetDisc(r.Context(), id)
@@ -192,6 +199,11 @@ func (h *Handlers) IdentifyDisc(w http.ResponseWriter, r *http.Request) {
 	var req identifyRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid body: "+err.Error())
+		return
+	}
+
+	if req.Force {
+		h.forceReidentify(w, r, disc)
 		return
 	}
 
@@ -309,3 +321,107 @@ func gameSystemName(t state.DiscType) string {
 // fetchExtendedMetadata switch logic to compile; the import is exercised
 // elsewhere by the live MovieDetails / ReleaseDetails calls.
 var _ = identify.DiscMetadata{}
+
+// forceReidentify re-runs the classify + Identify pipeline for an
+// existing disc and updates the row in place. Used by the drive card's
+// Re-identify button when the prober/lookup landed on a wrong candidate
+// (e.g. MusicBrainz picked the wrong release, TMDB grabbed the wrong
+// title). Refuses 409 if the drive has an active job or another claim
+// is already in flight.
+func (h *Handlers) forceReidentify(w http.ResponseWriter, r *http.Request, disc *state.Disc) {
+	ctx := r.Context()
+	if disc.DriveID == "" {
+		writeError(w, http.StatusUnprocessableEntity, "disc has no drive — cannot re-identify")
+		return
+	}
+	drv, err := h.Store.GetDrive(ctx, disc.DriveID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if drv.DevPath == "" {
+		writeError(w, http.StatusUnprocessableEntity, "drive has no dev_path")
+		return
+	}
+	busy, err := h.Store.HasActiveJobOnDrive(ctx, drv.ID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if busy {
+		writeError(w, http.StatusConflict, "drive has an active job")
+		return
+	}
+	claimed, err := h.Store.ClaimDriveForIdentify(ctx, drv.ID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if !claimed {
+		writeError(w, http.StatusConflict, "drive already identifying")
+		return
+	}
+	defer func() {
+		if uerr := h.Store.UpdateDriveState(context.Background(), drv.ID, state.DriveStateIdle); uerr != nil {
+			slog.Warn("force-reidentify: release drive state", "err", uerr, "drive_id", drv.ID)
+		}
+	}()
+	if h.Broadcaster != nil {
+		h.Broadcaster.Publish(state.Event{
+			Name:    "drive.changed",
+			Payload: map[string]any{"drive_id": drv.ID, "state": "identifying"},
+		})
+	}
+
+	if h.Classifier == nil || h.Pipelines == nil {
+		writeError(w, http.StatusServiceUnavailable, "identify not configured")
+		return
+	}
+	dt, err := h.Classifier.Classify(ctx, drv.DevPath)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, "classify: "+err.Error())
+		return
+	}
+	handler, ok := h.Pipelines.Get(dt)
+	if !ok {
+		writeError(w, http.StatusUnprocessableEntity, "no pipeline for disc type "+string(dt))
+		return
+	}
+	fresh, cands, ierr := handler.Identify(ctx, drv)
+	switch {
+	case errors.Is(ierr, pipelines.ErrNoCandidates):
+		// Persist whatever metadata fresh contains (often just the type)
+		// and clear candidates so the UI can offer manual search.
+		if cands == nil {
+			cands = []state.Candidate{}
+		}
+	case ierr != nil:
+		writeError(w, http.StatusBadGateway, "identify: "+ierr.Error())
+		return
+	}
+
+	// Merge fresh fields into the existing disc row.
+	if fresh != nil {
+		disc.Type = fresh.Type
+		disc.Title = fresh.Title
+		disc.Year = fresh.Year
+		disc.MetadataProvider = fresh.MetadataProvider
+		disc.MetadataID = fresh.MetadataID
+	}
+	disc.Candidates = cands
+	if err := h.Store.UpdateDiscMetadata(ctx, disc.ID, disc.Title, disc.Year, disc.MetadataProvider, disc.MetadataID); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if err := h.Store.UpdateDiscCandidates(ctx, disc.ID, cands); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if h.Broadcaster != nil {
+		h.Broadcaster.Publish(state.Event{
+			Name:    "disc.identified",
+			Payload: map[string]any{"disc": disc, "candidates": cands},
+		})
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"disc": disc, "candidates": cands})
+}

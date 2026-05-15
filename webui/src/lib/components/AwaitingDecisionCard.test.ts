@@ -3,7 +3,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, fireEvent } from '@testing-library/svelte';
 import { tick } from 'svelte';
 import AwaitingDecisionCard from './AwaitingDecisionCard.svelte';
-import { profiles } from '$lib/store';
+import { profiles, settings } from '$lib/store';
 import type { Disc, Profile } from '$lib/wire';
 
 const dvdProfile: Profile = {
@@ -18,7 +18,6 @@ const dvdProfile: Profile = {
   quality_preset: '',
   hdr_pipeline: '',
   drive_policy: 'any',
-  auto_eject: true,
   options: {},
   output_path_template: '{{.Title}}.mp4',
   enabled: true,
@@ -51,6 +50,7 @@ describe('AwaitingDecisionCard', () => {
 
   beforeEach(() => {
     profiles.set([dvdProfile]);
+    settings.set({ 'operation.mode': 'batch' });
     fetchSpy = vi.fn().mockResolvedValue({
       ok: true,
       status: 200,
@@ -63,6 +63,7 @@ describe('AwaitingDecisionCard', () => {
   afterEach(() => {
     vi.unstubAllGlobals();
     vi.useRealTimers();
+    settings.set({});
   });
 
   it('renders the candidate list and counts the matches', () => {
@@ -123,5 +124,15 @@ describe('AwaitingDecisionCard', () => {
     const { container } = render(AwaitingDecisionCard, { disc: lowConfDisc });
     // BottomSheet renders a [role=dialog] backdrop; this component must not.
     expect(container.querySelector('[role="dialog"]')).toBeNull();
+  });
+
+  it('manual mode suppresses the countdown even when confidence is high', async () => {
+    settings.set({ 'operation.mode': 'manual' });
+    const { getByText, queryByText } = render(AwaitingDecisionCard, { disc: highConfDisc });
+    await tick();
+    expect(queryByText(/Auto-rip in/)).toBeNull();
+    expect(getByText(/Manual mode · pick a title to rip/)).toBeInTheDocument();
+    await vi.advanceTimersByTimeAsync(15_000);
+    expect(fetchSpy).not.toHaveBeenCalled();
   });
 });

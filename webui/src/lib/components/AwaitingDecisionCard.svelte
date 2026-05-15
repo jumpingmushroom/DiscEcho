@@ -1,6 +1,14 @@
 <script lang="ts">
   import { onDestroy } from 'svelte';
-  import { profiles, startDisc, discs, manualIdentify, pendingDiscID, skipDisc } from '$lib/store';
+  import {
+    profiles,
+    startDisc,
+    discs,
+    manualIdentify,
+    pendingDiscID,
+    skipDisc,
+    operationMode,
+  } from '$lib/store';
   import type { Disc, Candidate } from '$lib/wire';
   import DiscTypeBadge from './DiscTypeBadge.svelte';
   import DiscArt from './DiscArt.svelte';
@@ -21,7 +29,10 @@
   $: liveDisc = $discs[disc.id] ?? disc;
   $: candidates = liveDisc.candidates ?? [];
   $: topConfidence = candidates[0]?.confidence ?? 0;
-  $: autoConfirmAllowed = topConfidence >= AUTO_CONFIRM_MIN_CONFIDENCE;
+  // Auto-confirm only fires in batch mode. Manual mode shows the same
+  // candidate list but never starts a rip without an explicit click.
+  $: autoConfirmAllowed =
+    $operationMode === 'batch' && topConfidence >= AUTO_CONFIRM_MIN_CONFIDENCE;
 
   function profileForCandidate(c: Candidate): string {
     const enabled = $profiles.filter((p) => p.enabled);
@@ -172,6 +183,8 @@
           <div class="mt-1 font-mono text-[11px] text-text-3">
             {`Auto-rip in ${countdownSec}s`}
           </div>
+        {:else if $operationMode === 'manual' && candidates.length > 0}
+          <div class="mt-1 text-[11px] text-text-3">Manual mode · pick a title to rip</div>
         {:else if candidates.length > 0}
           <div class="mt-1 text-[11px] text-warn">No confident match · pick a title or search</div>
         {:else}

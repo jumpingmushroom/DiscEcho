@@ -74,7 +74,6 @@
       quality_preset: '',
       hdr_pipeline: '',
       drive_policy: 'any',
-      auto_eject: true,
       options: {},
       output_path_template: '',
       enabled: true,
@@ -132,7 +131,6 @@
         quality_preset: working.quality_preset,
         hdr_pipeline: working.hdr_pipeline,
         drive_policy: working.drive_policy,
-        auto_eject: working.auto_eject,
         options: working.options,
         output_path_template: working.output_path_template,
         enabled: working.enabled,
@@ -325,12 +323,6 @@
               <option value={dp}>{DRIVE_POLICY_LABELS[dp] ?? dp}</option>
             {/each}
           </select>
-        </FormRow>
-        <FormRow label="Auto-eject on done">
-          <label class="flex items-center gap-2">
-            <input type="checkbox" bind:checked={working.auto_eject} />
-            <span class="text-[12px] text-text-3">Eject the disc when the job finishes.</span>
-          </label>
         </FormRow>
       </FormSection>
 
