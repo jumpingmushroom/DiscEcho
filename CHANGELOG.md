@@ -6,6 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.10.1] - 2026-05-15
+
+### Fixed
+- Audio CDs (and any disc whose drive can't satisfy a Media Catalog Number probe) no longer get stuck in **Identifying** until the classify timeout kicks in. `cd-info` was being run to completion and would hang for 60–90 s after the disc-mode line landed, while the drive retried internally on the MCN/ISRC reads at the end of its run. The classifier only needs the disc-mode line — and now stops `cd-info` the moment that line appears in stdout, returning in under a second instead of after a 30 s context deadline.
+
 ## [0.10.0] - 2026-05-15
 
 ### Added

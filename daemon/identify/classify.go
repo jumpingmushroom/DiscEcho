@@ -1,12 +1,14 @@
 package identify
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"log/slog"
 	"os/exec"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/jumpingmushroom/DiscEcho/daemon/state"
@@ -16,9 +18,77 @@ import (
 // Exposed for tests; real callers use defaultCDInfoRunner.
 type cdInfoRunner func(ctx context.Context, bin, devPath string) ([]byte, error)
 
+// cdInfoDiscModeMarker is the substring the runner watches for to decide
+// it has enough output to stop cd-info early. The classifier only needs
+// the disc-mode line; everything after it (track listing, MCN, ISRC,
+// CD-Text) is discarded by ClassifyFromCDInfo.
+var cdInfoDiscModeMarker = []byte("Disc mode is listed as:")
+
+// defaultCDInfoRunner runs cd-info and kills it the moment the disc-mode
+// line lands in stdout. Some drive+disc combinations hang cd-info for
+// 60–90 s reading the optional Media Catalog Number that follows the
+// track listing, even though the disc itself is fine — the kernel
+// returns "ILLEGAL MODE FOR THIS TRACK" sense for the MCN probe and the
+// drive retries internally. The classifier has everything it needs as
+// soon as cd-info prints "Disc mode is listed as: …", so we don't wait
+// for the rest of the run.
 func defaultCDInfoRunner(ctx context.Context, bin, devPath string) ([]byte, error) {
-	return exec.CommandContext(ctx, bin, devPath).CombinedOutput() //nolint:gosec // bin path is configured by the operator.
+	cmd := exec.CommandContext(ctx, bin, devPath) //nolint:gosec // bin path is configured by the operator.
+	w := newCDInfoWatcher(cdInfoDiscModeMarker)
+	cmd.Stdout = w
+	cmd.Stderr = w
+	if err := cmd.Start(); err != nil {
+		return nil, err
+	}
+	done := make(chan error, 1)
+	go func() { done <- cmd.Wait() }()
+	select {
+	case err := <-done:
+		return w.Bytes(), err
+	case <-w.Found():
+		_ = cmd.Process.Kill()
+		<-done
+		return w.Bytes(), nil
+	case <-ctx.Done():
+		_ = cmd.Process.Kill()
+		<-done
+		return w.Bytes(), ctx.Err()
+	}
 }
+
+// cdInfoWatcher is a thread-safe io.Writer that closes a channel the
+// first time `target` appears in the accumulated buffer. Used by
+// defaultCDInfoRunner to drop cd-info as soon as the disc-mode marker
+// shows up.
+type cdInfoWatcher struct {
+	mu     sync.Mutex
+	buf    bytes.Buffer
+	target []byte
+	found  chan struct{}
+	once   sync.Once
+}
+
+func newCDInfoWatcher(target []byte) *cdInfoWatcher {
+	return &cdInfoWatcher{target: target, found: make(chan struct{})}
+}
+
+func (w *cdInfoWatcher) Write(p []byte) (int, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	n, err := w.buf.Write(p)
+	if bytes.Contains(w.buf.Bytes(), w.target) {
+		w.once.Do(func() { close(w.found) })
+	}
+	return n, err
+}
+
+func (w *cdInfoWatcher) Bytes() []byte {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return append([]byte(nil), w.buf.Bytes()...)
+}
+
+func (w *cdInfoWatcher) Found() <-chan struct{} { return w.found }
 
 // cdInfoBackoff is the wait between cd-info retries. Exposed for tests
 // so the table-driven retry test can shrink it to a few microseconds
