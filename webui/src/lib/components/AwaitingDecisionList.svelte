@@ -12,9 +12,14 @@
   // re-prompt every time the page loads.
   $: decidedDiscIDs = new Set($jobs.map((j) => j.disc_id));
 
+  // No filter on candidate count: a disc with zero candidates is still
+  // an awaiting decision — it just means MusicBrainz / TMDB didn't
+  // recognise it, and the card needs to surface that to the user
+  // (otherwise the dashboard silently swallows the insert and the
+  // drive just snaps back to idle). The card itself renders the right
+  // copy + affordances for zero-candidate discs based on disc.type.
   $: pending = Object.values($discs)
     .filter((d: Disc) => !decidedDiscIDs.has(d.id))
-    .filter((d: Disc) => (d.candidates ?? []).length > 0)
     .sort((a, b) => (a.created_at < b.created_at ? 1 : -1))
     .slice(0, 3);
 </script>

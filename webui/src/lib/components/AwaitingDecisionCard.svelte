@@ -187,6 +187,10 @@
           <div class="mt-1 text-[11px] text-text-3">Manual mode · pick a title to rip</div>
         {:else if candidates.length > 0}
           <div class="mt-1 text-[11px] text-warn">No confident match · pick a title or search</div>
+        {:else if liveDisc.type === 'AUDIO_CD'}
+          <div class="mt-1 text-[11px] text-warn">
+            No MusicBrainz match · eject and retry, or skip
+          </div>
         {:else}
           <div class="mt-1 text-[11px] text-warn">No match found · search manually</div>
         {/if}
@@ -274,19 +278,27 @@
     </div>
 
     <div class="mt-5 flex flex-col gap-2 sm:flex-row">
-      <button
-        class="min-h-[44px] flex-1 rounded-xl bg-accent text-[14px] font-semibold text-black disabled:opacity-50"
-        on:click={() => pick(0)}
-        disabled={candidates.length === 0 || starting}
-      >
-        Use top match · Start rip
-      </button>
-      <button
-        class="min-h-[44px] flex-1 rounded-xl border border-border text-[14px] text-text-2"
-        on:click={openSearch}
-      >
-        Search manually
-      </button>
+      {#if candidates.length > 0}
+        <button
+          class="min-h-[44px] flex-1 rounded-xl bg-accent text-[14px] font-semibold text-black disabled:opacity-50"
+          on:click={() => pick(0)}
+          disabled={starting}
+        >
+          Use top match · Start rip
+        </button>
+      {/if}
+      {#if liveDisc.type !== 'AUDIO_CD' || candidates.length > 0}
+        <!-- Manual search hits TMDB only (see daemon/api/discs.go).
+             AUDIO_CDs with zero candidates have no useful path through
+             this button yet — hide it instead of leading the user into
+             a search that can't possibly return audio releases. -->
+        <button
+          class="min-h-[44px] flex-1 rounded-xl border border-border text-[14px] text-text-2"
+          on:click={openSearch}
+        >
+          Search manually
+        </button>
+      {/if}
       <button
         class="min-h-[36px] text-[13px] text-text-3 disabled:opacity-50"
         on:click={skip}

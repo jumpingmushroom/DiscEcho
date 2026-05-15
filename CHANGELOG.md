@@ -6,6 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.12.1] - 2026-05-15
+
+### Fixed
+- Inserting an audio CD that MusicBrainz can't match no longer makes the dashboard silently snap back to idle. The awaiting-decision list used to filter out any disc with zero candidates, so a 0-match disc was persisted by the daemon but never surfaced to the user — the only signal was the brief "identifying" flicker on the drive card. The list now includes 0-match discs, and the card renders type-aware copy and affordances: AUDIO_CDs with no MusicBrainz hit show "No MusicBrainz match · eject and retry, or skip" and offer Skip only (the manual-search button hits TMDB only today, so showing it on an audio CD would lead nowhere). Non-audio discs keep the existing "search manually" affordance. The disabled "Use top match" button is also hidden when there's no top match to use.
+
 ## [0.12.0] - 2026-05-15
 
 ### Changed

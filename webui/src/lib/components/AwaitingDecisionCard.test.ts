@@ -135,4 +135,48 @@ describe('AwaitingDecisionCard', () => {
     await vi.advanceTimersByTimeAsync(15_000);
     expect(fetchSpy).not.toHaveBeenCalled();
   });
+
+  describe('zero-candidate disc copy + affordances', () => {
+    const audioNoMatch: Disc = {
+      id: 'disc-cd',
+      drive_id: 'd1',
+      type: 'AUDIO_CD',
+      candidates: [],
+      created_at: '2026-05-12T08:00:00Z',
+    };
+
+    const dvdNoMatch: Disc = {
+      id: 'disc-dvd',
+      drive_id: 'd1',
+      type: 'DVD',
+      candidates: [],
+      created_at: '2026-05-12T08:00:00Z',
+    };
+
+    it('renders the MusicBrainz-specific copy for an audio CD with no candidates', () => {
+      const { getByText, queryByText } = render(AwaitingDecisionCard, { disc: audioNoMatch });
+      expect(getByText(/No MusicBrainz match/)).toBeInTheDocument();
+      // The generic "No match found · search manually" copy is for non-audio types.
+      expect(queryByText(/No match found · search manually/)).toBeNull();
+    });
+
+    it('hides the Search manually button for an audio CD with no candidates', () => {
+      // The /api/discs/:id/identify endpoint only dispatches to TMDB,
+      // so a search button on an audio CD would silently never return
+      // useful results. Hide it until MB-by-name search is wired up.
+      const { queryByText } = render(AwaitingDecisionCard, { disc: audioNoMatch });
+      expect(queryByText('Search manually')).toBeNull();
+    });
+
+    it('still renders the Search manually button for a non-audio disc with no candidates', () => {
+      const { getByText } = render(AwaitingDecisionCard, { disc: dvdNoMatch });
+      expect(getByText('Search manually')).toBeInTheDocument();
+      expect(getByText(/No match found · search manually/)).toBeInTheDocument();
+    });
+
+    it('hides the Use top match button when there are no candidates to pick', () => {
+      const { queryByText } = render(AwaitingDecisionCard, { disc: audioNoMatch });
+      expect(queryByText(/Use top match/)).toBeNull();
+    });
+  });
 });

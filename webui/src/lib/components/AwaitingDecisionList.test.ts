@@ -98,4 +98,15 @@ describe('AwaitingDecisionList', () => {
     await tick();
     expect(getAllByText(/Awaiting decision/i).length).toBe(3);
   });
+
+  it('surfaces audio CDs even when MusicBrainz returned no candidates', async () => {
+    // Pre-fix this disc would have been filtered out and the dashboard
+    // would have silently snapped back to idle after the insert.
+    discs.set({
+      '1': disc('1', { type: 'AUDIO_CD', candidates: [], title: '' }),
+    });
+    const { getAllByText } = render(AwaitingDecisionList);
+    await tick();
+    expect(getAllByText(/Awaiting decision/i).length).toBe(1);
+  });
 });
