@@ -38,7 +38,9 @@
     </button>
     <div class="flex items-center gap-2">
       {#if disc}<DiscTypeBadge type={disc.type} />{/if}
-      <LiveDot />
+      <span class="lg:hidden">
+        <LiveDot />
+      </span>
     </div>
     <div class="w-11"></div>
   </div>

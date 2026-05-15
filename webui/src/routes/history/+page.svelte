@@ -89,7 +89,9 @@
   <AppBar title="History" subtitle="last 30 days">
     <div slot="right" class="flex items-center gap-2">
       <ClearHistoryButton total={$historyTotal} on:cleared={onCleared} />
-      <LiveDot label={$liveStatus === 'live' ? 'LIVE' : 'WAIT'} />
+      <span class="lg:hidden">
+        <LiveDot label={$liveStatus === 'live' ? 'LIVE' : 'WAIT'} />
+      </span>
     </div>
   </AppBar>
 
