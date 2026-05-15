@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.10.11] - 2026-05-15
+
+### Changed
+- The mobile dashboard drive card now shows a 3-line live log tail while a job is ripping, so you can see what's actually happening during whipper's long startup phase (drive analysis, AccurateRip lookup, TOC re-read) instead of staring at a frozen 0% bar for two or three minutes. The tail re-uses the existing per-job log ring; nothing new on the wire.
+- The whipper parser now forwards every `INFO`/`WARNING`/`ERROR`/`FATAL`/`CRITICAL` line from whipper's Python `logging` output to the job log, plus emits a single up-front "preparing drive (this can take 1–3 min)" hint the moment whipper starts producing output. Previously only three specific patterns (`Ripping track N of M`, `Reading: X%`, `Track N OK`) were captured and everything else — including all of whipper's startup-phase status — was silently dropped, leaving the Log tab empty until the first track started ripping.
+
 ## [0.10.10] - 2026-05-15
 
 ### Fixed

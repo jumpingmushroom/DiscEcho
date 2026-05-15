@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"regexp"
 	"strconv"
+	"strings"
 	"sync"
 
 	"github.com/jumpingmushroom/DiscEcho/daemon/state"
@@ -85,6 +86,13 @@ var (
 	whipperReadingRE    = regexp.MustCompile(`Reading:\s+([0-9.]+)%,\s*([0-9.]+×),\s*ETA:\s*(\d+):(\d+)`)
 	whipperErrorRE      = regexp.MustCompile(`(?i)^(ERROR|FATAL):\s*(.+)$`)
 	whipperTrackOKRE    = regexp.MustCompile(`^Track (\d+) OK \(AccurateRip:\s*(\d+)/\d+`)
+	// whipperPyLogRE matches Python `logging` framework output
+	// (`LEVEL:logger.path:message`) which whipper uses for all its
+	// status messages during the startup phase — AccurateRip lookup,
+	// drive offset detection, TOC re-read, etc. Without forwarding
+	// these to the sink the user sees an empty Log tab for the first
+	// 1–3 minutes of every audio rip while whipper warms up.
+	whipperPyLogRE = regexp.MustCompile(`^(INFO|WARNING|ERROR|FATAL|CRITICAL|DEBUG):[^:]+:(.+)$`)
 )
 
 // ParseWhipperStream scans r line-by-line and emits events to sink.
@@ -98,10 +106,19 @@ func ParseWhipperStream(r io.Reader, sink Sink) {
 func parseWhipperLines(scanner *bufio.Scanner, sink Sink) {
 	currentTrack := 0
 	totalTracks := 0
+	announcedStart := false
 
 	for scanner.Scan() {
 		line := scanner.Text()
 		trimmed := stripLeadingSpaces(line)
+
+		// First non-empty line we see — emit a "preparing" hint so the
+		// dashboard's drive card doesn't sit at "0% / no speed / no
+		// ETA" with no apparent activity while whipper warms up.
+		if !announcedStart && trimmed != "" {
+			announcedStart = true
+			sink.Log(state.LogLevelInfo, "whipper: preparing drive (this can take 1–3 min)")
+		}
 
 		if m := whipperTrackStartRE.FindStringSubmatch(trimmed); m != nil {
 			t, _ := strconv.Atoi(m[1])
@@ -135,6 +152,25 @@ func parseWhipperLines(scanner *bufio.Scanner, sink Sink) {
 		if m := whipperErrorRE.FindStringSubmatch(trimmed); m != nil {
 			sink.Log(state.LogLevelError, "whipper: %s", m[2])
 			continue
+		}
+
+		// Forward Python-logging-formatted output so the user sees
+		// whipper's startup phase activity in the Log tab. DEBUG is
+		// dropped (cdparanoia chatter). Everything else maps to the
+		// matching DiscEcho log level.
+		if m := whipperPyLogRE.FindStringSubmatch(trimmed); m != nil {
+			lvl := m[1]
+			if lvl == "DEBUG" {
+				continue
+			}
+			level := state.LogLevelInfo
+			switch lvl {
+			case "WARNING":
+				level = state.LogLevelWarn
+			case "ERROR", "FATAL", "CRITICAL":
+				level = state.LogLevelError
+			}
+			sink.Log(level, "whipper: %s", strings.TrimSpace(m[2]))
 		}
 	}
 }

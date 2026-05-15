@@ -4,6 +4,7 @@
   import DiscTypeBadge from '$lib/components/DiscTypeBadge.svelte';
   import ProgressBar from '$lib/components/ProgressBar.svelte';
   import SpeedEtaChip from '$lib/components/SpeedEtaChip.svelte';
+  import { logs } from '$lib/store';
 
   export let drive: Drive;
   export let disc: Disc | undefined = undefined;
@@ -11,6 +12,12 @@
   export let profile: Profile | undefined = undefined;
   export let queuedCount: number = 0;
   export let href: string | undefined = undefined;
+
+  // Last few log lines while ripping — gives the dashboard real
+  // signal during whipper's startup phase when progress sits at 0%
+  // for minutes. Limited to 3 lines so the card stays compact.
+  const LOG_TAIL_LINES = 3;
+  $: tail = job ? ($logs[job.id] ?? []).slice(-LOG_TAIL_LINES) : [];
 
   $: busy = job !== undefined && (drive.state === 'ripping' || drive.state === 'identifying');
 
@@ -120,6 +127,28 @@
         </span>
       </div>
     </div>
+    {#if tail.length > 0}
+      <div
+        class="mt-2 overflow-hidden rounded-md border border-border px-2 py-1.5 font-mono"
+        style="background: var(--surface-2); font-size: 11px; line-height: 1.4"
+      >
+        {#each tail as line (line.t + line.message)}
+          <div class="truncate text-text-3">
+            <span
+              class="mr-1 uppercase"
+              style="color: {line.level === 'warn'
+                ? 'var(--warn)'
+                : line.level === 'error'
+                  ? 'var(--error)'
+                  : 'var(--text-3)'}"
+            >
+              {line.level === 'info' ? '·' : line.level}
+            </span>
+            <span class="text-text-2">{line.message}</span>
+          </div>
+        {/each}
+      </div>
+    {/if}
   {:else}
     <div class="mt-2 flex items-center justify-between gap-2">
       <div class="text-text-3" style="font-size: var(--ts-meta)">
