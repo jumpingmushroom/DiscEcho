@@ -186,3 +186,30 @@ func TestLoadRedumpDir_PartialPopulation(t *testing.T) {
 		t.Fatal("db is nil")
 	}
 }
+
+func TestInferRegion(t *testing.T) {
+	tests := []struct {
+		in, want string
+	}{
+		{"SCES_534.09", "Europe"},
+		{"SCUS_944.61", "USA"},
+		{"SLUS_001.23", "USA"},
+		{"SLES_010.23", "Europe"},
+		{"SLPS_001.04", "Japan"},
+		{"SCPM_900.01", "Japan"},
+		{"PBPX_954.21", "Europe"},
+		{"SCKA_200.01", "Korea"},
+		{"T-1234H", "Japan"},
+		{"T-1234N", "USA"},
+		{"T-1234D", "Europe"},
+		{"MK-81088", ""}, // Saturn MK codes are region-ambiguous
+		{"4D530002", ""}, // Xbox title IDs don't encode region
+		{"", ""},
+		{"sces_534.09", "Europe"}, // case-insensitive
+	}
+	for _, tt := range tests {
+		if got := identify.InferRegion(tt.in); got != tt.want {
+			t.Errorf("InferRegion(%q) = %q, want %q", tt.in, got, tt.want)
+		}
+	}
+}

@@ -97,6 +97,10 @@ func (h *Handler) Identify(ctx context.Context, drv *state.Drive) (*state.Disc, 
 	// Tier 2: BootCodeIndex (DuckStation gamedb).
 	if h.deps.BootCodeIndex != nil {
 		if entry := h.deps.BootCodeIndex.Lookup(state.DiscTypePSX, info.BootCode); entry != nil {
+			region := entry.Region
+			if region == "" {
+				region = identify.InferRegion(info.BootCode)
+			}
 			disc.Title = entry.Title
 			disc.Year = entry.Year
 			disc.MetadataProvider = h.deps.BootCodeIndex.Source(state.DiscTypePSX)
@@ -114,7 +118,7 @@ func (h *Handler) Identify(ctx context.Context, drv *state.Drive) (*state.Disc, 
 			}
 			cand := state.Candidate{
 				Source: disc.MetadataProvider, Title: entry.Title, Year: entry.Year,
-				Region: entry.Region, Confidence: 90,
+				Region: region, Confidence: 90,
 			}
 			disc.Candidates = []state.Candidate{cand}
 			return disc, disc.Candidates, nil

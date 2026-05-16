@@ -100,13 +100,17 @@ func (h *Handler) Identify(ctx context.Context, drv *state.Drive) (*state.Disc, 
 	// Tier 2: BootCodeIndex (Libretro).
 	if h.deps.BootCodeIndex != nil {
 		if entry := h.deps.BootCodeIndex.Lookup(state.DiscTypeSAT, code); entry != nil {
+			region := entry.Region
+			if region == "" {
+				region = identify.InferRegion(code)
+			}
 			disc.Title = entry.Title
 			disc.Year = entry.Year
 			disc.MetadataProvider = h.deps.BootCodeIndex.Source(state.DiscTypeSAT)
 			disc.MetadataID = code
 			disc.Candidates = []state.Candidate{{
 				Source: disc.MetadataProvider, Title: entry.Title, Year: entry.Year,
-				Region: entry.Region, Confidence: 90,
+				Region: region, Confidence: 90,
 			}}
 			return disc, disc.Candidates, nil
 		}

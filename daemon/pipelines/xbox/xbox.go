@@ -126,16 +126,22 @@ func (h *Handler) Identify(ctx context.Context, drv *state.Drive) (*state.Disc, 
 		}
 	}
 
-	// Tier 2: BootCodeIndex (Libretro).
+	// Tier 2: BootCodeIndex (Libretro). Xbox title IDs don't encode
+	// region, so InferRegion always returns "" for code — left in place
+	// for symmetry with the other handlers.
 	if h.deps.BootCodeIndex != nil {
 		if entry := h.deps.BootCodeIndex.Lookup(state.DiscTypeXBOX, code); entry != nil {
+			region := entry.Region
+			if region == "" {
+				region = identify.InferRegion(code)
+			}
 			disc.Title = entry.Title
 			disc.Year = entry.Year
 			disc.MetadataProvider = h.deps.BootCodeIndex.Source(state.DiscTypeXBOX)
 			disc.MetadataID = code
 			disc.Candidates = []state.Candidate{{
 				Source: disc.MetadataProvider, Title: entry.Title, Year: entry.Year,
-				Region: entry.Region, Confidence: 90,
+				Region: region, Confidence: 90,
 			}}
 			return disc, disc.Candidates, nil
 		}

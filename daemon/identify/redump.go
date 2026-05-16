@@ -184,6 +184,55 @@ func isRegion(s string) bool {
 	return false
 }
 
+// InferRegion derives a region label from a normalized PSX/PS2 boot
+// code (e.g. "SCES_534.09") or a Saturn/Dreamcast product number
+// (e.g. "MK-81088"). Returns the empty string when the prefix isn't
+// recognised or when the system doesn't encode region in the
+// identifier (Xbox title IDs, generic Saturn MK-8xxxx codes).
+//
+// Used as a fallback when the BootCodeIndex source DB (PCSX2 GameDB,
+// Libretro DAT) doesn't supply a region for the entry — Sly 3 PAL's
+// SCES_534.09 has no region in PCSX2's YAML, so without this the
+// output path renders as "Sly 3 - Honour Among Thieves ()/...".
+func InferRegion(code string) string {
+	code = strings.ToUpper(strings.TrimSpace(code))
+	if code == "" {
+		return ""
+	}
+	// PSX / PS2 boot codes: 4-letter prefix encodes region.
+	if len(code) >= 4 {
+		switch code[:4] {
+		case "SCUS", "SLUS", "LSP9":
+			return "USA"
+		case "SCES", "SLES":
+			return "Europe"
+		case "SCPS", "SLPS", "SLPM", "SCPM", "PCPX", "PAPX":
+			return "Japan"
+		case "SCKA", "SLKA":
+			return "Korea"
+		case "SCAJ", "SLAJ":
+			return "Asia"
+		case "PBPX":
+			return "Europe"
+		}
+	}
+	// Sega Saturn / Dreamcast product numbers (MK-xxxxx, T-xxxxxH, ...).
+	// The trailing letter on T-codes signals region; MK-codes are
+	// region-ambiguous and we leave them blank.
+	if strings.HasPrefix(code, "T-") && len(code) > 0 {
+		last := code[len(code)-1]
+		switch last {
+		case 'H':
+			return "Japan"
+		case 'N':
+			return "USA"
+		case 'D':
+			return "Europe"
+		}
+	}
+	return ""
+}
+
 // LoadRedumpDir walks rootDir for per-system subdirectories and loads
 // every *.dat inside them into a single in-memory DB. Subdirectory
 // names are conventionally {psx, ps2, saturn, dreamcast, xbox} but
