@@ -5,7 +5,16 @@
   import ProgressBar from '$lib/components/ProgressBar.svelte';
   import SpeedEtaChip from '$lib/components/SpeedEtaChip.svelte';
   import { onMount, onDestroy } from 'svelte';
-  import { logs, ensureLogBackfill, cancelJob, ejectDrive, reidentify } from '$lib/store';
+  import {
+    logs,
+    ensureLogBackfill,
+    cancelJob,
+    ejectDrive,
+    reidentify,
+    jobs,
+    startDisc,
+  } from '$lib/store';
+  import { lastDoneJobForDisc } from '$lib/components/lastDoneJobForDisc';
   import { formatDuration } from '$lib/time';
   import { trackSummary } from '$lib/format';
 
@@ -20,9 +29,18 @@
   $: canStop = hasActiveJob && !!job;
   $: canEject = !hasActiveJob && drive.state !== 'ejecting';
   $: canReidentify = !!disc && !hasActiveJob && drive.state === 'idle';
-  $: hasActions = canStop || canEject || canReidentify;
 
-  let actionBusy: 'cancel' | 'eject' | 'reid' | null = null;
+  // Most recent done job for the currently-inserted disc. Drives the
+  // "already ripped, re-rip?" affordance below.
+  $: lastDoneJob = lastDoneJobForDisc($jobs, disc?.id);
+  $: canRerip = drive.state === 'idle' && !!disc && !!lastDoneJob && !hasActiveJob;
+  $: hasActions = canStop || canEject || canReidentify || canRerip;
+
+  $: rerippedCaption = lastDoneJob
+    ? `Already ripped${lastDoneJob.finished_at ? ' ' + lastDoneJob.finished_at.slice(0, 10) : ''} — re-rip?`
+    : '';
+
+  let actionBusy: 'cancel' | 'eject' | 'reid' | 'rerip' | null = null;
   let actionErr = '';
 
   async function onStop(): Promise<void> {
@@ -57,6 +75,19 @@
     actionErr = '';
     try {
       await reidentify(disc.id);
+    } catch (e) {
+      actionErr = (e as Error).message;
+    } finally {
+      actionBusy = null;
+    }
+  }
+
+  async function onRerip(): Promise<void> {
+    if (!disc || !lastDoneJob) return;
+    actionBusy = 'rerip';
+    actionErr = '';
+    try {
+      await startDisc(disc.id, lastDoneJob.profile_id, 0);
     } catch (e) {
       actionErr = (e as Error).message;
     } finally {
@@ -252,7 +283,11 @@
     {:else}
       <div class="mt-2 flex items-center justify-between gap-2">
         <div class="text-text-3" style="font-size: var(--ts-meta)">
-          {disc ? discTitle(disc) : 'No disc inserted'}
+          {#if canRerip && disc && lastDoneJob}
+            {rerippedCaption}
+          {:else}
+            {disc ? discTitle(disc) : 'No disc inserted'}
+          {/if}
         </div>
         {#if queuedCount > 0}
           <span
@@ -285,6 +320,16 @@
           data-testid="drive-reidentify"
         >
           {actionBusy === 'reid' ? 'Re-identifying…' : 'Re-identify'}
+        </button>
+      {/if}
+      {#if canRerip}
+        <button
+          class="min-h-[36px] flex-1 rounded-xl border border-border bg-surface-2 px-3 text-[13px] font-medium text-accent disabled:opacity-50"
+          on:click={onRerip}
+          disabled={actionBusy !== null}
+          data-testid="drive-rerip"
+        >
+          {actionBusy === 'rerip' ? 'Starting…' : 'Re-rip'}
         </button>
       {/if}
       {#if canEject}

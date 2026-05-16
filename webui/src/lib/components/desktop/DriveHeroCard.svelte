@@ -6,6 +6,7 @@
   import SpeedEtaChip from '$lib/components/SpeedEtaChip.svelte';
   import { createEventDispatcher } from 'svelte';
   import { cancelJob, ejectDrive, reidentify, jobs, startDisc } from '$lib/store';
+  import { lastDoneJobForDisc } from '$lib/components/lastDoneJobForDisc';
 
   export let drive: Drive;
   export let disc: Disc | undefined = undefined;
@@ -23,11 +24,7 @@
 
   // Most recent done job for the currently-inserted disc. Drives the
   // "already ripped, re-rip?" affordance below.
-  $: lastDoneJob = disc
-    ? $jobs
-        .filter((j) => j.disc_id === disc.id && j.state === 'done')
-        .sort((a, b) => ((a.finished_at ?? '') < (b.finished_at ?? '') ? 1 : -1))[0]
-    : undefined;
+  $: lastDoneJob = lastDoneJobForDisc($jobs, disc?.id);
   $: canRerip = drive.state === 'idle' && !!disc && !!lastDoneJob && !hasActiveJob;
 
   let busy: 'cancel' | 'eject' | 'reid' | 'rerip' | null = null;
