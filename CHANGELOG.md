@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.13.1] - 2026-05-16
+
+### Changed
+- Dashboard snapshots load faster: `/api/state` and the SSE bootstrap previously fanned out one `SELECT … FROM job_steps WHERE job_id = ?` per returned job (up to 51 round-trips at the default 50-recent-jobs limit). The hydration now uses a single `IN (…)` query that buckets rows in Go. Same payload, fewer DB hits per tab open / reconnect.
+- Library-disk widget pulls the configured library roots from one `GetAllSettings` call instead of five sequential `GetSetting` calls.
+
 ## [0.13.0] - 2026-05-15
 
 ### Added
