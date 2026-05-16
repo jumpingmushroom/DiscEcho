@@ -150,6 +150,9 @@ func parseWhipperLines(scanner *bufio.Scanner, sink Sink, announced *atomic.Bool
 			currentTrack = t
 			totalTracks = n
 			sink.Log(state.LogLevelInfo, "whipper: starting track %d/%d", t, n)
+			if n > 0 {
+				sink.Progress(float64(t-1)/float64(n)*100, "", 0)
+			}
 			continue
 		}
 
@@ -170,6 +173,9 @@ func parseWhipperLines(scanner *bufio.Scanner, sink Sink, announced *atomic.Bool
 			tNum, _ := strconv.Atoi(m[1])
 			conf, _ := strconv.Atoi(m[2])
 			sink.Log(state.LogLevelInfo, "whipper: track %d OK (AccurateRip %d)", tNum, conf)
+			if totalTracks > 0 {
+				sink.Progress(float64(tNum)/float64(totalTracks)*100, "", 0)
+			}
 			continue
 		}
 

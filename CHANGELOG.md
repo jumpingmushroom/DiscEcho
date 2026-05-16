@@ -6,6 +6,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Fixed
+- Audio-CD rip progress bar no longer sits at 0% for the full rip; the bar advances at every track boundary even when whipper does not emit per-percent `Reading:` lines.
+
 ## [0.13.1] - 2026-05-16
 
 ### Changed

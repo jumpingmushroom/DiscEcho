@@ -51,27 +51,35 @@ func TestWhipper_ParseStdout_KindOfBlue(t *testing.T) {
 	tools.ParseWhipperStream(strings.NewReader(string(body)), sink)
 
 	progressEvents := 0
-	var first, last recordedEvent
+	var firstReading, last recordedEvent
+	firstReadingFound := false
 	for _, e := range sink.events {
-		if e.kind == "progress" {
-			if progressEvents == 0 {
-				first = e
-			}
-			last = e
-			progressEvents++
+		if e.kind != "progress" {
+			continue
 		}
+		// Boundary-derived emits carry empty speed; skip them when
+		// asserting on the per-percent values from "Reading:" lines.
+		if !firstReadingFound && e.speed != "" {
+			firstReading = e
+			firstReadingFound = true
+		}
+		last = e
+		progressEvents++
 	}
 	if progressEvents == 0 {
 		t.Fatal("no progress events emitted")
 	}
-	if first.pct < 2.0 || first.pct > 3.0 {
-		t.Errorf("first progress: want ~2.5, got %.2f", first.pct)
+	if !firstReadingFound {
+		t.Fatal("no Reading-derived progress event emitted")
+	}
+	if firstReading.pct < 2.0 || firstReading.pct > 3.0 {
+		t.Errorf("first Reading progress: want ~2.5, got %.2f", firstReading.pct)
 	}
 	if last.pct < 99.0 || last.pct > 100.0 {
 		t.Errorf("last progress: want ~99.8, got %.2f", last.pct)
 	}
-	if first.speed != "8.0×" {
-		t.Errorf("first speed: got %q", first.speed)
+	if firstReading.speed != "8.0×" {
+		t.Errorf("first Reading speed: got %q", firstReading.speed)
 	}
 }
 
@@ -128,5 +136,79 @@ func TestWhipper_RunFailsCleanly(t *testing.T) {
 	err := w.Run(context.Background(), []string{"x"}, nil, "", tools.NopSink{})
 	if err == nil {
 		t.Errorf("want exec error from /usr/bin/false")
+	}
+}
+
+func progressOnly(events []recordedEvent) []recordedEvent {
+	out := make([]recordedEvent, 0, len(events))
+	for _, e := range events {
+		if e.kind == "progress" {
+			out = append(out, e)
+		}
+	}
+	return out
+}
+
+func TestParseWhipperStream_BoundaryProgress(t *testing.T) {
+	t.Parallel()
+	sink := &recordingSink{}
+	input := strings.Join([]string{
+		"Ripping track 1 of 11: 01. Lead Poisoning.flac",
+		"Track 1 OK (AccurateRip: 5/5 conf)",
+		"Ripping track 2 of 11: 02. Seven Blackbirds.flac",
+		"Track 2 OK (AccurateRip: 5/5 conf)",
+	}, "\n")
+	tools.ParseWhipperStream(strings.NewReader(input), sink)
+
+	got := progressOnly(sink.events)
+	wantSeq := []float64{
+		0.0,                // start of track 1: (1-1)/11 * 100
+		1.0 / 11.0 * 100.0, // track 1 OK: 1/11 * 100
+		1.0 / 11.0 * 100.0, // start of track 2: (2-1)/11 * 100
+		2.0 / 11.0 * 100.0, // track 2 OK: 2/11 * 100
+	}
+	if len(got) != len(wantSeq) {
+		t.Fatalf("progress events: want %d, got %d (%v)", len(wantSeq), len(got), got)
+	}
+	for i, want := range wantSeq {
+		if diff := got[i].pct - want; diff > 0.001 || diff < -0.001 {
+			t.Errorf("progress[%d]: want %.3f, got %.3f", i, want, got[i].pct)
+		}
+		if got[i].speed != "" {
+			t.Errorf("progress[%d].speed: want empty, got %q", i, got[i].speed)
+		}
+		if got[i].eta != 0 {
+			t.Errorf("progress[%d].eta: want 0, got %d", i, got[i].eta)
+		}
+	}
+}
+
+func TestParseWhipperStream_ReadingOverridesBoundary(t *testing.T) {
+	t.Parallel()
+	sink := &recordingSink{}
+	input := strings.Join([]string{
+		"Ripping track 1 of 11: 01. Lead Poisoning.flac",
+		"  Reading: 42.5%, 8.0×, ETA: 1:30",
+	}, "\n")
+	tools.ParseWhipperStream(strings.NewReader(input), sink)
+
+	got := progressOnly(sink.events)
+	if len(got) != 2 {
+		t.Fatalf("progress events: want 2, got %d (%v)", len(got), got)
+	}
+	// First event: boundary (track-start) at 0%.
+	if got[0].pct != 0 {
+		t.Errorf("progress[0].pct: want 0, got %f", got[0].pct)
+	}
+	// Second event: Reading-derived. Overall = ((1-1) + 0.425) / 11 * 100.
+	want := 0.425 / 11.0 * 100.0
+	if diff := got[1].pct - want; diff > 0.001 || diff < -0.001 {
+		t.Errorf("progress[1].pct: want %.3f, got %.3f", want, got[1].pct)
+	}
+	if got[1].speed != "8.0×" {
+		t.Errorf("progress[1].speed: want 8.0×, got %q", got[1].speed)
+	}
+	if got[1].eta != 90 {
+		t.Errorf("progress[1].eta: want 90, got %d", got[1].eta)
 	}
 }
