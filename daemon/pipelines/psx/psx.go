@@ -12,16 +12,11 @@ package psx
 
 import (
 	"context"
-	"crypto/md5"
-	"encoding/hex"
 	"errors"
 	"fmt"
-	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
-	"strconv"
-	"time"
 
 	"github.com/jumpingmushroom/DiscEcho/daemon/identify"
 	"github.com/jumpingmushroom/DiscEcho/daemon/pipelines"
@@ -140,7 +135,7 @@ func (h *Handler) Run(ctx context.Context, drv *state.Drive, disc *state.Disc, p
 	}
 
 	name := "psx-" + disc.ID
-	if err := h.deps.Redumper.Rip(ctx, drv.DevPath, tmpdir, name, "cd", newStepSink(sink, state.StepRip)); err != nil {
+	if err := h.deps.Redumper.Rip(ctx, drv.DevPath, tmpdir, name, "cd", pipelines.NewStepSink(sink, state.StepRip)); err != nil {
 		sink.OnStepFailed(state.StepRip, err)
 		return fmt.Errorf("redumper: %w", err)
 	}
@@ -152,7 +147,7 @@ func (h *Handler) Run(ctx context.Context, drv *state.Drive, disc *state.Disc, p
 	sink.OnStepStart(state.StepCompress)
 	if h.deps.RedumpDB != nil && disc.MetadataID != "" {
 		if entry := h.deps.RedumpDB.LookupByBootCode(disc.MetadataID); entry != nil && entry.MD5 != "" {
-			got, err := md5File(binPath)
+			got, err := pipelines.MD5File(binPath)
 			if err != nil {
 				slog.Warn("psx: md5 verify failed (couldn't hash)", "err", err)
 			} else if got != entry.MD5 {
@@ -163,7 +158,7 @@ func (h *Handler) Run(ctx context.Context, drv *state.Drive, disc *state.Disc, p
 		}
 	}
 	chdPath := filepath.Join(tmpdir, name+".chd")
-	if err := h.deps.CHDMan.CreateCHD(ctx, cuePath, chdPath, newStepSink(sink, state.StepCompress)); err != nil {
+	if err := h.deps.CHDMan.CreateCHD(ctx, cuePath, chdPath, pipelines.NewStepSink(sink, state.StepCompress)); err != nil {
 		sink.OnStepFailed(state.StepCompress, err)
 		return fmt.Errorf("chdman: %w", err)
 	}
@@ -200,7 +195,7 @@ func (h *Handler) Run(ctx context.Context, drv *state.Drive, disc *state.Disc, p
 			title := fmt.Sprintf("DiscEcho: %s", disc.Title)
 			body := fmt.Sprintf("Ripped to %s", h.deps.LibraryRoot)
 			argv := tools.BuildAppriseArgs(title, body, "", urls)
-			_ = apprise.Run(ctx, argv, nil, "", newStepSink(sink, state.StepNotify))
+			_ = apprise.Run(ctx, argv, nil, "", pipelines.NewStepSink(sink, state.StepNotify))
 		}
 	}
 	sink.OnStepDone(state.StepNotify, nil)
@@ -209,7 +204,7 @@ func (h *Handler) Run(ctx context.Context, drv *state.Drive, disc *state.Disc, p
 	sink.OnStepStart(state.StepEject)
 	if h.deps.Tools != nil && pipelines.ResolveShouldEject(ctx, h.deps.ShouldEject) {
 		if eject, ok := h.deps.Tools.Get("eject"); ok && drv != nil && drv.DevPath != "" {
-			if err := eject.Run(ctx, []string{drv.DevPath}, nil, "", newStepSink(sink, state.StepEject)); err != nil {
+			if err := eject.Run(ctx, []string{drv.DevPath}, nil, "", pipelines.NewStepSink(sink, state.StepEject)); err != nil {
 				sink.OnStepFailed(state.StepEject, err)
 			}
 		}
@@ -219,46 +214,5 @@ func (h *Handler) Run(ctx context.Context, drv *state.Drive, disc *state.Disc, p
 }
 
 func (h *Handler) createWorkDir(discID string) (string, error) {
-	root := h.deps.WorkRoot
-	if root == "" {
-		root = os.TempDir()
-	}
-	dir := filepath.Join(root, "discecho-psx-"+discID+"-"+strconv.FormatInt(time.Now().UnixNano(), 36))
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return "", fmt.Errorf("create workdir: %w", err)
-	}
-	return dir, nil
-}
-
-// md5File returns the lowercase hex MD5 of the file's contents.
-func md5File(path string) (string, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return "", err
-	}
-	defer func() { _ = f.Close() }()
-	h := md5.New()
-	if _, err := io.Copy(h, f); err != nil {
-		return "", err
-	}
-	return hex.EncodeToString(h.Sum(nil)), nil
-}
-
-// stepSink wraps an EventSink so a Tool's per-step Sink calls land
-// against a fixed step ID.
-type stepSink struct {
-	sink pipelines.EventSink
-	step state.StepID
-}
-
-func newStepSink(s pipelines.EventSink, step state.StepID) *stepSink {
-	return &stepSink{sink: s, step: step}
-}
-
-func (s *stepSink) Progress(pct float64, speed string, eta int) {
-	s.sink.OnProgress(s.step, pct, speed, eta)
-}
-
-func (s *stepSink) Log(level state.LogLevel, format string, args ...any) {
-	s.sink.OnLog(level, format, args...)
+	return pipelines.CreateWorkDir(h.deps.WorkRoot, "psx", discID)
 }

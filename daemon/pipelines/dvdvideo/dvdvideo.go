@@ -191,7 +191,7 @@ func (h *Handler) Run(ctx context.Context, drv *state.Drive, disc *state.Disc, p
 	}
 	sink.OnLog(state.LogLevelInfo, "dvdbackup: mirroring %s → workdir", drv.DevPath)
 	mirrorStart := time.Now()
-	source, err := h.deps.DVDBackup.Mirror(ctx, drv.DevPath, ripDir, newStepSink(sink, state.StepRip))
+	source, err := h.deps.DVDBackup.Mirror(ctx, drv.DevPath, ripDir, pipelines.NewStepSink(sink, state.StepRip))
 	if err != nil {
 		sink.OnStepFailed(state.StepRip, err)
 		return fmt.Errorf("dvdbackup mirror: %w", err)
@@ -307,7 +307,7 @@ func (h *Handler) Run(ctx context.Context, drv *state.Drive, disc *state.Disc, p
 			"HB_TOTAL_TITLES":   strconv.Itoa(len(encodeTitles)),
 			"HB_TITLE_DURATION": strconv.Itoa(t.DurationSeconds),
 		}
-		stepSink := newStepSink(sink, state.StepTranscode)
+		stepSink := pipelines.NewStepSink(sink, state.StepTranscode)
 		sink.OnLog(state.LogLevelInfo, "HandBrake: encoding title %d → %s", t.Number, filepath.Base(out))
 		encStart := time.Now()
 		if err := whb.Run(ctx, args, env, tmpdir, stepSink); err != nil {
@@ -350,7 +350,7 @@ func (h *Handler) Run(ctx context.Context, drv *state.Drive, disc *state.Disc, p
 		title := fmt.Sprintf("DiscEcho: %s", disc.Title)
 		body := fmt.Sprintf("Ripped to %s", h.deps.LibraryRoot)
 		argv := tools.BuildAppriseArgs(title, body, "", urls)
-		_ = apprise.Run(ctx, argv, nil, "", newStepSink(sink, state.StepNotify))
+		_ = apprise.Run(ctx, argv, nil, "", pipelines.NewStepSink(sink, state.StepNotify))
 	}
 	sink.OnStepDone(state.StepNotify, nil)
 
@@ -358,7 +358,7 @@ func (h *Handler) Run(ctx context.Context, drv *state.Drive, disc *state.Disc, p
 	sink.OnStepStart(state.StepEject)
 	if pipelines.ResolveShouldEject(ctx, h.deps.ShouldEject) {
 		if eject, ok := h.deps.Tools.Get("eject"); ok && drv != nil && drv.DevPath != "" {
-			if err := eject.Run(ctx, []string{drv.DevPath}, nil, "", newStepSink(sink, state.StepEject)); err != nil {
+			if err := eject.Run(ctx, []string{drv.DevPath}, nil, "", pipelines.NewStepSink(sink, state.StepEject)); err != nil {
 				sink.OnStepFailed(state.StepEject, err)
 			}
 		}
@@ -420,15 +420,7 @@ func validateEncodedTitle(path string, durationSeconds, minBytesPerSecond int) e
 }
 
 func (h *Handler) createWorkDir(discID string) (string, error) {
-	root := h.deps.WorkRoot
-	if root == "" {
-		root = os.TempDir()
-	}
-	dir := filepath.Join(root, "discecho-dvd-"+discID+"-"+strconv.FormatInt(time.Now().UnixNano(), 36))
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return "", fmt.Errorf("create workdir: %w", err)
-	}
-	return dir, nil
+	return pipelines.CreateWorkDir(h.deps.WorkRoot, "dvd", discID)
 }
 
 // selectEncodeTitles picks which titles to encode for **series**
@@ -585,25 +577,6 @@ func (h *Handler) moveOutputs(transcoded []string, _ []tools.HandBrakeTitle,
 		moved = append(moved, dst)
 	}
 	return moved, nil
-}
-
-// stepSink wraps an EventSink so a Tool's per-step Sink calls land
-// against a fixed step ID.
-type stepSink struct {
-	sink pipelines.EventSink
-	step state.StepID
-}
-
-func newStepSink(s pipelines.EventSink, step state.StepID) *stepSink {
-	return &stepSink{sink: s, step: step}
-}
-
-func (s *stepSink) Progress(pct float64, speed string, eta int) {
-	s.sink.OnProgress(s.step, pct, speed, eta)
-}
-
-func (s *stepSink) Log(level state.LogLevel, format string, args ...any) {
-	s.sink.OnLog(level, format, args...)
 }
 
 // mergeMetadataField reads the current blob, sets one top-level key to
