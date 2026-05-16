@@ -9,7 +9,6 @@ import (
 	"strconv"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/jumpingmushroom/DiscEcho/daemon/identify"
 	"github.com/jumpingmushroom/DiscEcho/daemon/pipelines"
 	"github.com/jumpingmushroom/DiscEcho/daemon/state"
 )
@@ -265,39 +264,37 @@ func (h *Handlers) IdentifyDisc(w http.ResponseWriter, r *http.Request) {
 // JSON. Returns "" + nil when the candidate type has no source mapping
 // (data discs, unknown).
 func (h *Handlers) fetchExtendedMetadata(ctx context.Context, disc *state.Disc, c *state.Candidate) (string, error) {
+	var payload any
 	switch {
 	case c.MediaType == "movie" && c.TMDBID > 0 && h.TMDB != nil:
 		m, err := h.TMDB.MovieDetails(ctx, c.TMDBID)
 		if err != nil {
 			return "", err
 		}
-		return marshalBlob(m)
+		payload = m
 	case c.MediaType == "tv" && c.TMDBID > 0 && h.TMDB != nil:
 		m, err := h.TMDB.TVDetails(ctx, c.TMDBID)
 		if err != nil {
 			return "", err
 		}
-		return marshalBlob(m)
+		payload = m
 	case disc.Type == state.DiscTypeAudioCD && c.MBID != "" && h.MusicBrainz != nil:
 		m, err := h.MusicBrainz.ReleaseDetails(ctx, c.MBID)
 		if err != nil {
 			return "", err
 		}
-		return marshalBlob(m)
+		payload = m
 	case isGameDisc(disc.Type) && c.Source == "Redump":
 		// Game discs build their blob from already-stored candidate data
 		// (Redump matched at identify time). No external fetch needed.
-		return marshalBlob(map[string]any{
+		payload = map[string]any{
 			"system": gameSystemName(disc.Type),
 			"serial": disc.MetadataID,
-		})
+		}
 	default:
 		return "", nil
 	}
-}
-
-func marshalBlob(v any) (string, error) {
-	body, err := json.Marshal(v)
+	body, err := json.Marshal(payload)
 	if err != nil {
 		return "", err
 	}
@@ -327,11 +324,6 @@ func gameSystemName(t state.DiscType) string {
 	}
 	return string(t)
 }
-
-// Compile-time check: identify package needs to be available for the
-// fetchExtendedMetadata switch logic to compile; the import is exercised
-// elsewhere by the live MovieDetails / ReleaseDetails calls.
-var _ = identify.DiscMetadata{}
 
 // forceReidentify re-runs the classify + Identify pipeline for an
 // existing disc and updates the row in place. Used by the drive card's
