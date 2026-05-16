@@ -128,8 +128,7 @@ func (idx *BootCodeIndex) Source(system state.DiscType) string {
 
 // embeddedFS holds the generated bootcodes_*.json files. The daemon embeds
 // them at compile time; the ingestion script (daemon/identify/data/refresh.go)
-// regenerates them before each release. bootcodes_placeholder.json satisfies
-// the embed glob until Phase 9 generates the real files.
+// regenerates them before each release.
 //
 //go:embed data/bootcodes_*.json
 var embeddedFS embed.FS
