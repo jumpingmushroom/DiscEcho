@@ -74,16 +74,32 @@ func TestBootCodeIndex_MultiSystemMerge(t *testing.T) {
 
 func TestLoadAllEmbedded_MissingFilesAreNonFatal(t *testing.T) {
 	// Before Phase 9 generates the real files, all 5 lookups fail.
-	// LoadAllEmbedded must still return a non-nil (empty) index and
-	// record the per-system errors rather than blowing up startup.
+	// LoadAllEmbedded must still return a non-nil index and surface the
+	// per-system errors rather than failing fast.
 	idx, errs := identify.LoadAllEmbedded()
 	if idx == nil {
 		t.Fatal("LoadAllEmbedded returned nil index")
 	}
-	// At least one system is expected to fail until the real files land.
-	// We don't assert specific systems because Phase 9 may have generated
-	// some by the time this runs.
-	if len(idx.Counts()) > 0 && len(errs) > 0 {
-		t.Logf("partial load: %d systems loaded, %d errored", len(idx.Counts()), len(errs))
+	// Invariant: when any per-system load fails, we still get a usable
+	// index back. This is what keeps the daemon bootable when a data
+	// file is missing or corrupt.
+	if len(errs) > 0 && idx == nil {
+		t.Fatal("LoadAllEmbedded returned nil index with errors present")
 	}
+	// Sanity check that the loader at least attempted all five systems.
+	// Counts + errs together must cover every system we know about, or
+	// somebody added a DiscType without extending LoadAllEmbedded.
+	systems := []state.DiscType{
+		state.DiscTypePSX, state.DiscTypePS2,
+		state.DiscTypeSAT, state.DiscTypeDC, state.DiscTypeXBOX,
+	}
+	counts := idx.Counts()
+	for _, sys := range systems {
+		if _, loaded := counts[sys]; !loaded {
+			if _, errored := errs[sys]; !errored {
+				t.Errorf("system %s: neither loaded nor errored — LoadAllEmbedded skipped it", sys)
+			}
+		}
+	}
+	t.Logf("load result: %d systems loaded, %d errored", len(counts), len(errs))
 }
