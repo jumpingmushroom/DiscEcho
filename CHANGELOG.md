@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.15.1] - 2026-05-16
+
 ### Fixed
 - Audio-CD rip progress and ETA no longer stuck at 0% / 0s on modern whipper builds. The parser now unwraps whipper's Python-`logging` output (`INFO:whipper.command.cd:ripping track N of M`) before pattern-matching, so the boundary-progress emits added in v0.14.0 actually fire — the bar advances on every `ripping track N of M` and `CRCs match for track N` line. ETA is now extrapolated from elapsed wall time after the first track completes, so slow drives that never emit per-percent `Reading:` chatter still surface a useful estimate.
 
