@@ -211,17 +211,31 @@ func (h *Handlers) IdentifyDisc(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Audio CDs are MusicBrainz territory; everything else still
-	// dispatches to TMDB. The request body's media_type field is
-	// ignored for audio (MB has no movie/TV split).
+	// Dispatch manual search to the appropriate metadata source.
+	// Audio CDs → MusicBrainz; game discs → IGDB; data discs have no
+	// searchable metadata; everything else (DVD, BDMV, UHD) → TMDB.
 	var cands []state.Candidate
-	if disc.Type == state.DiscTypeAudioCD {
+	switch {
+	case disc.Type == state.DiscTypeAudioCD:
 		if h.MusicBrainz == nil {
 			writeError(w, http.StatusServiceUnavailable, "MusicBrainz not configured")
 			return
 		}
 		cands, err = h.MusicBrainz.SearchByName(r.Context(), req.Query)
-	} else {
+
+	case isGameDisc(disc.Type):
+		if h.IGDB == nil || !h.IGDB.Configured() {
+			writeError(w, http.StatusServiceUnavailable, "IGDB not configured")
+			return
+		}
+		cands, err = h.IGDB.SearchGames(r.Context(), req.Query, disc.Type)
+
+	case disc.Type == state.DiscTypeData:
+		writeError(w, http.StatusUnprocessableEntity,
+			"data discs do not support metadata search")
+		return
+
+	default: // DVD, BDMV, UHD, VCD
 		if h.TMDB == nil {
 			writeError(w, http.StatusServiceUnavailable, "TMDB not configured")
 			return

@@ -646,3 +646,99 @@ func mustJSON(t *testing.T, v any) []byte {
 	}
 	return b
 }
+
+// seedDiscOfType inserts a disc with the given DiscType and returns it.
+func seedDiscOfType(t *testing.T, h *api.Handlers, driveID string, dt state.DiscType) *state.Disc {
+	t.Helper()
+	d := &state.Disc{Type: dt, DriveID: driveID, Title: "test"}
+	if err := h.Store.CreateDisc(context.Background(), d); err != nil {
+		t.Fatal(err)
+	}
+	return d
+}
+
+// stubIGDB satisfies identify.IGDBClient for handler tests.
+type stubIGDB struct {
+	candidates []state.Candidate
+	err        error
+	details    *identify.IGDBGameDetails
+	detailsErr error
+}
+
+func (s *stubIGDB) SearchGames(_ context.Context, _ string, _ state.DiscType) ([]state.Candidate, error) {
+	return s.candidates, s.err
+}
+func (s *stubIGDB) GameDetails(_ context.Context, _ int) (*identify.IGDBGameDetails, error) {
+	return s.details, s.detailsErr
+}
+func (s *stubIGDB) Configured() bool { return true }
+
+func TestIdentifyDisc_GameDiscDispatchesToIGDB(t *testing.T) {
+	h := apitestServer(t)
+	drv := seedDrive(t, h)
+	disc := seedDiscOfType(t, h, drv.ID, state.DiscTypePS2)
+	h.IGDB = &stubIGDB{candidates: []state.Candidate{
+		{Source: "IGDB", Title: "Sly 3", IGDBID: 999, Confidence: 25},
+	}}
+
+	r := chi.NewRouter()
+	r.Post("/api/discs/{id}/identify", h.IdentifyDisc)
+
+	body := bytes.NewBufferString(`{"query":"sly 3"}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/discs/"+disc.ID+"/identify", body)
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+	r.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", rr.Code, rr.Body.String())
+	}
+	var resp struct {
+		Candidates []state.Candidate `json:"candidates"`
+	}
+	if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
+		t.Fatal(err)
+	}
+	if len(resp.Candidates) != 1 || resp.Candidates[0].Source != "IGDB" {
+		t.Errorf("candidates = %+v, want one IGDB entry", resp.Candidates)
+	}
+}
+
+func TestIdentifyDisc_DataDiscRejectsQuery(t *testing.T) {
+	h := apitestServer(t)
+	drv := seedDrive(t, h)
+	disc := seedDiscOfType(t, h, drv.ID, state.DiscTypeData)
+
+	r := chi.NewRouter()
+	r.Post("/api/discs/{id}/identify", h.IdentifyDisc)
+
+	body := bytes.NewBufferString(`{"query":"anything"}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/discs/"+disc.ID+"/identify", body)
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+	r.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("status = %d, want 422; body = %s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestIdentifyDisc_GameDiscNoIGDB503(t *testing.T) {
+	h := apitestServer(t)
+	drv := seedDrive(t, h)
+	disc := seedDiscOfType(t, h, drv.ID, state.DiscTypePS2)
+	h.IGDB = nil
+
+	r := chi.NewRouter()
+	r.Post("/api/discs/{id}/identify", h.IdentifyDisc)
+
+	body := bytes.NewBufferString(`{"query":"sly"}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/discs/"+disc.ID+"/identify", body)
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+	r.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want 503", rr.Code)
+	}
+}
