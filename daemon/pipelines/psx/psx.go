@@ -4,14 +4,13 @@
 //
 //	detect → identify → rip (redumper) → compress (chdman) → move → notify → eject
 //
-// Identify reads SYSTEM.CNF off the disc, looks up the boot code
-// against the user-supplied Redump dat. ErrNoCandidates surfaces when
-// the dat is missing OR the boot code is unknown — both fall through
-// to manualIdentify (M2.2 sheet).
+// Identify reads SYSTEM.CNF off the disc, then tries Redump dat (tier 1)
+// and BootCodeIndex (tier 2). ErrNoCandidates surfaces when both miss.
 package psx
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -36,14 +35,15 @@ type CHDManCompressor interface {
 
 // Deps bundles the handler's dependencies.
 type Deps struct {
-	Redumper       RedumperRipper
-	CHDMan         CHDManCompressor
-	SystemCNF      identify.SystemCNFProber
-	RedumpDB       *identify.RedumpDB
-	Tools          *tools.Registry // looked up: apprise, eject
-	LibraryRoot    string
-	WorkRoot       string
-	LibraryProbe   func(string) error
+	Redumper      RedumperRipper
+	CHDMan        CHDManCompressor
+	SystemCNF     identify.SystemCNFProber
+	RedumpDB      *identify.RedumpDB
+	BootCodeIndex *identify.BootCodeIndex // Tier-2 fallback; DuckStation provides cover URLs
+	Tools         *tools.Registry         // looked up: apprise, eject
+	LibraryRoot   string
+	WorkRoot      string
+	LibraryProbe  func(string) error
 	URLsForTrigger func(ctx context.Context, trigger string) []string
 	// ShouldEject gates the rip-end eject step; nil = always eject.
 	ShouldEject func(ctx context.Context) bool
@@ -61,17 +61,15 @@ func New(d Deps) *Handler {
 
 func (h *Handler) DiscType() state.DiscType { return state.DiscTypePSX }
 
-// Identify reads SYSTEM.CNF, looks up the boot code in RedumpDB.
+// Identify reads SYSTEM.CNF, then tries two tiers of lookup:
+// tier 1 — Redump dat (also enables post-rip MD5 verify when it hits);
+// tier 2 — BootCodeIndex (DuckStation gamedb, which includes cover URLs).
 func (h *Handler) Identify(ctx context.Context, drv *state.Drive) (*state.Disc, []state.Candidate, error) {
 	if h.deps.SystemCNF == nil {
 		return nil, nil, errors.New("psx: SystemCNF prober not configured")
 	}
 	disc := &state.Disc{Type: state.DiscTypePSX, DriveID: drv.ID}
 
-	if h.deps.RedumpDB == nil {
-		slog.Warn("psx: redump psx.dat missing", "dev", drv.DevPath)
-		return disc, nil, pipelines.ErrNoCandidates
-	}
 	info, err := h.deps.SystemCNF.Probe(ctx, drv.DevPath)
 	if err != nil {
 		return nil, nil, fmt.Errorf("psx: SYSTEM.CNF probe: %w", err)
@@ -79,23 +77,52 @@ func (h *Handler) Identify(ctx context.Context, drv *state.Drive) (*state.Disc, 
 	if info == nil || info.BootCode == "" {
 		return disc, nil, pipelines.ErrNoCandidates
 	}
-	entry := h.deps.RedumpDB.LookupByBootCode(info.BootCode)
-	if entry == nil {
-		return disc, nil, pipelines.ErrNoCandidates
+
+	// Tier 1: Redump dat.
+	if h.deps.RedumpDB != nil {
+		if entry := h.deps.RedumpDB.LookupByBootCode(info.BootCode); entry != nil {
+			disc.Title = entry.Title
+			disc.Year = entry.Year
+			disc.MetadataProvider = "Redump"
+			disc.MetadataID = entry.BootCode
+			cand := state.Candidate{
+				Source: "Redump", Title: entry.Title, Year: entry.Year,
+				Region: entry.Region, Confidence: 100,
+			}
+			disc.Candidates = []state.Candidate{cand}
+			return disc, disc.Candidates, nil
+		}
 	}
-	disc.Title = entry.Title
-	disc.Year = entry.Year
-	disc.MetadataProvider = "Redump"
-	disc.MetadataID = entry.BootCode
-	cand := state.Candidate{
-		Source:     "Redump",
-		Title:      entry.Title,
-		Year:       entry.Year,
-		Region:     entry.Region,
-		Confidence: 100,
+
+	// Tier 2: BootCodeIndex (DuckStation gamedb).
+	if h.deps.BootCodeIndex != nil {
+		if entry := h.deps.BootCodeIndex.Lookup(state.DiscTypePSX, info.BootCode); entry != nil {
+			disc.Title = entry.Title
+			disc.Year = entry.Year
+			disc.MetadataProvider = h.deps.BootCodeIndex.Source(state.DiscTypePSX)
+			disc.MetadataID = info.BootCode
+			// DuckStation provides cover URLs; persist directly into
+			// disc.metadata_json so DiscArt picks it up on first paint
+			// without a post-pick fetch.
+			if entry.CoverURL != "" {
+				blob, _ := json.Marshal(map[string]any{
+					"system":    "Sony PlayStation",
+					"serial":    info.BootCode,
+					"cover_url": entry.CoverURL,
+				})
+				disc.MetadataJSON = string(blob)
+			}
+			cand := state.Candidate{
+				Source: disc.MetadataProvider, Title: entry.Title, Year: entry.Year,
+				Region: entry.Region, Confidence: 90,
+			}
+			disc.Candidates = []state.Candidate{cand}
+			return disc, disc.Candidates, nil
+		}
 	}
-	disc.Candidates = []state.Candidate{cand}
-	return disc, disc.Candidates, nil
+
+	slog.Info("psx: no Redump or BootCodeIndex match", "dev", drv.DevPath, "boot", info.BootCode)
+	return disc, nil, pipelines.ErrNoCandidates
 }
 
 // Plan returns the 7-active-step plan; transcode is skipped.

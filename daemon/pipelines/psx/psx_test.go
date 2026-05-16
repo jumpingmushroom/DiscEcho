@@ -237,5 +237,41 @@ func TestPSXHandler_Run_RipFailure(t *testing.T) {
 	}
 }
 
+func TestPSXIdentify_BootCodeIndexFallback_WithCover(t *testing.T) {
+	idx := identify.NewBootCodeIndex()
+	if err := idx.MergeFile(state.DiscTypePSX, []byte(`{
+		"system":"PSX","source":"DuckStation","entries":{
+			"SCUS_944.61":{"title":"Final Fantasy VII (Disc 1)","region":"USA","year":1997,"cover_url":"https://thumbnails.libretro.com/Sony%20-%20PlayStation/Named_Boxarts/Final%20Fantasy%20VII%20(USA)%20(Disc%201).png"}
+		}
+	}`)); err != nil {
+		t.Fatal(err)
+	}
+
+	h := psx.New(psx.Deps{
+		SystemCNF:     &fakeSystemCNF{info: &identify.SystemCNF{BootCode: "SCUS_944.61", IsPS2: false}},
+		RedumpDB:      identify.NewEmptyRedumpDB(),
+		BootCodeIndex: idx,
+	})
+	disc, cands, err := h.Identify(context.Background(), &state.Drive{ID: "drv1"})
+	if err != nil {
+		t.Fatalf("Identify: %v", err)
+	}
+	if disc.Title != "Final Fantasy VII (Disc 1)" {
+		t.Errorf("Title = %q", disc.Title)
+	}
+	if disc.MetadataProvider != "DuckStation" {
+		t.Errorf("MetadataProvider = %q", disc.MetadataProvider)
+	}
+	if len(cands) != 1 {
+		t.Fatalf("cands len = %d, want 1", len(cands))
+	}
+	// PSX is the one system that carries cover URLs from its boot-code
+	// source. The handler stashes them into disc.MetadataJSON at identify
+	// time so DiscArt can render real cover art on first paint.
+	if disc.MetadataJSON == "" {
+		t.Errorf("MetadataJSON empty; PSX cover_url should be persisted at identify time")
+	}
+}
+
 // Compile-time guard.
 var _ = pipelines.ErrNoCandidates
