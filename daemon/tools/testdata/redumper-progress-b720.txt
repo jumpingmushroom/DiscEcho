@@ -1,0 +1,11 @@
+redumper (build: b720)
+arguments: disc --disc-type=DVD --drive /dev/sr0
+profile: DVD-ROM
+*** DUMP (time check: 0s)
+/ [  0%] LBA: 0/2161648, errors: { SCSI: 0, EDC: 0 }
+- [  1%] LBA: 21632/2161648, errors: { SCSI: 0, EDC: 0 }
+\ [  2%] LBA: 60928/2161648, errors: { SCSI: 0, EDC: 0 }
+| [ 50%] LBA: 1080824/2161648, errors: { SCSI: 0, EDC: 0 }
+/ [ 99%] LBA: 2140000/2161648, errors: { SCSI: 0, EDC: 0 }
+- [100%] LBA: 2161648/2161648, errors: { SCSI: 0, EDC: 0 }
+*** DUMP COMPLETED in 12m34s

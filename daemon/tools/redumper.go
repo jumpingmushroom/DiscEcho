@@ -114,8 +114,17 @@ func redumperDiscType(mode string) (string, bool) {
 }
 
 var (
-	redumperLBARE   = regexp.MustCompile(`^LBA:\s*(\d+)/(\d+)`)
-	redumperSpeedRE = regexp.MustCompile(`^Speed:\s*([0-9.]+)x`)
+	// Modern redumper (b720+) emits progress as:
+	//   `/ [ 2%] LBA: 60928/2161648, errors: { SCSI: 0, EDC: 0 }`
+	// The leading `/`/`-`/`\`/`|` is a spinner that cycles on
+	// in-place `\r` updates. The percent in `[ NN%]` is pre-computed,
+	// and the `LBA: cur/max` pair follows mid-line. We capture the
+	// percent directly when present (cheap, accurate), and fall back
+	// to dividing cur/max when only the LBA pair is present (some
+	// phase headers print `LBA: 0/N` without the percent prefix).
+	redumperPercentRE = regexp.MustCompile(`\[\s*(\d+)%\]`)
+	redumperLBARE     = regexp.MustCompile(`LBA:\s*(\d+)/(\d+)`)
+	redumperSpeedRE   = regexp.MustCompile(`Speed:\s*([0-9.]+)x`)
 )
 
 // ParseRedumperProgress reads a redumper output stream and emits sink
@@ -143,6 +152,15 @@ func ParseRedumperProgress(r io.Reader, sink Sink) {
 			}
 			if m := redumperSpeedRE.FindStringSubmatch(line); m != nil {
 				speed = m[1] + "x"
+				// don't continue — a single line may carry Speed AND
+				// progress (rare but seen on phase headers).
+			}
+			// Prefer the pre-computed percent from `[ NN%]` when
+			// present — it's what redumper itself displays. The LBA
+			// pair is the fallback for lines that omit the percent.
+			if m := redumperPercentRE.FindStringSubmatch(line); m != nil {
+				pct, _ := strconv.Atoi(m[1])
+				sink.Progress(float64(pct), speed, 0)
 				continue
 			}
 			if m := redumperLBARE.FindStringSubmatch(line); m != nil {

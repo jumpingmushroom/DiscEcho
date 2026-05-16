@@ -6,6 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.16.5] - 2026-05-17
+
+### Fixed
+- Progress bar now actually moves during PSX / PS2 / Xbox rips. v0.16.4's log-forwarding showed that redumper b720+ emits progress as `/ [ NN%] LBA: cur/max, errors: { ... }` — a spinner char + pre-computed percent + the LBA pair mid-line. The old regex was anchored at start-of-line (`^LBA:`) and never matched. New parser captures the `[ NN%]` token directly (cheap, accurate) with a fall-back to dividing cur/max from the existing `LBA:` regex (now anchorless) for phase-header lines that lack the percent prefix.
+
 ## [0.16.4] - 2026-05-17
 
 ### Added

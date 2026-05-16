@@ -169,3 +169,27 @@ func TestRedumperRip_AcceptsXboxMode(t *testing.T) {
 		t.Fatalf("xbox mode rejected: %v", err)
 	}
 }
+
+func TestParseRedumperProgress_B720Format(t *testing.T) {
+	// redumper b720+ writes progress as `/ [ NN%] LBA: cur/max, errors: { ... }`
+	// with a leading spinner char and an in-band percent that's easier to
+	// match than dividing cur/max ourselves.
+	b, err := os.ReadFile("testdata/redumper-progress-b720.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sink := &captureSinkRedumper{}
+	tools.ParseRedumperProgress(bytes.NewReader(b), sink)
+	if len(sink.progress) < 6 {
+		t.Fatalf("want at least 6 progress events from 6 LBA lines, got %d", len(sink.progress))
+	}
+	// First and last should be 0 and 100 respectively (parsed from the
+	// pre-computed `[ NN%]` token, not from cur/max division).
+	if sink.progress[0] != 0 {
+		t.Errorf("first progress = %f, want 0", sink.progress[0])
+	}
+	last := sink.progress[len(sink.progress)-1]
+	if last != 100 {
+		t.Errorf("last progress = %f, want exactly 100", last)
+	}
+}
