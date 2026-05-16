@@ -6,6 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.16.2] - 2026-05-16
+
+### Fixed
+- Game-disc rip step (PSX / PS2 / Xbox) was passing `--image-path=<outDir>/<name>` to redumper, which the current build interprets as the *output directory* and creates as a subdirectory; redumper then dropped files inside it with auto-generated names like `dump_YYMMDD_HHMMSS_sr0.iso`. The downstream compress step couldn't find the expected `<outDir>/<name>.iso` and the rip silently produced no usable output. Split into `--image-path=<outDir> --image-name=<name>` so files land at the paths the daemon already reads.
+
 ## [0.16.1] - 2026-05-16
 
 ### Fixed
