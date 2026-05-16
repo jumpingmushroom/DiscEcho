@@ -6,6 +6,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+- Game-disc auto-identification for PSX / PS2 / Saturn / Dreamcast via embedded community boot-code maps (PCSX2 GameDB, DuckStation, Libretro Redump). Insert a recognised game disc and the dashboard shows the correct title without typing — Sly 3 PAL now resolves to *Sly 3 - Honour Among Thieves* on insertion. ~27K entries across 4 systems, embedded in the daemon binary (~2 MB).
+- IGDB as the manual-search backend for game discs. The "Search manually" button on PSX/PS2/SAT/DC/XBOX cards now queries IGDB instead of TMDB (which was returning movie titles for game searches). Set `DISCECHO_IGDB_CLIENT_ID` + `DISCECHO_IGDB_CLIENT_SECRET` to enable; otherwise the button surfaces a clean 503.
+- Dreamcast IP.BIN reader at sector 45000, exposing the product number (`MK-51000` etc.) for auto-id. Previously DC detection only ran the TOC heuristic and had no key to look up.
+- Settings → System "Game discs" tile now reports per-system inventory: redumper binary, Redump dat-files (loaded or missing per system), embedded boot-code maps (count per system), IGDB connection status.
+
+### Changed
+- "Search manually" button is hidden on DATA discs. Data discs now show a single "Rip as data" primary action that names the output file from the ISO9660 volume label. Batch mode auto-rips data discs after the same 8s countdown used for confidently-identified game/movie/audio discs.
+- The `IdentifyDisc` dispatcher now routes by disc type: AUDIO_CD → MusicBrainz, game discs → IGDB, video discs → TMDB, DATA → 422 Unprocessable Entity.
+
+### Fixed
+- `SYSTEM.CNF` BOOT/BOOT2 parsing is now case-insensitive (a small minority of PSX titles ship the file with lowercase `boot = cdrom:\...`).
+
+### Known limitations
+- Xbox boot-code auto-id is not currently supported because Libretro's Xbox Redump dat uses publisher codes (`MS-004`, `EA-013`) instead of the XBE certificate's 32-bit title ID. Xbox auto-id falls back to Redump MD5 verify when a dat is present, or IGDB manual search.
+
 ## [0.15.4] - 2026-05-16
 
 ### Fixed
