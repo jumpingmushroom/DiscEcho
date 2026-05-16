@@ -21,6 +21,14 @@ import (
 // HandBrake/makemkvcon teardown and udev's own quiesce time.
 const discFlowCooldown = 10 * time.Second
 
+// discDedupWindow is how far back we look when deduplicating game-disc rows
+// by (drive_id, metadata_id). Slow drives (e.g. ASUS SDRW-08D2S-U) emit
+// 2-3 media-change uevents per physical insertion; without this window each
+// uevent creates a fresh disc row and queues a separate auto-rip job.
+// 2 minutes is wide enough to absorb burst uevents from one insertion yet
+// narrow enough that a genuine eject-and-reinsert gets a fresh row.
+const discDedupWindow = 2 * time.Minute
+
 // discFlow handles one optical-media-change uevent: classify the disc,
 // pick the matching pipeline handler, run Identify, persist the disc
 // row, and broadcast disc.detected / disc.identified events.
@@ -145,26 +153,57 @@ func (df *discFlow) handle(ev drive.Uevent) {
 	})
 }
 
-// persistDisc inserts a new disc row, or — when the drive already has
-// a disc with the same non-empty toc_hash — refreshes that existing
-// row's metadata fields and rebinds disc.ID to it. The caller then
-// publishes events with the canonical (possibly preexisting) ID so
-// downstream listeners (and the disc-decision UI) attach a job to the
-// reused row rather than spawning yet another duplicate.
+// persistDisc inserts a new disc row, or — when the drive already has a
+// matching disc — refreshes that existing row's metadata fields and rebinds
+// disc.ID to it. The caller then publishes events with the canonical
+// (possibly preexisting) ID so downstream listeners (and the disc-decision
+// UI) attach a job to the reused row rather than spawning yet another
+// duplicate.
+//
+// Dedup is two-tiered:
+//   - Tier 1 (TOC hash): audio CDs and data discs that compute a content hash.
+//   - Tier 2 (metadata_id within discDedupWindow): game discs (PSX/PS2/SAT/DC/XBOX)
+//     that lack a TOC hash but carry a stable boot code / product number / title ID.
+//     Slow drives emit 2-3 uevents per insertion; this tier prevents each from
+//     creating its own disc row.
 //
 // candidates can be nil for the no-candidates branch; in that case we
 // don't overwrite the existing row's candidates JSON.
 func (df *discFlow) persistDisc(ctx context.Context, disc *state.Disc, candidates []state.Candidate) error {
-	if disc.DriveID == "" || disc.TOCHash == "" {
+	if disc.DriveID == "" {
 		return df.store.CreateDisc(ctx, disc)
 	}
-	existing, err := df.store.GetDiscByDriveTOC(ctx, disc.DriveID, disc.TOCHash)
-	if err != nil {
+	// Tier 1: TOC hash (audio CDs, data discs).
+	if disc.TOCHash != "" {
+		existing, err := df.store.GetDiscByDriveTOC(ctx, disc.DriveID, disc.TOCHash)
+		if err == nil {
+			return df.reuseDiscRow(ctx, existing, disc, candidates)
+		}
 		if !errors.Is(err, state.ErrNotFound) {
 			return err
 		}
-		return df.store.CreateDisc(ctx, disc)
 	}
+	// Tier 2: metadata_id within a short window (game discs).
+	// Same drive + same metadata_id within discDedupWindow is the same
+	// physical disc. Without this, the slow ASUS SDRW-08D2S-U drive's
+	// 3-uevent-per-insertion behaviour creates 3 disc rows.
+	if disc.MetadataID != "" {
+		existing, err := df.store.GetDiscByDriveAndMetadataID(ctx, disc.DriveID, disc.MetadataID, discDedupWindow)
+		if err == nil {
+			return df.reuseDiscRow(ctx, existing, disc, candidates)
+		}
+		if !errors.Is(err, state.ErrNotFound) {
+			return err
+		}
+	}
+	return df.store.CreateDisc(ctx, disc)
+}
+
+// reuseDiscRow refreshes an existing disc row's metadata from a fresh
+// identify pass and rebinds the in-memory disc to the existing ID so
+// jobs.disc_id references remain coherent. candidates can be nil, in which
+// case the existing row's candidates JSON is left untouched.
+func (df *discFlow) reuseDiscRow(ctx context.Context, existing, disc *state.Disc, candidates []state.Candidate) error {
 	// Found a prior row for this physical disc. Refresh the metadata
 	// fields from the fresh identify pass so a re-identify (after the
 	// user picks a different MB release, or after TMDB enriches a TV

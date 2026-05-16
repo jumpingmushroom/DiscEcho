@@ -291,6 +291,27 @@ func (s *Store) GetDiscByDriveTOC(ctx context.Context, driveID, tocHash string) 
 	return scanDisc(row)
 }
 
+// GetDiscByDriveAndMetadataID returns the most-recently-created disc on
+// driveID with the given non-empty metadata_id, created within the past
+// `within` duration. Used by discflow.persistDisc as a game-disc dedup
+// fallback when TOCHash is empty: slow drives emit 2-3 media-change
+// uevents per physical insertion, each one creating a fresh disc row
+// unless deduped. An empty driveID or metaID short-circuits to ErrNotFound.
+func (s *Store) GetDiscByDriveAndMetadataID(ctx context.Context, driveID, metaID string, within time.Duration) (*Disc, error) {
+	if driveID == "" || metaID == "" {
+		return nil, ErrNotFound
+	}
+	cutoff := timestamp(time.Now().Add(-within))
+	row := s.db.Conn().QueryRowContext(ctx, `
+		SELECT id, COALESCE(drive_id, ''), type, title, year, runtime_seconds,
+		       size_bytes_raw, toc_hash, metadata_provider, metadata_id,
+		       candidates_json, metadata_json, created_at
+		FROM discs
+		WHERE drive_id = ? AND metadata_id = ? AND created_at >= ?
+		ORDER BY created_at DESC LIMIT 1`, driveID, metaID, cutoff)
+	return scanDisc(row)
+}
+
 // GetDisc fetches a disc by ID, including its candidates.
 func (s *Store) GetDisc(ctx context.Context, id string) (*Disc, error) {
 	row := s.db.Conn().QueryRowContext(ctx, `

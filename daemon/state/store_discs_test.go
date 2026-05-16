@@ -2,6 +2,7 @@ package state_test
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -225,6 +226,64 @@ func TestStore_DiscCandidates_RoundTripIGDBID(t *testing.T) {
 	if len(got.Candidates) != 1 || got.Candidates[0].IGDBID != 12345 {
 		t.Errorf("IGDBID round-trip: got %+v", got.Candidates)
 	}
+}
+
+func TestStore_GetDiscByDriveAndMetadataID(t *testing.T) {
+	s := openStore(t)
+	drv := newDrive(t, s, "/dev/sr0")
+
+	d1 := &state.Disc{Type: state.DiscTypePS2, DriveID: drv.ID, MetadataID: "SCES_534.09", Title: "Sly 3"}
+	if err := s.CreateDisc(context.Background(), d1); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Run("recent disc with matching metadata_id is returned", func(t *testing.T) {
+		got, err := s.GetDiscByDriveAndMetadataID(context.Background(), drv.ID, "SCES_534.09", time.Minute)
+		if err != nil {
+			t.Fatalf("got err %v", err)
+		}
+		if got.ID != d1.ID {
+			t.Errorf("got disc id %q, want %q", got.ID, d1.ID)
+		}
+	})
+
+	t.Run("non-matching metadata_id returns ErrNotFound", func(t *testing.T) {
+		_, err := s.GetDiscByDriveAndMetadataID(context.Background(), drv.ID, "SCES_000.00", time.Minute)
+		if !errors.Is(err, state.ErrNotFound) {
+			t.Errorf("got err %v, want ErrNotFound", err)
+		}
+	})
+
+	t.Run("empty arg short-circuits", func(t *testing.T) {
+		_, err := s.GetDiscByDriveAndMetadataID(context.Background(), "", "x", time.Minute)
+		if !errors.Is(err, state.ErrNotFound) {
+			t.Errorf("got err %v, want ErrNotFound", err)
+		}
+		_, err = s.GetDiscByDriveAndMetadataID(context.Background(), drv.ID, "", time.Minute)
+		if !errors.Is(err, state.ErrNotFound) {
+			t.Errorf("got err %v, want ErrNotFound", err)
+		}
+	})
+
+	t.Run("disc older than `within` is filtered out", func(t *testing.T) {
+		// Insert a disc with a created_at well in the past via CreateDisc
+		// after manually setting CreatedAt; CreateDisc respects a non-zero
+		// CreatedAt, so we can backdate it to simulate an old row.
+		oldDisc := &state.Disc{
+			Type:       state.DiscTypePS2,
+			DriveID:    drv.ID,
+			MetadataID: "SCES_111.11",
+			Title:      "Old",
+			CreatedAt:  time.Now().Add(-10 * time.Minute),
+		}
+		if err := s.CreateDisc(context.Background(), oldDisc); err != nil {
+			t.Fatal(err)
+		}
+		_, err := s.GetDiscByDriveAndMetadataID(context.Background(), drv.ID, "SCES_111.11", time.Minute)
+		if !errors.Is(err, state.ErrNotFound) {
+			t.Errorf("got err %v, want ErrNotFound (outside dedup window)", err)
+		}
+	})
 }
 
 // Migration 009 also enforces a partial unique index on
