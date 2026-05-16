@@ -131,11 +131,14 @@ func (h *Handlers) libraryTotalBytes(ctx context.Context) int64 {
 }
 
 func (h *Handlers) libraryRoots(ctx context.Context) []string {
+	all, err := h.Store.GetAllSettings(ctx)
+	if err != nil {
+		return nil
+	}
 	keys := []string{"library.movies", "library.tv", "library.music", "library.games", "library.data"}
 	out := make([]string, 0, len(keys))
 	for _, k := range keys {
-		v, err := h.Store.GetSetting(ctx, k)
-		if err == nil && v != "" {
+		if v := all[k]; v != "" {
 			out = append(out, v)
 		}
 	}
