@@ -52,6 +52,8 @@ type Settings struct {
 	CHDManBin            string
 	RedumpDataDir        string
 	DDBin                string
+	IGDBClientID         string
+	IGDBClientSecret     string
 }
 
 // Load reads env vars, seeds default rows, and returns a *Settings.
@@ -84,6 +86,8 @@ func Load(getenv func(string) string, store *state.Store, version string) (*Sett
 		CHDManBin:            firstNonEmpty(getenv("DISCECHO_CHDMAN_BIN"), "chdman"),
 		RedumpDataDir:        firstNonEmpty(getenv("DISCECHO_REDUMP_DIR"), filepath.Join(firstNonEmpty(getenv("DISCECHO_DATA"), "/var/lib/discecho"), "redump")),
 		DDBin:                firstNonEmpty(getenv("DISCECHO_DD_BIN"), "dd"),
+		IGDBClientID:         getenv("DISCECHO_IGDB_CLIENT_ID"),
+		IGDBClientSecret:     getenv("DISCECHO_IGDB_CLIENT_SECRET"),
 	}
 
 	if v := getenv("DISCECHO_AUTO_CONFIRM_SECONDS"); v != "" {

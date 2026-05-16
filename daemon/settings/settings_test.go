@@ -851,3 +851,23 @@ func TestSeedRetentionDefault_CreatesAndIsIdempotent(t *testing.T) {
 		t.Fatalf("second Load must not overwrite existing value; got %q", v2)
 	}
 }
+
+func TestLoad_IGDB(t *testing.T) {
+	store := openStore(t)
+	dataDir := t.TempDir()
+	env := envFn(map[string]string{
+		"DISCECHO_DATA":              dataDir,
+		"DISCECHO_IGDB_CLIENT_ID":    "abc123",
+		"DISCECHO_IGDB_CLIENT_SECRET": "xyz789",
+	})
+	cfg, err := settings.Load(env, store, "test")
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.IGDBClientID != "abc123" {
+		t.Errorf("IGDBClientID = %q, want abc123", cfg.IGDBClientID)
+	}
+	if cfg.IGDBClientSecret != "xyz789" {
+		t.Errorf("IGDBClientSecret = %q, want xyz789", cfg.IGDBClientSecret)
+	}
+}
