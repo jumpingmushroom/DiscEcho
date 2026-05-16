@@ -22,6 +22,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/jumpingmushroom/DiscEcho/daemon/identify"
 	"github.com/jumpingmushroom/DiscEcho/daemon/pipelines"
@@ -43,7 +44,9 @@ type CHDManCompressor interface {
 type Deps struct {
 	Redumper       RedumperRipper
 	CHDMan         CHDManCompressor
+	IPBin          identify.DCIPBinReader
 	RedumpDB       *identify.RedumpDB
+	BootCodeIndex  *identify.BootCodeIndex
 	Tools          *tools.Registry // looked up: apprise, eject
 	LibraryRoot    string
 	WorkRoot       string
@@ -66,15 +69,64 @@ func New(d Deps) *Handler {
 
 func (h *Handler) DiscType() state.DiscType { return state.DiscTypeDC }
 
-// Identify returns a placeholder disc and ErrNoCandidates. The GD-ROM
-// high-density area cannot be read without a partial redumper run, so
-// pre-rip identification is not possible.
-func (h *Handler) Identify(_ context.Context, drv *state.Drive) (*state.Disc, []state.Candidate, error) {
-	disc := &state.Disc{
-		Type:    state.DiscTypeDC,
-		DriveID: drv.ID,
-		Title:   "Dreamcast disc",
+// Identify reads the IP.BIN header from LBA 45000 and performs a two-tier
+// lookup: Redump dat first (confidence 100), then BootCodeIndex (confidence 90).
+// If neither matches, the raw software name from IP.BIN is used as a best-effort
+// title so the awaiting-decision card shows something useful. Returns
+// ErrNoCandidates when no lookup yields a result (or when IPBin is not
+// configured).
+func (h *Handler) Identify(ctx context.Context, drv *state.Drive) (*state.Disc, []state.Candidate, error) {
+	disc := &state.Disc{Type: state.DiscTypeDC, DriveID: drv.ID}
+	if h.deps.IPBin == nil {
+		slog.Warn("dc: IP.BIN reader not configured", "dev", drv.DevPath)
+		return disc, nil, pipelines.ErrNoCandidates
 	}
+	info, err := h.deps.IPBin.Read(ctx, drv.DevPath)
+	if err != nil {
+		slog.Warn("dc: IP.BIN read failed", "dev", drv.DevPath, "err", err)
+		return disc, nil, pipelines.ErrNoCandidates
+	}
+	code := strings.ToUpper(strings.TrimSpace(info.ProductNumber))
+	if code == "" {
+		return disc, nil, pipelines.ErrNoCandidates
+	}
+
+	// Tier 1: Redump dat.
+	if h.deps.RedumpDB != nil {
+		if entry := h.deps.RedumpDB.LookupByBootCode(code); entry != nil {
+			disc.Title = entry.Title
+			disc.Year = entry.Year
+			disc.MetadataProvider = "Redump"
+			disc.MetadataID = entry.BootCode
+			disc.Candidates = []state.Candidate{{
+				Source: "Redump", Title: entry.Title, Year: entry.Year,
+				Region: entry.Region, Confidence: 100,
+			}}
+			return disc, disc.Candidates, nil
+		}
+	}
+
+	// Tier 2: BootCodeIndex (Libretro Sega - Dreamcast).
+	if h.deps.BootCodeIndex != nil {
+		if entry := h.deps.BootCodeIndex.Lookup(state.DiscTypeDC, code); entry != nil {
+			disc.Title = entry.Title
+			disc.Year = entry.Year
+			disc.MetadataProvider = h.deps.BootCodeIndex.Source(state.DiscTypeDC)
+			disc.MetadataID = code
+			disc.Candidates = []state.Candidate{{
+				Source: disc.MetadataProvider, Title: entry.Title, Year: entry.Year,
+				Region: entry.Region, Confidence: 90,
+			}}
+			return disc, disc.Candidates, nil
+		}
+	}
+
+	// Last resort: use the software name from IP.BIN as a no-confidence title
+	// so the user sees what the disc thinks it is on the awaiting-decision card.
+	if info.SoftwareName != "" {
+		disc.Title = info.SoftwareName // raw uppercase as on disc
+	}
+	slog.Info("dc: no Redump or BootCodeIndex match", "dev", drv.DevPath, "product", code)
 	return disc, nil, pipelines.ErrNoCandidates
 }
 

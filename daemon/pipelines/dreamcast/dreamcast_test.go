@@ -100,7 +100,8 @@ func TestHandler_DiscType(t *testing.T) {
 	}
 }
 
-func TestIdentify_TypeOnlyPlaceholder(t *testing.T) {
+func TestIdentify_NoIPBinReader(t *testing.T) {
+	// No IPBin reader configured — should return ErrNoCandidates gracefully.
 	h := dreamcast.New(dreamcast.Deps{})
 	drv := &state.Drive{ID: "d1", DevPath: "/dev/sr0"}
 
@@ -111,9 +112,6 @@ func TestIdentify_TypeOnlyPlaceholder(t *testing.T) {
 	}
 	if disc == nil {
 		t.Fatal("want non-nil disc")
-	}
-	if disc.Title != "Dreamcast disc" {
-		t.Errorf("Title = %q, want %q", disc.Title, "Dreamcast disc")
 	}
 	if disc.Type != state.DiscTypeDC {
 		t.Errorf("Type = %s, want DC", disc.Type)
@@ -279,6 +277,45 @@ func TestRun_RipFailure(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "disc unreadable") {
 		t.Errorf("want rip error, got %v", err)
 	}
+}
+
+func TestDCIdentify_BootCodeIndexFallback(t *testing.T) {
+	idx := identify.NewBootCodeIndex()
+	if err := idx.MergeFile(state.DiscTypeDC, []byte(`{
+		"system":"DC","source":"Libretro","entries":{
+			"MK-51000":{"title":"Sonic Adventure","region":"USA","year":1999}
+		}
+	}`)); err != nil {
+		t.Fatal(err)
+	}
+
+	h := dreamcast.New(dreamcast.Deps{
+		IPBin:         &fakeDCIPBin{info: &identify.DCIPBin{ProductNumber: "MK-51000", SoftwareName: "SONIC ADVENTURE"}},
+		RedumpDB:      identify.NewEmptyRedumpDB(),
+		BootCodeIndex: idx,
+	})
+	disc, cands, err := h.Identify(context.Background(), &state.Drive{ID: "drv1"})
+	if err != nil {
+		t.Fatalf("Identify: %v", err)
+	}
+	if disc.Title != "Sonic Adventure" {
+		t.Errorf("Title = %q", disc.Title)
+	}
+	if disc.MetadataID != "MK-51000" {
+		t.Errorf("MetadataID = %q", disc.MetadataID)
+	}
+	if len(cands) != 1 || cands[0].Confidence != 90 {
+		t.Errorf("cands = %+v", cands)
+	}
+}
+
+type fakeDCIPBin struct {
+	info *identify.DCIPBin
+	err  error
+}
+
+func (f *fakeDCIPBin) Read(_ context.Context, _ string) (*identify.DCIPBin, error) {
+	return f.info, f.err
 }
 
 // Compile-time guard.
