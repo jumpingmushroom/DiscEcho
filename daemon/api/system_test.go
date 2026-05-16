@@ -117,7 +117,7 @@ func TestGetSystemIntegrations_ItemsList(t *testing.T) {
 	if len(info.Items) != 5 {
 		t.Fatalf("Items len = %d, want 5", len(info.Items))
 	}
-	want := []string{"TMDB", "MusicBrainz", "redump", "Apprise", "GPU transcoding"}
+	want := []string{"TMDB", "MusicBrainz", "Game discs", "Apprise", "GPU transcoding"}
 	for i, name := range want {
 		if info.Items[i].Name != name {
 			t.Errorf("Items[%d].Name = %q, want %q", i, info.Items[i].Name, name)
@@ -131,9 +131,9 @@ func TestGetSystemIntegrations_ItemsList(t *testing.T) {
 	if info.Items[1].Status != "connected" {
 		t.Errorf("MusicBrainz status = %q, want connected", info.Items[1].Status)
 	}
-	// Bogus redumper bin → error.
+	// Bogus redumper bin → error surfaced in Game discs tile.
 	if !strings.HasPrefix(info.Items[2].Status, "error:") {
-		t.Errorf("redump status = %q, want error: prefix", info.Items[2].Status)
+		t.Errorf("Game discs status = %q, want error: prefix", info.Items[2].Status)
 	}
 	// Apprise: no URLs configured (empty notifications list).
 	if info.Items[3].Status != "no URLs configured" {
@@ -278,6 +278,70 @@ func TestGetSystemIntegrations_GPU_NotDetected(t *testing.T) {
 	}
 	if row.Status != "not configured" {
 		t.Errorf("status: got %q, want 'not configured'", row.Status)
+	}
+}
+
+func TestGetSystemIntegrations_GameDiscsSection(t *testing.T) {
+	h := apitestServer(t)
+	h.Settings = &settings.Settings{
+		MusicBrainzBaseURL:   "https://musicbrainz.org",
+		MusicBrainzUserAgent: "DiscEcho/test",
+		AppriseBin:           "apprise",
+		RedumperBin:          "/nonexistent/redumper",
+		RedumpDataDir:        t.TempDir(),
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/system/integrations", nil)
+	w := httptest.NewRecorder()
+	h.GetSystemIntegrations(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status %d body %s", w.Code, w.Body.String())
+	}
+	var info api.IntegrationsInfo
+	if err := json.Unmarshal(w.Body.Bytes(), &info); err != nil {
+		t.Fatal(err)
+	}
+
+	game := findIntegrationItem(info.Items, "Game discs")
+	if game == nil {
+		t.Fatal("no 'Game discs' tile in integration items")
+	}
+
+	// BootCodeIndex not wired → should have a "partial" or similar status.
+	// The IGDB sub-item must always be present.
+	foundIGDB := false
+	for _, sub := range game.SubItems {
+		if sub.Label == "IGDB" {
+			foundIGDB = true
+			if sub.Status != "missing" {
+				t.Errorf("IGDB sub-item status = %q, want missing (no credentials set)", sub.Status)
+			}
+		}
+	}
+	if !foundIGDB {
+		t.Errorf("no IGDB sub-item; got %+v", game.SubItems)
+	}
+}
+
+func TestGetSystemIntegrations_BootCodeCounts(t *testing.T) {
+	h := apitestServer(t)
+	h.Settings = &settings.Settings{
+		MusicBrainzBaseURL:   "https://musicbrainz.org",
+		MusicBrainzUserAgent: "DiscEcho/test",
+		AppriseBin:           "apprise",
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/system/integrations", nil)
+	w := httptest.NewRecorder()
+	h.GetSystemIntegrations(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status %d", w.Code)
+	}
+	var info api.IntegrationsInfo
+	_ = json.Unmarshal(w.Body.Bytes(), &info)
+	// No BootCodeIndex wired → field omitted (nil map → omitempty).
+	if len(info.BootCodeCounts) != 0 {
+		t.Errorf("BootCodeCounts = %v, want empty when index is nil", info.BootCodeCounts)
 	}
 }
 

@@ -2,9 +2,11 @@ package api
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
@@ -12,6 +14,7 @@ import (
 	"time"
 
 	"github.com/jumpingmushroom/DiscEcho/daemon/settings"
+	"github.com/jumpingmushroom/DiscEcho/daemon/state"
 )
 
 // HostInfo is the payload for GET /api/system/host. Disks lists at most
@@ -39,11 +42,12 @@ type DiskInfo struct {
 // Items for one release so existing clients (mobile read-only view,
 // older webui) keep working. New UI code should prefer Items.
 type IntegrationsInfo struct {
-	TMDB         TMDBIntegration        `json:"tmdb"`
-	MusicBrainz  MusicBrainzIntegration `json:"musicbrainz"`
-	Apprise      AppriseIntegration     `json:"apprise"`
-	LibraryRoots map[string]string      `json:"library_roots,omitempty"`
-	Items        []IntegrationStatus    `json:"items,omitempty"`
+	TMDB            TMDBIntegration        `json:"tmdb"`
+	MusicBrainz     MusicBrainzIntegration `json:"musicbrainz"`
+	Apprise         AppriseIntegration     `json:"apprise"`
+	LibraryRoots    map[string]string      `json:"library_roots,omitempty"`
+	Items           []IntegrationStatus    `json:"items,omitempty"`
+	BootCodeCounts  map[state.DiscType]int `json:"boot_code_counts,omitempty"`
 }
 
 // IntegrationStatus is a single row in the connections list. Status
@@ -52,11 +56,20 @@ type IntegrationsInfo struct {
 // Editable is the env var an operator would change to set this up;
 // empty when the row is configured indirectly (e.g. via Apprise URLs).
 type IntegrationStatus struct {
-	Name     string `json:"name"`
-	Hint     string `json:"hint,omitempty"`
-	Status   string `json:"status"`
-	Detail   string `json:"detail,omitempty"`
-	Editable string `json:"editable,omitempty"`
+	Name     string    `json:"name"`
+	Hint     string    `json:"hint,omitempty"`
+	Status   string    `json:"status"`
+	Detail   string    `json:"detail,omitempty"`
+	Editable string    `json:"editable,omitempty"`
+	SubItems []SubItem `json:"sub_items,omitempty"`
+}
+
+// SubItem renders as an indented status line under a tile. Used for the
+// per-system breakdown under the Game discs tile.
+type SubItem struct {
+	Label  string `json:"label"`
+	Status string `json:"status"` // "ok" | "missing" | "error" | "partial"
+	Detail string `json:"detail,omitempty"`
 }
 
 type TMDBIntegration struct {
@@ -118,16 +131,16 @@ func (h *Handlers) GetSystemIntegrations(w http.ResponseWriter, r *http.Request)
 	if v, ok := appriseVersion(r.Context(), info.Apprise.Bin); ok {
 		info.Apprise.Version = v
 	}
+	if h.BootCodeIndex != nil {
+		info.BootCodeCounts = h.BootCodeIndex.Counts()
+	}
 	info.Items = h.buildIntegrationItems(r.Context(), info)
 	writeJSON(w, http.StatusOK, info)
 }
 
 // buildIntegrationItems composes the connections list shown on the
-// Settings → System tab. Order matches the original mockup: TMDB,
-// MusicBrainz, redump, Apprise. Jellyfin / Discord webhook / ntfy
-// rows from the design were aspirational and aren't wired in the
-// daemon — they're only surfaced once explicit Apprise URLs target
-// them.
+// Settings → System tab. Order: TMDB, MusicBrainz, Game discs,
+// Apprise, GPU transcoding.
 func (h *Handlers) buildIntegrationItems(ctx context.Context, info IntegrationsInfo) []IntegrationStatus {
 	items := []IntegrationStatus{
 		{
@@ -149,11 +162,10 @@ func (h *Handlers) buildIntegrationItems(ctx context.Context, info IntegrationsI
 			Detail: info.MusicBrainz.BaseURL,
 		},
 		{
-			Name:     "redump",
-			Hint:     "game disc fingerprints",
-			Editable: "DISCECHO_REDUMPER_BIN",
-			Status:   redumpStatus(h.Settings),
-			Detail:   redumpDetail(h.Settings),
+			Name:     "Game discs",
+			Hint:     "auto-id by boot code + post-rip MD5 verify",
+			Status:   gameDiscsStatus(h),
+			SubItems: gameDiscsSubItems(h),
 		},
 		{
 			Name:   "Apprise",
@@ -186,6 +198,116 @@ func redumpDetail(s *settings.Settings) string {
 		return ""
 	}
 	return s.RedumperBin
+}
+
+// redumpDatInventory returns the per-system count of *.dat files under
+// the Redump root directory. Used by the Settings → System tile to
+// show which Redump dats are loaded vs missing.
+func redumpDatInventory(rootDir string) map[state.DiscType]int {
+	out := map[state.DiscType]int{
+		state.DiscTypePSX:  0,
+		state.DiscTypePS2:  0,
+		state.DiscTypeSAT:  0,
+		state.DiscTypeDC:   0,
+		state.DiscTypeXBOX: 0,
+	}
+	subdirs := map[state.DiscType]string{
+		state.DiscTypePSX:  "psx",
+		state.DiscTypePS2:  "ps2",
+		state.DiscTypeSAT:  "saturn",
+		state.DiscTypeDC:   "dc",
+		state.DiscTypeXBOX: "xbox",
+	}
+	for sys, sub := range subdirs {
+		matches, _ := filepath.Glob(filepath.Join(rootDir, sub, "*.dat"))
+		out[sys] = len(matches)
+	}
+	return out
+}
+
+func gameDiscsStatus(h *Handlers) string {
+	if h.Settings != nil {
+		if _, err := exec.LookPath(h.Settings.RedumperBin); err != nil {
+			return "error: redumper not on PATH"
+		}
+	}
+	if h.BootCodeIndex == nil || len(h.BootCodeIndex.Counts()) == 0 {
+		return "partial: no boot-code maps loaded"
+	}
+	return "connected"
+}
+
+func gameDiscsSubItems(h *Handlers) []SubItem {
+	out := []SubItem{}
+	if h.Settings != nil {
+		out = append(out, SubItem{
+			Label:  "redumper binary",
+			Status: redumpStatus(h.Settings),
+			Detail: h.Settings.RedumperBin,
+		})
+		inv := redumpDatInventory(h.Settings.RedumpDataDir)
+		out = append(out, SubItem{
+			Label:  "Redump dat-files",
+			Status: combinedStatus(inv),
+			Detail: formatInventory(inv),
+		})
+	}
+	if h.BootCodeIndex != nil {
+		counts := h.BootCodeIndex.Counts()
+		out = append(out, SubItem{
+			Label:  "Boot-code maps",
+			Status: combinedStatus(counts),
+			Detail: formatInventory(counts),
+		})
+	}
+	if h.IGDB != nil && h.IGDB.Configured() {
+		out = append(out, SubItem{
+			Label:  "IGDB",
+			Status: "ok",
+			Detail: "client-credentials token cached",
+		})
+	} else {
+		out = append(out, SubItem{
+			Label:  "IGDB",
+			Status: "missing",
+			Detail: "set DISCECHO_IGDB_CLIENT_ID + _SECRET to enable manual game search",
+		})
+	}
+	return out
+}
+
+func combinedStatus(counts map[state.DiscType]int) string {
+	hasAny := false
+	all := true
+	for _, n := range counts {
+		if n > 0 {
+			hasAny = true
+		} else {
+			all = false
+		}
+	}
+	switch {
+	case all:
+		return "ok"
+	case hasAny:
+		return "partial"
+	default:
+		return "missing"
+	}
+}
+
+func formatInventory(counts map[state.DiscType]int) string {
+	order := []state.DiscType{state.DiscTypePSX, state.DiscTypePS2, state.DiscTypeSAT, state.DiscTypeDC, state.DiscTypeXBOX}
+	parts := make([]string, 0, len(order))
+	for _, sys := range order {
+		n := counts[sys]
+		mark := "✓"
+		if n == 0 {
+			mark = "✗"
+		}
+		parts = append(parts, fmt.Sprintf("%s %s (%d)", sys, mark, n))
+	}
+	return strings.Join(parts, " · ")
 }
 
 func gpuStatus(available bool) string {
