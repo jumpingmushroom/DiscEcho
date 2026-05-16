@@ -290,7 +290,18 @@ func (c *multiProbeClassifier) Classify(ctx context.Context, devPath string) (st
 		// downgraded to DATA. See retryingFSProber.
 		fs = &retryingFSProber{inner: c.fs, backoff: c.backoff}
 	}
-	return RefineDiscType(ctx, base, fs, c.bd, c.sysCNF, c.saturn, c.xbox, c.dc, devPath), nil
+	sysCNF := c.sysCNF
+	if sysCNF != nil {
+		// isoinfo -x can exit 0 with empty stdout while the SYSTEM.CNF
+		// data sector hasn't fully spun up — the directory entry is
+		// already readable (the listing probe sees /SYSTEM.CNF) but the
+		// file body comes back as 0 bytes. ParseSystemCNF then returns
+		// nil and the classifier silently downgrades the disc to DATA.
+		// Retry on the same spin-up schedule so a slow drive isn't
+		// permanently mis-labelled. See retryingSystemCNFProber.
+		sysCNF = &retryingSystemCNFProber{inner: c.sysCNF, backoff: c.backoff}
+	}
+	return RefineDiscType(ctx, base, fs, c.bd, sysCNF, c.saturn, c.xbox, c.dc, devPath), nil
 }
 
 func (c *multiProbeClassifier) runCDInfo(ctx context.Context, devPath string) ([]byte, error) {
@@ -363,6 +374,52 @@ func (r *retryingFSProber) List(ctx context.Context, devPath string) ([]string, 
 		return nil, lastErr
 	}
 	return files, nil
+}
+
+// retryingSystemCNFProber wraps a SystemCNFProber with the same
+// retry-with-backoff used by retryingFSProber. It treats a (nil, nil)
+// return — isoinfo -x SYSTEM.CNF exiting 0 with empty content during
+// the spin-up race window — as a transient and retries through the
+// schedule until a parseable BOOT/BOOT2 line lands. A genuinely
+// unparseable SYSTEM.CNF (no BOOT line ever) exhausts the schedule and
+// returns nil, which RefineDiscType resolves to DATA — same as before.
+// Errors short-circuit on the first attempt (consistent with
+// retryingFSProber's err-then-retry behaviour) so an unreadable disc
+// still surfaces via the existing "system.cnf probe failed" warning.
+type retryingSystemCNFProber struct {
+	inner   SystemCNFProber
+	backoff []time.Duration
+}
+
+func (r *retryingSystemCNFProber) Probe(ctx context.Context, devPath string) (*SystemCNF, error) {
+	var (
+		info    *SystemCNF
+		lastErr error
+	)
+	for attempt := 0; attempt <= len(r.backoff); attempt++ {
+		info, lastErr = r.inner.Probe(ctx, devPath)
+		if lastErr == nil && info != nil {
+			if attempt > 0 {
+				slog.Info("system.cnf probe succeeded after retry", "dev", devPath, "attempts", attempt+1)
+			}
+			return info, nil
+		}
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		if attempt == len(r.backoff) {
+			break
+		}
+		select {
+		case <-time.After(r.backoff[attempt]):
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
+	if lastErr != nil {
+		return nil, lastErr
+	}
+	return info, nil
 }
 
 // ClassifyFromCDInfo parses cd-info stdout/stderr and returns the
@@ -446,8 +503,15 @@ func RefineDiscType(ctx context.Context, base state.DiscType, fs FSProber, bd BD
 			return state.DiscTypeData
 		}
 		if info == nil {
+			// /SYSTEM.CNF was in the listing but the extracted body had
+			// no parseable BOOT/BOOT2 line — leaves the disc on the
+			// silent DATA fall-through. Log so the next time this fires
+			// we can tell it apart from the "not recognised by any
+			// probe" path without manual repro.
+			slog.Info("classify: SYSTEM.CNF present but no BOOT line; treating as DATA", "dev", devPath)
 			return state.DiscTypeData
 		}
+		slog.Info("classify: SYSTEM.CNF probe ok", "dev", devPath, "boot", info.BootCode, "ps2", info.IsPS2)
 		if info.IsPS2 {
 			return state.DiscTypePS2
 		}

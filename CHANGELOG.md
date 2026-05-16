@@ -6,6 +6,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Fixed
+- PS2 (and PSX) discs on slow drives no longer silently misclassify as generic DATA. The SYSTEM.CNF probe now retries through the same spin-up backoff window used for cd-info and the ISO9660 listing — previously `isoinfo -x /SYSTEM.CNF` could exit 0 with an empty body for a beat after the directory entry was already listable, leaving the classifier with `ParseSystemCNF == nil` and no diagnostic trail. The two silent DATA fall-throughs in `RefineDiscType` also gained INFO breadcrumbs so future probe regressions show up in logs without manual repro.
+
 ## [0.15.2] - 2026-05-16
 
 ### Fixed
