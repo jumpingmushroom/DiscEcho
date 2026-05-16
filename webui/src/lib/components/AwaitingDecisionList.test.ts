@@ -100,13 +100,38 @@ describe('AwaitingDecisionList', () => {
     expect(getAllByText(/Awaiting decision/i).length).toBe(1);
   });
 
-  it('hides only the disc with a done job, leaving non-terminal/failed/cancelled discs visible', async () => {
+  it('hides a disc whose job is running', async () => {
+    discs.set({ '1': disc('1') });
+    jobs.set([job('1', 'running')]);
+    const { container } = render(AwaitingDecisionList);
+    await tick();
+    expect(container.querySelector('[data-testid="awaiting-decision-list"]')).toBeNull();
+  });
+
+  it('hides a disc whose job is queued', async () => {
+    discs.set({ '1': disc('1') });
+    jobs.set([job('1', 'queued')]);
+    const { container } = render(AwaitingDecisionList);
+    await tick();
+    expect(container.querySelector('[data-testid="awaiting-decision-list"]')).toBeNull();
+  });
+
+  it('surfaces a disc whose only prior job was cancelled (retry intent)', async () => {
+    discs.set({ '1': disc('1') });
+    jobs.set([job('1', 'cancelled')]);
+    const { container, getAllByText } = render(AwaitingDecisionList);
+    await tick();
+    expect(container.querySelector('[data-testid="awaiting-decision-list"]')).not.toBeNull();
+    expect(getAllByText(/Awaiting decision/i).length).toBe(1);
+  });
+
+  it('hides active/done discs and surfaces only failed/cancelled/interrupted/no-job', async () => {
     discs.set({
-      '1': disc('1'), // queued → shown (not yet successful)
-      '2': disc('2'), // running → shown (not yet successful)
+      '1': disc('1'), // queued → hidden (active job)
+      '2': disc('2'), // running → hidden (active job)
       '3': disc('3'), // done → hidden
-      '4': disc('4'), // failed → shown
-      '5': disc('5'), // cancelled → shown
+      '4': disc('4'), // failed → shown (retry intent)
+      '5': disc('5'), // cancelled → shown (retry intent)
       '6': disc('6'), // no job → shown
     });
     jobs.set([
@@ -118,9 +143,12 @@ describe('AwaitingDecisionList', () => {
     ]);
     const { getAllByText, queryByText } = render(AwaitingDecisionList);
     await tick();
-    // Capped at 3 cards, but Disc 3 should never be among them.
+    // Disc 3 (done) should never be shown; discs 1 and 2 (active) should be hidden.
+    // Only discs 4, 5, 6 are visible — capped at 3 so all three appear.
     expect(getAllByText(/Awaiting decision/i).length).toBe(3);
     expect(queryByText('Disc 3')).toBeNull();
+    expect(queryByText('Disc 1')).toBeNull();
+    expect(queryByText('Disc 2')).toBeNull();
   });
 
   it('caps the list at 3 cards', async () => {
