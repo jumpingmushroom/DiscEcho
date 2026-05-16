@@ -40,10 +40,9 @@ const integrationsResp = {
       detail: 'https://musicbrainz.org',
     },
     {
-      name: 'redump',
-      hint: 'game disc fingerprints',
+      name: 'Game discs',
+      hint: 'auto-id by boot code + post-rip MD5 verify',
       status: 'connected',
-      editable: 'DISCECHO_REDUMPER_BIN',
     },
     { name: 'Apprise', hint: 'notification dispatch', status: 'no URLs configured' },
   ],
@@ -117,7 +116,7 @@ describe('SystemSection', () => {
     await waitFor(() => expect(container.textContent).toContain('TMDB'));
     expect(container.textContent).toContain('movie & TV metadata');
     expect(container.textContent).toContain('audio CD metadata');
-    expect(container.textContent).toContain('redump');
+    expect(container.textContent).toContain('Game discs');
     expect(container.textContent).toContain('Apprise');
     // Connected pill rendered for the three connected rows.
     const connectedBadges = container.querySelectorAll('span.text-accent');
@@ -198,7 +197,7 @@ describe('SystemSection', () => {
             editable: 'DISCECHO_TMDB_KEY',
           },
           { name: 'MusicBrainz', status: 'connected' },
-          { name: 'redump', status: 'connected' },
+          { name: 'Game discs', status: 'connected' },
           { name: 'Apprise', status: 'no URLs configured' },
         ],
       },

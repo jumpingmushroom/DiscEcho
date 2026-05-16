@@ -193,13 +193,6 @@ func redumpStatus(s *settings.Settings) string {
 	return "connected"
 }
 
-func redumpDetail(s *settings.Settings) string {
-	if s == nil {
-		return ""
-	}
-	return s.RedumperBin
-}
-
 // redumpDatInventory returns the per-system count of *.dat files under
 // the Redump root directory. Used by the Settings → System tile to
 // show which Redump dats are loaded vs missing.

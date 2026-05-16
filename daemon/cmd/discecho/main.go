@@ -231,11 +231,32 @@ func main() {
 		redumpDB = nil
 	}
 
+	// BootCodeIndex: embedded per-system game DBs (PCSX2 / DuckStation /
+	// Libretro). Loaded once at startup; missing or corrupt files are
+	// non-fatal — auto-id silently degrades, IGDB manual search still works.
+	bootCodeIndex, bootCodeErrs := identify.LoadAllEmbedded()
+	for sys, bcErr := range bootCodeErrs {
+		slog.Warn("boot-code map not loaded", "system", sys, "err", bcErr)
+	}
+
+	// IGDB client for game-disc manual search. Empty credentials produce a
+	// not-Configured() client; the API dispatcher returns 503 cleanly.
+	igdbClient := identify.NewIGDBClient(identify.IGDBConfig{
+		ClientID:     cfg.IGDBClientID,
+		ClientSecret: cfg.IGDBClientSecret,
+		MinInterval:  250 * time.Millisecond,
+	})
+
+	// Dreamcast IP.BIN reader: opens the block device and seeks to LBA 45000
+	// to extract the product number (Sega GD-ROM HD area).
+	dcIPBin := identify.NewDCIPBinReader()
+
 	pipeReg.Register(psx.New(psx.Deps{
 		Redumper:       redumperTool,
 		CHDMan:         chdmanTool,
 		SystemCNF:      sysCNFProber,
 		RedumpDB:       redumpDB,
+		BootCodeIndex:  bootCodeIndex,
 		Tools:          toolReg,
 		LibraryRoot:    cfg.LibraryGames,
 		WorkRoot:       filepath.Join(cfg.DataPath, "work"),
@@ -247,6 +268,7 @@ func main() {
 		CHDMan:         chdmanTool,
 		SystemCNF:      sysCNFProber,
 		RedumpDB:       redumpDB,
+		BootCodeIndex:  bootCodeIndex,
 		Tools:          toolReg,
 		LibraryRoot:    cfg.LibraryGames,
 		WorkRoot:       filepath.Join(cfg.DataPath, "work"),
@@ -258,6 +280,7 @@ func main() {
 		CHDMan:         chdmanTool,
 		SaturnProber:   identify.NewDevSaturnProber(),
 		RedumpDB:       redumpDB,
+		BootCodeIndex:  bootCodeIndex,
 		Tools:          toolReg,
 		LibraryRoot:    cfg.LibraryGames,
 		WorkRoot:       filepath.Join(cfg.DataPath, "work"),
@@ -268,6 +291,8 @@ func main() {
 		Redumper:       redumperTool,
 		CHDMan:         chdmanTool,
 		RedumpDB:       redumpDB,
+		IPBin:          dcIPBin,
+		BootCodeIndex:  bootCodeIndex,
 		Tools:          toolReg,
 		LibraryRoot:    cfg.LibraryGames,
 		WorkRoot:       filepath.Join(cfg.DataPath, "work"),
@@ -278,6 +303,7 @@ func main() {
 		Redumper:       redumperTool,
 		XboxProber:     &xbox.IsoinfoXboxProber{Bin: cfg.IsoInfoBin},
 		RedumpDB:       redumpDB,
+		BootCodeIndex:  bootCodeIndex,
 		Tools:          toolReg,
 		LibraryRoot:    cfg.LibraryGames,
 		WorkRoot:       filepath.Join(cfg.DataPath, "work"),
@@ -304,14 +330,16 @@ func main() {
 
 	// HTTP API.
 	apiH := &api.Handlers{
-		Store:        store,
-		Broadcaster:  bc,
-		Orchestrator: orch,
-		Pipelines:    pipeReg,
-		Classifier:   classifier,
-		TMDB:         tmdbClient,
-		MusicBrainz:  mbClient,
-		Token:        cfg.Token,
+		Store:         store,
+		Broadcaster:   bc,
+		Orchestrator:  orch,
+		Pipelines:     pipeReg,
+		Classifier:    classifier,
+		TMDB:          tmdbClient,
+		MusicBrainz:   mbClient,
+		IGDB:          igdbClient,
+		BootCodeIndex: bootCodeIndex,
+		Token:         cfg.Token,
 		// ActiveSampler is started after the orchestrator's ctx is built (below).
 		Apprise:        appriseTool,
 		Settings:       cfg,

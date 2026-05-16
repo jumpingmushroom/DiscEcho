@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { drives } from '$lib/store';
+  import { drives, bootCodeCounts } from '$lib/store';
   import { apiGet, apiPut } from '$lib/api';
   import { pushToast } from '$lib/toasts';
   import FormSection from './FormSection.svelte';
@@ -25,12 +25,19 @@
     disks: DiskInfo[];
   };
 
+  type SubItem = {
+    label: string;
+    status: string;
+    detail?: string;
+  };
+
   type IntegrationStatus = {
     name: string;
     hint?: string;
     status: string;
     detail?: string;
     editable?: string;
+    sub_items?: SubItem[];
   };
 
   type IntegrationsInfo = {
@@ -39,6 +46,7 @@
     apprise: { bin: string; version?: string };
     library_roots?: Record<string, string>;
     items?: IntegrationStatus[];
+    boot_code_counts?: Record<string, number>;
   };
 
   type MediaRoot = 'movies' | 'tv' | 'music' | 'games' | 'data';
@@ -77,6 +85,9 @@
       for (const m of ROOT_ORDER) {
         roots[m] = integrations.library_roots[m] ?? '';
       }
+    }
+    if (integrations?.boot_code_counts) {
+      bootCodeCounts.set(integrations.boot_code_counts);
     }
   });
 
