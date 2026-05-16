@@ -208,6 +208,25 @@ func TestStore_GetDiscByDriveTOC_NotFoundOnMiss(t *testing.T) {
 	}
 }
 
+func TestStore_DiscCandidates_RoundTripIGDBID(t *testing.T) {
+	s := openStore(t)
+	drv := newDrive(t, s, "/dev/sr0")
+	d := newDisc(t, s, drv)
+	cands := []state.Candidate{
+		{Source: "IGDB", Title: "Sly 3: Honor Among Thieves", Year: 2005, Confidence: 25, IGDBID: 12345},
+	}
+	if err := s.UpdateDiscCandidates(context.Background(), d.ID, cands); err != nil {
+		t.Fatalf("UpdateDiscCandidates: %v", err)
+	}
+	got, err := s.GetDisc(context.Background(), d.ID)
+	if err != nil {
+		t.Fatalf("GetDisc: %v", err)
+	}
+	if len(got.Candidates) != 1 || got.Candidates[0].IGDBID != 12345 {
+		t.Errorf("IGDBID round-trip: got %+v", got.Candidates)
+	}
+}
+
 // Migration 009 also enforces a partial unique index on
 // (drive_id, toc_hash) when the toc_hash is non-empty. Two empty-toc
 // rows on the same drive are still allowed (so unidentifiable discs

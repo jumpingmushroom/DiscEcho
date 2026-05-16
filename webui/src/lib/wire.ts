@@ -60,6 +60,7 @@ export interface Candidate {
   confidence: number;
   mbid?: string;
   tmdb_id?: number;
+  igdb_id?: number; // game discs picked via IGDB manual search
   media_type?: 'movie' | 'tv' | '';
   runtime_seconds?: number;
 }
