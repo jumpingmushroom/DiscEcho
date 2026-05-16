@@ -23,8 +23,16 @@ type SystemCNFProber interface {
 }
 
 // NewSystemCNFProber returns a prober that shells out to
-// `isoinfo -R -i <devPath> -x /SYSTEM.CNF`. Empty isoinfoBin defaults
+// `isoinfo -i <devPath> -x /SYSTEM.CNF;1`. Empty isoinfoBin defaults
 // to "isoinfo" (resolved via PATH).
+//
+// The `;1` ISO9660 version suffix and the omission of `-R` are both
+// required. PSX/PS2 discs do not carry Rock Ridge extensions; on a
+// disc without RR, `isoinfo -R -x /SYSTEM.CNF` exits 0 with only
+// `**BAD RRVERSION (0)` warnings on stdout and *no* file content,
+// leaving the classifier unable to discriminate PSX/PS2 from DATA.
+// Listings strip the `;1`, so callers can keep using `/SYSTEM.CNF` as
+// the in-process path constant — only the extract argument needs it.
 func NewSystemCNFProber(isoinfoBin string) SystemCNFProber {
 	if isoinfoBin == "" {
 		isoinfoBin = "isoinfo"
@@ -35,7 +43,7 @@ func NewSystemCNFProber(isoinfoBin string) SystemCNFProber {
 type isoinfoSystemCNFProber struct{ bin string }
 
 func (p *isoinfoSystemCNFProber) Probe(ctx context.Context, devPath string) (*SystemCNF, error) {
-	cmd := exec.CommandContext(ctx, p.bin, "-R", "-i", devPath, "-x", "/SYSTEM.CNF")
+	cmd := exec.CommandContext(ctx, p.bin, "-i", devPath, "-x", "/SYSTEM.CNF;1")
 	out, err := cmd.Output()
 	if err != nil {
 		return nil, fmt.Errorf("isoinfo -x SYSTEM.CNF: %w", err)

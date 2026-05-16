@@ -6,6 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.15.4] - 2026-05-16
+
+### Fixed
+- PS2 (and PSX) discs no longer misclassify as generic DATA. The `SystemCNFProber` was invoking `isoinfo -R -x /SYSTEM.CNF`; on PSX/PS2 discs — which carry no Rock Ridge — that exits 0 with only `**BAD RRVERSION (0)` warnings on stdout and *zero* bytes of file content, so `ParseSystemCNF` returned nil and the classifier silently fell through to DATA. Drop the `-R` flag and append the ISO9660 `;1` version suffix to match the on-disc filename so the extract returns the real BOOT/BOOT2 line.
+
 ## [0.15.3] - 2026-05-16
 
 ### Fixed
