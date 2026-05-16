@@ -5,7 +5,7 @@
   import ProgressBar from '$lib/components/ProgressBar.svelte';
   import SpeedEtaChip from '$lib/components/SpeedEtaChip.svelte';
   import { createEventDispatcher } from 'svelte';
-  import { cancelJob, ejectDrive, reidentify } from '$lib/store';
+  import { cancelJob, ejectDrive, reidentify, jobs, startDisc } from '$lib/store';
 
   export let drive: Drive;
   export let disc: Disc | undefined = undefined;
@@ -21,14 +21,23 @@
   $: canEject = !hasActiveJob && drive.state !== 'ejecting';
   $: canReidentify = !!disc && !hasActiveJob && drive.state === 'idle';
 
-  let busy: 'cancel' | 'eject' | 'reid' | null = null;
+  // Most recent done job for the currently-inserted disc. Drives the
+  // "already ripped, re-rip?" affordance below.
+  $: lastDoneJob = disc
+    ? $jobs
+        .filter((j) => j.disc_id === disc.id && j.state === 'done')
+        .sort((a, b) => ((a.finished_at ?? '') < (b.finished_at ?? '') ? 1 : -1))[0]
+    : undefined;
+  $: canRerip = drive.state === 'idle' && !!disc && !!lastDoneJob && !hasActiveJob;
+
+  let busy: 'cancel' | 'eject' | 'reid' | 'rerip' | null = null;
   let errMsg = '';
 
-  // Caption shown below the model name. The disc-bound path always wins;
-  // otherwise we follow drive.state so the card never lies and says
-  // "Idle" while the daemon has flipped to ripping/identifying.
-  function captionFor(state: Drive['state']): string {
-    switch (state) {
+  // Caption shown below the model name when no disc is bound. The
+  // disc-bound branch renders the disc title instead; the "already
+  // ripped" caption lives there too, gated on canRerip.
+  $: caption = (() => {
+    switch (drive.state) {
       case 'ripping':
         return 'Ripping disc…';
       case 'identifying':
@@ -39,7 +48,11 @@
       default:
         return 'Idle — insert a disc';
     }
-  }
+  })();
+
+  $: rerippedCaption = lastDoneJob
+    ? `Already ripped${lastDoneJob.finished_at ? ' ' + lastDoneJob.finished_at.slice(0, 10) : ''} — re-rip?`
+    : '';
 
   async function onStop(): Promise<void> {
     if (!job) return;
@@ -73,6 +86,19 @@
     errMsg = '';
     try {
       await reidentify(disc.id);
+    } catch (e) {
+      errMsg = (e as Error).message;
+    } finally {
+      busy = null;
+    }
+  }
+
+  async function onRerip(): Promise<void> {
+    if (!disc || !lastDoneJob) return;
+    busy = 'rerip';
+    errMsg = '';
+    try {
+      await startDisc(disc.id, lastDoneJob.profile_id, 0);
     } catch (e) {
       errMsg = (e as Error).message;
     } finally {
@@ -117,12 +143,17 @@
           {disc.title || disc.candidates?.[0]?.title || disc.id.slice(0, 8)}
         </span>
       </div>
+      {#if canRerip}
+        <div class="mt-2 text-[12px]" style="color: var(--text-3)">
+          {rerippedCaption}
+        </div>
+      {/if}
     {:else}
       <div
         class="mt-3 text-[12px]"
         style="color: {drive.state === 'error' ? 'var(--error)' : 'var(--text-3)'}"
       >
-        {captionFor(drive.state)}
+        {caption}
       </div>
     {/if}
 
@@ -140,7 +171,7 @@
     {/if}
   </button>
 
-  {#if canStop || canEject || canReidentify}
+  {#if canStop || canEject || canReidentify || canRerip}
     <div class="mt-3 flex flex-wrap gap-2 border-t border-border pt-3">
       {#if canStop}
         <button
@@ -160,6 +191,16 @@
           data-testid="drive-reidentify"
         >
           {busy === 'reid' ? 'Re-identifying…' : 'Re-identify'}
+        </button>
+      {/if}
+      {#if canRerip}
+        <button
+          class="min-h-[36px] flex-1 rounded-xl border border-border bg-surface-2 px-3 text-[13px] font-medium text-accent disabled:opacity-50"
+          on:click|stopPropagation={onRerip}
+          disabled={busy !== null}
+          data-testid="drive-rerip"
+        >
+          {busy === 'rerip' ? 'Starting…' : 'Re-rip'}
         </button>
       {/if}
       {#if canEject}

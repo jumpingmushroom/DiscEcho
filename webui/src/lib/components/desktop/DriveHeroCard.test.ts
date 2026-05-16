@@ -1,7 +1,8 @@
 import '@testing-library/jest-dom/vitest';
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, fireEvent } from '@testing-library/svelte';
 import DriveHeroCard from './DriveHeroCard.svelte';
+import { jobs } from '$lib/store';
 import type { Drive, Disc, Job } from '$lib/wire';
 
 const idleDrive: Drive = {
@@ -42,6 +43,10 @@ const ripJob: Job = {
 };
 
 describe('DriveHeroCard', () => {
+  beforeEach(() => {
+    jobs.set([]);
+  });
+
   it('renders model and bus', () => {
     const { getByText } = render(DriveHeroCard, { drive: idleDrive });
     expect(getByText('Pioneer BDR-XS07B')).toBeInTheDocument();
@@ -91,5 +96,30 @@ describe('DriveHeroCard', () => {
     component.$on('select', (e) => onSelect(e.detail));
     await fireEvent.click(container.querySelector('button')!);
     expect(onSelect).toHaveBeenCalledWith(null);
+  });
+
+  it('shows a Re-rip button when the inserted disc has a prior done job', () => {
+    jobs.set([
+      {
+        id: 'old-job',
+        disc_id: 'disc-1',
+        drive_id: 'd1',
+        profile_id: 'p1',
+        state: 'done',
+        active_step: 'eject',
+        progress: 100,
+        output_bytes: 0,
+        created_at: '2026-05-15T10:00:00Z',
+        started_at: '2026-05-15T10:00:01Z',
+        finished_at: '2026-05-15T10:30:00Z',
+        steps: [],
+      },
+    ]);
+    const { getByTestId, getByText } = render(DriveHeroCard, {
+      drive: idleDrive,
+      disc: { ...dvdDisc, drive_id: 'd1' },
+    });
+    expect(getByTestId('drive-rerip')).toBeTruthy();
+    expect(getByText(/Already ripped 2026-05-15 — re-rip\?/)).toBeInTheDocument();
   });
 });
