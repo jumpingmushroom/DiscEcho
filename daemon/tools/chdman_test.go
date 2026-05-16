@@ -3,7 +3,9 @@ package tools_test
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/jumpingmushroom/DiscEcho/daemon/state"
@@ -12,12 +14,15 @@ import (
 
 type captureSinkCHDMan struct {
 	progress []float64
+	logs     []string
 }
 
 func (c *captureSinkCHDMan) Progress(pct float64, _ string, _ int) {
 	c.progress = append(c.progress, pct)
 }
-func (c *captureSinkCHDMan) Log(_ state.LogLevel, _ string, _ ...any) {}
+func (c *captureSinkCHDMan) Log(_ state.LogLevel, format string, args ...any) {
+	c.logs = append(c.logs, fmt.Sprintf(format, args...))
+}
 
 func TestParseCHDManProgress(t *testing.T) {
 	b, err := os.ReadFile("testdata/chdman-progress.txt")
@@ -35,7 +40,7 @@ func TestParseCHDManProgress(t *testing.T) {
 	}
 }
 
-func TestParseCHDManProgress_IgnoresUnknownLines(t *testing.T) {
+func TestParseCHDManProgress_ForwardsUnknownLinesToLog(t *testing.T) {
 	in := bytes.NewBufferString("hello world\nCompressing, 25.0% complete... (ratio=80.0%)\nbye\n")
 	sink := &captureSinkCHDMan{}
 	tools.ParseCHDManProgress(in, sink)
@@ -44,6 +49,55 @@ func TestParseCHDManProgress_IgnoresUnknownLines(t *testing.T) {
 	}
 	if sink.progress[0] != 25.0 {
 		t.Errorf("progress = %f, want 25", sink.progress[0])
+	}
+	if len(sink.logs) != 2 {
+		t.Fatalf("want 2 log lines, got %d: %v", len(sink.logs), sink.logs)
+	}
+	if sink.logs[0] != "chdman: hello world" {
+		t.Errorf("log[0] = %q, want %q", sink.logs[0], "chdman: hello world")
+	}
+	if sink.logs[1] != "chdman: bye" {
+		t.Errorf("log[1] = %q, want %q", sink.logs[1], "chdman: bye")
+	}
+}
+
+func TestParseCHDManProgress_CRTerminatedLines(t *testing.T) {
+	// chdman overwrites its progress line with '\r' rather than advancing
+	// with '\n'. Verify each CR-separated chunk is parsed as a separate line.
+	in := bytes.NewBufferString(
+		"Compressing, 0.0% complete... (ratio=100.0%)\r" +
+			"Compressing, 50.0% complete... (ratio=80.0%)\r" +
+			"Compressing, 100.0% complete... (ratio=75.0%)\r",
+	)
+	sink := &captureSinkCHDMan{}
+	tools.ParseCHDManProgress(in, sink)
+	if len(sink.progress) != 3 {
+		t.Fatalf("want 3 progress events, got %d", len(sink.progress))
+	}
+	if sink.progress[0] != 0.0 {
+		t.Errorf("event[0] = %f, want 0", sink.progress[0])
+	}
+	if sink.progress[1] != 50.0 {
+		t.Errorf("event[1] = %f, want 50", sink.progress[1])
+	}
+	if sink.progress[2] != 100.0 {
+		t.Errorf("event[2] = %f, want 100", sink.progress[2])
+	}
+}
+
+func TestParseCHDManProgress_LongLineIsTruncated(t *testing.T) {
+	// Lines longer than 400 chars should be truncated before forwarding
+	// to the log rather than passed through verbatim.
+	long := strings.Repeat("y", 500)
+	in := bytes.NewBufferString(long + "\n")
+	sink := &captureSinkCHDMan{}
+	tools.ParseCHDManProgress(in, sink)
+	if len(sink.logs) != 1 {
+		t.Fatalf("want 1 log line, got %d", len(sink.logs))
+	}
+	want := "chdman: " + strings.Repeat("y", 400)
+	if sink.logs[0] != want {
+		t.Errorf("log[0] len=%d, want len=%d", len(sink.logs[0]), len(want))
 	}
 }
 

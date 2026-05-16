@@ -11,6 +11,8 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+
+	"github.com/jumpingmushroom/DiscEcho/daemon/state"
 )
 
 // CHDMan wraps the chdman binary (from MAME tools). Used by the PSX
@@ -101,20 +103,31 @@ func chdmanSubcommandFor(input string) (string, error) {
 var chdmanProgressRE = regexp.MustCompile(`Compressing,\s+([0-9.]+)%\s+complete`)
 
 // ParseCHDManProgress reads chdman output and emits sink.Progress on
-// "Compressing, X.X% complete" lines.
+// "Compressing, X.X% complete" lines. All other non-empty lines are
+// forwarded to sink.Log so they appear in the job's log tail. The
+// scanner treats both '\r' and '\n' as line terminators because chdman
+// overwrites its progress line with carriage returns.
 func ParseCHDManProgress(r io.Reader, sink Sink) {
 	drainAfterScan(r, func(scanner *bufio.Scanner) {
+		scanner.Split(splitCROrLF)
 		for scanner.Scan() {
-			line := scanner.Text()
+			line := strings.TrimSpace(scanner.Text())
+			if line == "" {
+				continue
+			}
 			m := chdmanProgressRE.FindStringSubmatch(line)
-			if m == nil {
+			if m != nil {
+				pct, err := strconv.ParseFloat(m[1], 64)
+				if err != nil {
+					continue
+				}
+				sink.Progress(pct, "", 0)
 				continue
 			}
-			pct, err := strconv.ParseFloat(m[1], 64)
-			if err != nil {
-				continue
+			if len(line) > 400 {
+				line = line[:400]
 			}
-			sink.Progress(pct, "", 0)
+			sink.Log(state.LogLevelInfo, "chdman: %s", line)
 		}
 	})
 }

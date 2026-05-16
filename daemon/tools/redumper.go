@@ -10,6 +10,8 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+
+	"github.com/jumpingmushroom/DiscEcho/daemon/state"
 )
 
 // Redumper wraps the redumper binary. Used by the PSX, PS2, and Xbox
@@ -125,13 +127,20 @@ var (
 //	"Speed: <N.N>x"          → carries forward as the speed string on
 //	                           the next progress event
 //
-// Unrecognised lines are ignored. The function returns when the
-// reader EOFs.
+// All other non-empty lines are forwarded to sink.Log so they appear
+// in the job's log tail. The scanner treats both '\r' and '\n' as line
+// terminators because redumper b720+ overwrites its progress line with
+// carriage returns; the default ScanLines would buffer the entire rip
+// phase as a single token.
 func ParseRedumperProgress(r io.Reader, sink Sink) {
 	drainAfterScan(r, func(scanner *bufio.Scanner) {
+		scanner.Split(splitCROrLF)
 		var speed string
 		for scanner.Scan() {
 			line := strings.TrimSpace(scanner.Text())
+			if line == "" {
+				continue
+			}
 			if m := redumperSpeedRE.FindStringSubmatch(line); m != nil {
 				speed = m[1] + "x"
 				continue
@@ -144,7 +153,12 @@ func ParseRedumperProgress(r io.Reader, sink Sink) {
 				}
 				pct := float64(cur) / float64(max) * 100
 				sink.Progress(pct, speed, 0)
+				continue
 			}
+			if len(line) > 400 {
+				line = line[:400]
+			}
+			sink.Log(state.LogLevelInfo, "redumper: %s", line)
 		}
 	})
 }

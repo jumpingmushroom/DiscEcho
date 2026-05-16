@@ -3,6 +3,7 @@ package tools_test
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"os"
 	"strings"
 	"testing"
@@ -19,8 +20,8 @@ type captureSinkRedumper struct {
 func (c *captureSinkRedumper) Progress(pct float64, _ string, _ int) {
 	c.progress = append(c.progress, pct)
 }
-func (c *captureSinkRedumper) Log(_ state.LogLevel, format string, _ ...any) {
-	c.logs = append(c.logs, format)
+func (c *captureSinkRedumper) Log(_ state.LogLevel, format string, args ...any) {
+	c.logs = append(c.logs, fmt.Sprintf(format, args...))
 }
 
 func TestParseRedumperProgress(t *testing.T) {
@@ -43,7 +44,7 @@ func TestParseRedumperProgress(t *testing.T) {
 	}
 }
 
-func TestParseRedumperProgress_IgnoresUnknownLines(t *testing.T) {
+func TestParseRedumperProgress_ForwardsUnknownLinesToLog(t *testing.T) {
 	in := bytes.NewBufferString("garbage line\nLBA: 50/100\nmore garbage\n")
 	sink := &captureSinkRedumper{}
 	tools.ParseRedumperProgress(in, sink)
@@ -52,6 +53,54 @@ func TestParseRedumperProgress_IgnoresUnknownLines(t *testing.T) {
 	}
 	if sink.progress[0] != 50.0 {
 		t.Errorf("progress = %f, want 50", sink.progress[0])
+	}
+	if len(sink.logs) != 2 {
+		t.Fatalf("want 2 log lines, got %d: %v", len(sink.logs), sink.logs)
+	}
+	if sink.logs[0] != "redumper: garbage line" {
+		t.Errorf("log[0] = %q, want %q", sink.logs[0], "redumper: garbage line")
+	}
+	if sink.logs[1] != "redumper: more garbage" {
+		t.Errorf("log[1] = %q, want %q", sink.logs[1], "redumper: more garbage")
+	}
+}
+
+func TestParseRedumperProgress_CRTerminatedLines(t *testing.T) {
+	// Modern redumper overwrites its progress line with '\r' rather than
+	// advancing with '\n'. Verify each CR-separated chunk is parsed as a
+	// separate line and produces a progress event.
+	in := bytes.NewBufferString("LBA: 0/100\rLBA: 50/100\rLBA: 100/100\r")
+	sink := &captureSinkRedumper{}
+	tools.ParseRedumperProgress(in, sink)
+	if len(sink.progress) != 3 {
+		t.Fatalf("want 3 progress events, got %d", len(sink.progress))
+	}
+	if sink.progress[0] != 0 {
+		t.Errorf("event[0] = %f, want 0", sink.progress[0])
+	}
+	if sink.progress[1] != 50.0 {
+		t.Errorf("event[1] = %f, want 50", sink.progress[1])
+	}
+	if sink.progress[2] != 100.0 {
+		t.Errorf("event[2] = %f, want 100", sink.progress[2])
+	}
+}
+
+func TestParseRedumperProgress_LongLineIsTruncated(t *testing.T) {
+	// Lines longer than 400 chars should be truncated before forwarding
+	// to the log rather than passed through verbatim.
+	long := strings.Repeat("x", 500)
+	in := bytes.NewBufferString(long + "\n")
+	sink := &captureSinkRedumper{}
+	tools.ParseRedumperProgress(in, sink)
+	if len(sink.logs) != 1 {
+		t.Fatalf("want 1 log line, got %d", len(sink.logs))
+	}
+	// The rendered log message should contain exactly 400 x's (truncated),
+	// not the full 500.
+	want := "redumper: " + strings.Repeat("x", 400)
+	if sink.logs[0] != want {
+		t.Errorf("log[0] len=%d, want len=%d", len(sink.logs[0]), len(want))
 	}
 }
 
