@@ -25,11 +25,16 @@
     if (job.active_step === step) return 'active';
     return 'pending';
   }
+
+  // Skipped steps (e.g. Transcode/Compress on audio CDs, where whipper
+  // does the FLAC encode inside Rip) are an internal accounting detail;
+  // they're not informative to the user, so hide them from the list.
+  $: visibleSteps = STEPS.filter((s) => status(s.id) !== 'skipped');
 </script>
 
 <div class="relative">
   <div class="absolute bottom-1 left-[15px] top-1 w-px bg-border"></div>
-  {#each STEPS as s}
+  {#each visibleSteps as s}
     {@const st = status(s.id)}
     {#if st === 'done' || st === 'failed' || st === 'skipped'}
       <div class="relative flex min-h-[40px] items-center py-2 pl-12 pr-3">

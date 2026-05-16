@@ -21,10 +21,14 @@
     if (stp?.state === 'failed') return 'done';
     return 'pending';
   }
+
+  // Hide steps the pipeline marked as skipped (audio CD has no
+  // separate Transcode/Compress — whipper encodes FLAC inside Rip).
+  $: visibleSteps = STEPS.filter((s) => statusFor(s) !== 'skipped');
 </script>
 
 <div class="flex items-center gap-[3px]">
-  {#each STEPS as step}
+  {#each visibleSteps as step}
     {@const status = statusFor(step)}
     <span
       class="rounded-full transition-colors"

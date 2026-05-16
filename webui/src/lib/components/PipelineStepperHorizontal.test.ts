@@ -44,17 +44,22 @@ describe('PipelineStepperHorizontal', () => {
     expect(active?.getAttribute('data-step')).toBe('rip');
   });
 
-  it('renders skipped steps with the skipped state', () => {
+  it('omits skipped steps from the rendered list', () => {
     const job: Job = {
       ...baseJob,
       state: 'running',
       active_step: 'rip',
       progress: 10,
-      steps: [{ step: 'compress', state: 'skipped', attempt_count: 0 }],
+      steps: [
+        { step: 'transcode', state: 'skipped', attempt_count: 0 },
+        { step: 'compress', state: 'skipped', attempt_count: 0 },
+      ],
     };
-    const { container } = render(PipelineStepperHorizontal, { job });
-    const skipped = container.querySelector('[data-step="compress"]');
-    expect(skipped?.getAttribute('data-step-state')).toBe('skipped');
+    const { container, queryByText } = render(PipelineStepperHorizontal, { job });
+    expect(container.querySelector('[data-step="transcode"]')).toBeNull();
+    expect(container.querySelector('[data-step="compress"]')).toBeNull();
+    expect(queryByText('Transcode')).toBeNull();
+    expect(queryByText('Compress')).toBeNull();
   });
 
   it('renders done steps with the done state', () => {

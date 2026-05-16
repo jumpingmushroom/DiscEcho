@@ -27,6 +27,10 @@
   }
 
   $: activeStep = STEPS.find((s) => s.id === job.active_step);
+  // Hide steps a pipeline marks as skipped (e.g. Transcode/Compress on
+  // audio CDs — whipper does the FLAC encode inside Rip). They're an
+  // internal accounting detail, not useful to users.
+  $: visibleSteps = STEPS.filter((s) => statusFor(s.id) !== 'skipped');
   // SVG ring math: r=11, circumference for the active dot's arc.
   const RING_R = 11;
   const RING_C = 2 * Math.PI * RING_R;
@@ -36,9 +40,9 @@
 <div class="w-full">
   <!-- dots row -->
   <div class="flex items-center px-1">
-    {#each STEPS as s, i}
+    {#each visibleSteps as s, i}
       {@const st = statusFor(s.id)}
-      {@const isLast = i === STEPS.length - 1}
+      {@const isLast = i === visibleSteps.length - 1}
       <div class="flex flex-col items-center" style="min-width: 40px">
         <div class="relative h-6 w-6" data-step={s.id} data-step-state={st}>
           {#if st === 'done'}
@@ -93,7 +97,7 @@
         </div>
       </div>
       {#if !isLast}
-        {@const nextSt = statusFor(STEPS[i + 1].id)}
+        {@const nextSt = statusFor(visibleSteps[i + 1].id)}
         <div class="relative mx-1 flex-1" style="height: 1px">
           <div class="absolute inset-0 rounded-full" style="background: var(--surface-3)"></div>
           <div
@@ -114,7 +118,7 @@
 
   <!-- labels row -->
   <div class="mt-2.5 flex items-start px-1">
-    {#each STEPS as s, i}
+    {#each visibleSteps as s, i}
       {@const st = statusFor(s.id)}
       <div class="flex flex-col items-center" style="min-width: 40px">
         <span
@@ -128,7 +132,7 @@
           {s.label}
         </span>
       </div>
-      {#if i < STEPS.length - 1}<div class="flex-1"></div>{/if}
+      {#if i < visibleSteps.length - 1}<div class="flex-1"></div>{/if}
     {/each}
   </div>
 

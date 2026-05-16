@@ -6,6 +6,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Changed
+- Pipeline step lists hide steps the handler marked as skipped instead of showing them with a `skipped` label. Audio-CD jobs no longer surface Transcode and Compress as separate "skipped" rows — whipper does the FLAC encode inside Rip, so the rows were an internal accounting detail, not something the user did or didn't do.
+
 ## [0.14.0] - 2026-05-16
 
 ### Added
