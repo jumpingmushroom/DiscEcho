@@ -108,17 +108,52 @@ Regular BDMV (Blu-ray) discs do not need this file.
 DiscEcho's game-disc pipelines use
 [redumper](https://github.com/superg/redumper) for ripping and
 [chdman](https://github.com/mamedev/mame) (from MAME tools) for CHD
-compression where applicable. They match each disc against
-[Redump](http://redump.org/) for identification.
+compression where applicable.
 
-Drop Redump dat files under per-system subdirectories of
-`${DISCECHO_DATA}/redump/`:
+#### Automatic identification via embedded boot-code maps
+
+Insert a recognised game disc and the dashboard shows the correct
+title immediately — no extra setup required. DiscEcho reads the
+on-disc identifier (SYSTEM.CNF boot code for PSX/PS2, IP.BIN product
+number for Saturn and Dreamcast, XBE title ID for Xbox) and looks it
+up against embedded community databases:
+
+- **PS2** — [PCSX2 GameDB](https://github.com/PCSX2/pcsx2/blob/master/bin/resources/GameIndex.yaml) (~12K entries)
+- **PSX** — [DuckStation gamedb](https://github.com/stenzek/duckstation) (~10K entries, includes cover URLs)
+- **Saturn / Dreamcast** — [Libretro Redump metadata](https://github.com/libretro/libretro-database)
+
+These databases ship inside the daemon binary (~2 MB total, ~27K
+entries across four systems). No setup required for auto-identification.
+
+Xbox boot-code auto-id is not currently supported (Libretro's Xbox
+dat uses publisher codes rather than XBE title IDs); Xbox discs fall
+back to Redump MD5 verify when a dat is present, or IGDB manual search.
+
+Disc detection is automatic:
+
+- PSX/PS2: classifier reads `/SYSTEM.CNF` and parses the `BOOT[2]=`
+  line (case-insensitive) to distinguish them.
+- Saturn: raw sector 0 magic `SEGA SEGASATURN` + product number
+  from IP.BIN.
+- Dreamcast: multi-session TOC heuristic (two sessions with session
+  2 starting at LBA ≥ 45000); product number read from IP.BIN at
+  sector 45000.
+- Xbox: `/default.xbe` at the disc root + XBE certificate title ID.
+  Original Xbox only — Xbox 360 (XGD2/3) requires Kreon-flashed
+  drive firmware and is out of scope.
+
+#### Optional: Redump dat-files for byte-perfect verification
+
+If you drop Redump `.dat` files into `${DISCECHO_DATA}/redump/<system>/`,
+the daemon will MD5-verify your rip against the Redump reference at the
+compress step. This is an integrity check on top of the boot-code
+auto-id — ripping and identification work without it.
 
 ```
 ${DISCECHO_DATA}/redump/psx/Sony - PlayStation - Datfile (*.dat)
 ${DISCECHO_DATA}/redump/ps2/Sony - PlayStation 2 - Datfile (*.dat)
 ${DISCECHO_DATA}/redump/saturn/Sega - Saturn - Datfile (*.dat)
-${DISCECHO_DATA}/redump/dreamcast/Sega - Dreamcast - Datfile (*.dat)
+${DISCECHO_DATA}/redump/dc/Sega - Dreamcast - Datfile (*.dat)
 ${DISCECHO_DATA}/redump/xbox/Microsoft - Xbox - Datfile (*.dat)
 ```
 
@@ -127,29 +162,31 @@ Redump adds new dumps. **DiscEcho does not auto-download or
 redistribute these files.**
 
 The daemon walks `${DISCECHO_DATA}/redump/<system>/*.dat` at startup
-and merges every dat-file into one in-memory index. Subdirectories
-are optional — a Saturn user without a Dreamcast dat just doesn't
-get DC matches. **NOTE:** dat files placed directly under
-`${DISCECHO_DATA}/redump/` (without a subdirectory) are no longer
-loaded; move them into the right per-system subfolder.
+and merges every dat-file into one in-memory index. Dat files placed
+directly under `${DISCECHO_DATA}/redump/` (without a subdirectory)
+are not loaded; move them into the right per-system subfolder.
 
-If a dat is missing, that disc-type's auto-identification falls back
-to a placeholder title via the new-disc sheet (Dreamcast is
-post-rip-identified by MD5; the others fall back to manual search).
-The daemon still starts; only auto-ID is affected.
+#### Optional: IGDB for manual search of unidentified discs
 
-Disc detection is automatic:
+If a disc is not in any embedded database (later releases, regional
+variants, homebrew), the awaiting-decision card offers a "Search IGDB"
+button. To enable it:
 
-- PSX/PS2: classifier reads `/SYSTEM.CNF` and parses the `BOOT[2]=`
-  line to distinguish them.
-- Saturn: raw sector 0 magic `SEGA SEGASATURN` + product number
-  from IP.BIN.
-- Dreamcast: multi-session TOC heuristic (two sessions with session
-  2 starting at LBA ≥ 45000); identification is post-rip via
-  MD5 against the DC dat.
-- Xbox: `/default.xbe` at the disc root + XBE certificate title ID.
-  Original Xbox only — Xbox 360 (XGD2/3) requires Kreon-flashed
-  drive firmware and is out of scope.
+1. Register a free app at <https://dev.twitch.tv/console/apps> —
+   choose category "Game Database".
+2. Set the env vars in your `.env` or compose file:
+
+   ```env
+   DISCECHO_IGDB_CLIENT_ID=your-client-id
+   DISCECHO_IGDB_CLIENT_SECRET=your-client-secret
+   ```
+
+3. Restart the container. The Settings → System tab will confirm IGDB
+   is connected and show per-system boot-code map counts.
+
+If the env vars are unset, the "Search manually" button surfaces a
+clean "IGDB not configured" message — the daemon still starts and all
+other pipelines work normally.
 
 ### Raw-data discs
 
