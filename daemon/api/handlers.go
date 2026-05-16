@@ -27,6 +27,8 @@ type Handlers struct {
 	Classifier    identify.Classifier
 	TMDB          identify.TMDBClient
 	MusicBrainz   identify.MusicBrainzClient
+	IGDB          identify.IGDBClient
+	BootCodeIndex *identify.BootCodeIndex
 	ActiveSampler *ActiveJobsSampler
 	Token         string
 	Apprise       Apprise // defined in notifications.go; nil-safe in handlers
