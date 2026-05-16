@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.16.0] - 2026-05-16
+
 ### Added
 - Game-disc auto-identification for PSX / PS2 / Saturn / Dreamcast via embedded community boot-code maps (PCSX2 GameDB, DuckStation, Libretro Redump). Insert a recognised game disc and the dashboard shows the correct title without typing — Sly 3 PAL now resolves to *Sly 3 - Honour Among Thieves* on insertion. ~27K entries across 4 systems, embedded in the daemon binary (~2 MB).
 - IGDB as the manual-search backend for game discs. The "Search manually" button on PSX/PS2/SAT/DC/XBOX cards now queries IGDB instead of TMDB (which was returning movie titles for game searches). Set `DISCECHO_IGDB_CLIENT_ID` + `DISCECHO_IGDB_CLIENT_SECRET` to enable; otherwise the button surfaces a clean 503.
