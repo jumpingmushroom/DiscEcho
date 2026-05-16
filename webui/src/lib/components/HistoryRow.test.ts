@@ -1,8 +1,14 @@
 import '@testing-library/jest-dom/vitest';
-import { describe, it, expect, vi } from 'vitest';
-import { render, fireEvent } from '@testing-library/svelte';
+import { afterEach, describe, it, expect, vi } from 'vitest';
+import { render, fireEvent, cleanup } from '@testing-library/svelte';
 import HistoryRow from './HistoryRow.svelte';
 import type { HistoryRow as HRow } from '$lib/wire';
+import * as store from '$lib/store';
+
+afterEach(() => {
+  cleanup();
+  vi.restoreAllMocks();
+});
 
 const baseRow: HRow = {
   job: {
@@ -70,5 +76,22 @@ describe('HistoryRow', () => {
     component.$on('click', onClick);
     await fireEvent.click(container.querySelector('button')!);
     expect(onClick).toHaveBeenCalled();
+  });
+
+  it('renders a Re-rip button per row', () => {
+    const { getByTestId } = render(HistoryRow, { row: baseRow });
+    expect(getByTestId('history-rerip')).toBeTruthy();
+  });
+
+  it('Re-rip calls startDisc with the row profile_id and does not bubble the row click', async () => {
+    const startSpy = vi.spyOn(store, 'startDisc').mockResolvedValue({} as never);
+    const onClick = vi.fn();
+    const { getByTestId, component } = render(HistoryRow, { row: baseRow });
+    component.$on('click', onClick);
+
+    await fireEvent.click(getByTestId('history-rerip'));
+
+    expect(startSpy).toHaveBeenCalledWith('disc-1', 'p1', 0);
+    expect(onClick).not.toHaveBeenCalled();
   });
 });
