@@ -254,6 +254,16 @@ func (db *RedumpDB) LookupByXboxTitleID(titleID uint32) *RedumpEntry {
 	return nil
 }
 
+// NewEmptyRedumpDB returns a non-nil but empty RedumpDB. Used by tests
+// that want to exercise the BootCodeIndex tier-2 fallback path; the real
+// LoadRedumpDir returns the same shape for a missing dir.
+func NewEmptyRedumpDB() *RedumpDB {
+	return &RedumpDB{
+		byBootCode: make(map[string]RedumpEntry),
+		byMD5:      make(map[string]RedumpEntry),
+	}
+}
+
 func parseRedumpYear(s string) (int, bool) {
 	if len(s) != 4 {
 		return 0, false

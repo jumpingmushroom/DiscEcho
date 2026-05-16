@@ -3,6 +3,7 @@ package ps2_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -141,6 +142,108 @@ func TestPS2Handler_Run_HappyPath(t *testing.T) {
 		if st == state.StepTranscode {
 			t.Errorf("transcode should not have started for PS2")
 		}
+	}
+}
+
+// mustRedumpDat builds a minimal in-memory RedumpDB from a temp dat file
+// containing a single game whose ROM name has the boot code in bracket notation.
+func mustRedumpDat(t *testing.T, subdir, romName, md5 string) *identify.RedumpDB {
+	t.Helper()
+	dir := t.TempDir()
+	sub := filepath.Join(dir, subdir)
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	xml := fmt.Sprintf(`<?xml version="1.0"?>
+<datafile><game name="Sly 3 - Honour Among Thieves (Europe)">
+  <rom name="%s" size="1" md5="%s"/>
+</game></datafile>`, romName, md5)
+	if err := os.WriteFile(filepath.Join(sub, "test.dat"), []byte(xml), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	db, err := identify.LoadRedumpDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return db
+}
+
+func TestPS2Identify_BootCodeIndexFallback(t *testing.T) {
+	// Redump dat is empty (matches reality with modern public dats),
+	// but the BootCodeIndex has the entry. Handler returns a
+	// PCSX2-GameDB-sourced candidate at confidence 90.
+	idx := identify.NewBootCodeIndex()
+	if err := idx.MergeFile(state.DiscTypePS2, []byte(`{
+		"system":"PS2","source":"PCSX2-GameDB","entries":{
+			"SCES_534.09":{"title":"Sly 3: Honor Among Thieves","region":"Europe"}
+		}
+	}`)); err != nil {
+		t.Fatal(err)
+	}
+
+	h := ps2.New(ps2.Deps{
+		SystemCNF:     &fakeSystemCNF{info: &identify.SystemCNF{BootCode: "SCES_534.09", IsPS2: true}},
+		RedumpDB:      identify.NewEmptyRedumpDB(),
+		BootCodeIndex: idx,
+	})
+	disc, cands, err := h.Identify(context.Background(), &state.Drive{ID: "drv1", DevPath: "/dev/sr0"})
+	if err != nil {
+		t.Fatalf("Identify: %v", err)
+	}
+	if disc.Title != "Sly 3: Honor Among Thieves" {
+		t.Errorf("Title = %q", disc.Title)
+	}
+	if disc.MetadataProvider != "PCSX2-GameDB" {
+		t.Errorf("MetadataProvider = %q, want PCSX2-GameDB", disc.MetadataProvider)
+	}
+	if disc.MetadataID != "SCES_534.09" {
+		t.Errorf("MetadataID = %q", disc.MetadataID)
+	}
+	if len(cands) != 1 || cands[0].Confidence != 90 {
+		t.Errorf("cands = %+v, want one entry at confidence 90", cands)
+	}
+}
+
+func TestPS2Identify_RedumpWinsOverBootCodeIndex(t *testing.T) {
+	dat := mustRedumpDat(t, "ps2", "Sly 3 [SCES_534.09].iso", "abc123")
+	idx := identify.NewBootCodeIndex()
+	if err := idx.MergeFile(state.DiscTypePS2, []byte(`{
+		"system":"PS2","source":"PCSX2-GameDB","entries":{
+			"SCES_534.09":{"title":"Should Not Win"}
+		}
+	}`)); err != nil {
+		t.Fatal(err)
+	}
+
+	h := ps2.New(ps2.Deps{
+		SystemCNF:     &fakeSystemCNF{info: &identify.SystemCNF{BootCode: "SCES_534.09", IsPS2: true}},
+		RedumpDB:      dat,
+		BootCodeIndex: idx,
+	})
+	disc, _, err := h.Identify(context.Background(), &state.Drive{ID: "drv1"})
+	if err != nil {
+		t.Fatalf("Identify: %v", err)
+	}
+	if disc.MetadataProvider != "Redump" {
+		t.Errorf("MetadataProvider = %q, want Redump (tier 1 wins)", disc.MetadataProvider)
+	}
+}
+
+func TestPS2Identify_NoMatchAnywhere(t *testing.T) {
+	h := ps2.New(ps2.Deps{
+		SystemCNF:     &fakeSystemCNF{info: &identify.SystemCNF{BootCode: "SCES_999.99", IsPS2: true}},
+		RedumpDB:      identify.NewEmptyRedumpDB(),
+		BootCodeIndex: identify.NewBootCodeIndex(),
+	})
+	disc, cands, err := h.Identify(context.Background(), &state.Drive{ID: "drv1"})
+	if !errors.Is(err, pipelines.ErrNoCandidates) {
+		t.Errorf("err = %v, want ErrNoCandidates", err)
+	}
+	if disc == nil || disc.Type != state.DiscTypePS2 {
+		t.Errorf("disc = %+v, want non-nil PS2", disc)
+	}
+	if cands != nil {
+		t.Errorf("cands = %+v, want nil", cands)
 	}
 }
 
