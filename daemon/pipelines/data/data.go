@@ -207,32 +207,16 @@ func (h *Handler) Run(ctx context.Context, drv *state.Drive, disc *state.Disc, p
 	}
 	sink.OnStepDone(state.StepMove, map[string]any{"path": dst})
 
-	// notify
-	sink.OnStepStart(state.StepNotify)
-	if h.deps.Tools != nil {
-		if apprise, ok := h.deps.Tools.Get("apprise"); ok {
-			var urls []string
-			if h.deps.URLsForTrigger != nil {
-				urls = h.deps.URLsForTrigger(ctx, "done")
-			}
-			title := fmt.Sprintf("DiscEcho: %s", disc.Title)
-			body := fmt.Sprintf("Ripped to %s", h.deps.LibraryRoot)
-			argv := tools.BuildAppriseArgs(title, body, "", urls)
-			_ = apprise.Run(ctx, argv, nil, "", pipelines.NewStepSink(sink, state.StepNotify))
-		}
-	}
-	sink.OnStepDone(state.StepNotify, nil)
+	pipelines.RunNotifyStep(ctx, sink, pipelines.NotifyDeps{
+		Tools:          h.deps.Tools,
+		URLsForTrigger: h.deps.URLsForTrigger,
+		LibraryRoot:    h.deps.LibraryRoot,
+	}, disc)
 
-	// eject
-	sink.OnStepStart(state.StepEject)
-	if h.deps.Tools != nil && pipelines.ResolveShouldEject(ctx, h.deps.ShouldEject) {
-		if eject, ok := h.deps.Tools.Get("eject"); ok && drv != nil && drv.DevPath != "" {
-			if err := eject.Run(ctx, []string{drv.DevPath}, nil, "", pipelines.NewStepSink(sink, state.StepEject)); err != nil {
-				sink.OnStepFailed(state.StepEject, err)
-			}
-		}
-	}
-	sink.OnStepDone(state.StepEject, nil)
+	pipelines.RunEjectStep(ctx, sink, pipelines.EjectDeps{
+		Tools:       h.deps.Tools,
+		ShouldEject: h.deps.ShouldEject,
+	}, drv)
 	return nil
 }
 

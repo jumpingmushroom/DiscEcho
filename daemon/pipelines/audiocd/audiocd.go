@@ -176,35 +176,15 @@ func (h *Handler) Run(ctx context.Context, drv *state.Drive, disc *state.Disc, p
 	}
 	sink.OnStepDone(state.StepMove, map[string]any{"paths": moved})
 
-	// notify (best-effort). Apprise is invoked once per call with all
-	// URLs that subscribe to the "done" trigger; URL resolution is
-	// injected via Deps so handlers stay free of store coupling.
-	sink.OnStepStart(state.StepNotify)
-	if apprise, ok := h.deps.Tools.Get("apprise"); ok {
-		var urls []string
-		if h.deps.URLsForTrigger != nil {
-			urls = h.deps.URLsForTrigger(ctx, "done")
-		}
-		title := fmt.Sprintf("DiscEcho: %s", disc.Title)
-		body := fmt.Sprintf("Ripped to %s", h.deps.LibraryRoot)
-		argv := tools.BuildAppriseArgs(title, body, "", urls)
-		_ = apprise.Run(ctx, argv, nil, "", pipelines.NewStepSink(sink, state.StepNotify))
-	}
-	sink.OnStepDone(state.StepNotify, nil)
-
-	// eject (best-effort; surfaces error so the step can be marked
-	// failed, but does not fail the whole job — the bits are already
-	// in the library).
-	sink.OnStepStart(state.StepEject)
-	if pipelines.ResolveShouldEject(ctx, h.deps.ShouldEject) {
-		if eject, ok := h.deps.Tools.Get("eject"); ok && drv != nil && drv.DevPath != "" {
-			if err := eject.Run(ctx, []string{drv.DevPath}, nil, "", pipelines.NewStepSink(sink, state.StepEject)); err != nil {
-				sink.OnStepFailed(state.StepEject, err)
-				// fall through; do NOT return — eject failure doesn't fail the job
-			}
-		}
-	}
-	sink.OnStepDone(state.StepEject, nil)
+	pipelines.RunNotifyStep(ctx, sink, pipelines.NotifyDeps{
+		Tools:          h.deps.Tools,
+		URLsForTrigger: h.deps.URLsForTrigger,
+		LibraryRoot:    h.deps.LibraryRoot,
+	}, disc)
+	pipelines.RunEjectStep(ctx, sink, pipelines.EjectDeps{
+		Tools:       h.deps.Tools,
+		ShouldEject: h.deps.ShouldEject,
+	}, drv)
 
 	return nil
 }
