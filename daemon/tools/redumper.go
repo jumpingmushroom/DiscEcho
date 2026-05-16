@@ -43,23 +43,35 @@ func NewRedumper(bin string) *Redumper {
 func (r *Redumper) Name() string { return "redumper" }
 
 // Rip dumps the disc to outDir using the given base name. mode is
-// "cd", "dvd", or "xbox"; chooses the right redumper subcommand and
-// output extension.
+// "cd", "dvd", or "xbox"; selects the right --disc-type override but
+// always invokes the `disc` aggregate subcommand (which runs
+// dump+refine+split in one pass).
 //
-//	cd   → redumper cd   --drive <devPath> --image-path <outDir>/<name>
-//	       → produces <name>.bin + <name>.cue
-//	dvd  → redumper dvd  --drive <devPath> --image-path <outDir>/<name>
+//	cd   → redumper disc --disc-type=CD  --drive <devPath> --image-path <outDir>/<name>
+//	       → produces <name>.bin + <name>.cue (after the split phase)
+//	dvd  → redumper disc --disc-type=DVD --drive <devPath> --image-path <outDir>/<name>
 //	       → produces <name>.iso
-//	xbox → redumper xbox --drive <devPath> --image-path <outDir>/<name>
-//	       → produces <name>.iso  (XGD security sectors handled by redumper)
+//	xbox → redumper disc --disc-type=DVD --drive <devPath> --image-path <outDir>/<name>
+//	       → produces <name>.iso  (XGD discs are DVD media; redumper's
+//	         security-sector handling kicks in automatically when it
+//	         detects the XGD structure)
 //
-// Streams progress to sink via ParseRedumperProgress.
+// Older redumper releases shipped per-media subcommands (`redumper cd`,
+// `redumper dvd`, `redumper xbox`); current builds (b720+) use a single
+// `disc` aggregate and route via --disc-type. Streams progress to sink
+// via ParseRedumperProgress.
 func (r *Redumper) Rip(ctx context.Context, devPath, outDir, name, mode string, sink Sink) error {
-	if mode != "cd" && mode != "dvd" && mode != "xbox" {
+	discType, ok := redumperDiscType(mode)
+	if !ok {
 		return fmt.Errorf("redumper: unknown mode %q (want cd|dvd|xbox)", mode)
 	}
 	imagePath := filepath.Join(outDir, name)
-	args := []string{mode, "--drive", devPath, "--image-path", imagePath}
+	args := []string{
+		"disc",
+		"--disc-type=" + discType,
+		"--drive", devPath,
+		"--image-path", imagePath,
+	}
 	cmd := exec.CommandContext(ctx, r.bin, args...)
 
 	stdout, err := cmd.StdoutPipe()
@@ -81,6 +93,21 @@ func (r *Redumper) Rip(ctx context.Context, devPath, outDir, name, mode string, 
 	wg.Wait()
 
 	return cmd.Wait()
+}
+
+// redumperDiscType maps the daemon's pipeline-side mode string to
+// redumper's --disc-type value. Xbox uses DVD media (XGD); redumper
+// detects the XGD security structure on its own.
+func redumperDiscType(mode string) (string, bool) {
+	switch mode {
+	case "cd":
+		return "CD", true
+	case "dvd":
+		return "DVD", true
+	case "xbox":
+		return "DVD", true
+	}
+	return "", false
 }
 
 var (

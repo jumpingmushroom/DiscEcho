@@ -6,6 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.16.1] - 2026-05-16
+
+### Fixed
+- Game-disc rip step (PSX / PS2 / Xbox) no longer fails instantly with `redumper: exit status 255`. The redumper integration was invoking the legacy per-media subcommands (`redumper cd|dvd|xbox`) which were removed in the b720+ builds; switched to the current `redumper disc --disc-type=CD|DVD` syntax. Without this every PS2 / PSX rip aborted in ~30 ms before redumper even opened the drive — the bug was hidden behind the v0.16.0 classification fix that finally let game discs reach the rip step.
+
 ## [0.16.0] - 2026-05-16
 
 ### Added
