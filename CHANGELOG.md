@@ -6,6 +6,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Fixed
+- PS2 / Xbox CHD files now carry proper DVD-typed metadata. The Dockerfile builds chdman from MAME 0.275 source (shallow git clone + tools-only build), replacing the bookworm `mame-tools` package (0.251) that predates the `createdvd` subcommand. The v0.16.3 `createraw` workaround is reverted: `.iso` inputs use `chdman createdvd` again, producing CHDs that emulators can correctly identify as DVD images.
+
 ## [0.16.3] - 2026-05-16
 
 ### Fixed

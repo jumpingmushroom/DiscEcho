@@ -92,6 +92,37 @@ RUN apt-get update \
  && rm -rf /tmp/HandBrake*
 
 ###############################################################################
+# Stage — build chdman from MAME source
+#
+# Debian bookworm's mame-tools package ships chdman 0.251, which is missing
+# the `createdvd` subcommand (added in MAME 0.252, April 2023). PS2 / Xbox
+# rips use createdvd to produce DVD-typed CHD files that emulators expect.
+# We build MAME's tools subset here (TOOLS=1 EMULATOR=0 skips the full
+# emulator and its Qt deps) and copy out just the chdman binary.
+# MAME does not ship source tarballs in its GitHub releases; we shallow-clone
+# the tagged commit instead.
+###############################################################################
+FROM debian:bookworm-slim AS chdman-build
+ARG MAME_VERSION=0.275
+ARG MAME_TAG=mame0275
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends \
+        build-essential git python3 ca-certificates \
+        libsdl2-dev libsdl2-ttf-dev \
+        libxinerama-dev libxi-dev \
+        libfontconfig-dev libasound2-dev \
+ && rm -rf /var/lib/apt/lists/*
+RUN git clone --depth 1 --branch "${MAME_TAG}" \
+        https://github.com/mamedev/mame.git /src/mame
+WORKDIR /src/mame
+# USE_QTDEBUG=0: on Linux the Genie build system defaults USE_QTDEBUG=1
+# which requires Qt5Widgets headers and moc. We have no use for the Qt
+# debugger UI in a CHD-tools-only build, so disable it explicitly.
+RUN make -j"$(nproc)" TOOLS=1 EMULATOR=0 USE_QTDEBUG=0 IGNORE_GIT=1
+RUN strip /src/mame/chdman \
+ && /src/mame/chdman --help 2>&1 | head -5
+
+###############################################################################
 # Stage 4 — runtime: python slim + apprise + the daemon binary
 ###############################################################################
 FROM python:3.12-slim-bookworm AS runtime
@@ -106,6 +137,8 @@ FROM python:3.12-slim-bookworm AS runtime
 # libssl3 + libexpat1 + libavcodec59 are makemkvcon's runtime
 # shared-lib deps. libass9 + libturbojpeg0 are HandBrakeCLI runtime
 # deps not pulled in transitively by anything else in this image.
+# libsdl2-2.0-0 is the sole runtime dep of the chdman binary built from
+# MAME source in the chdman-build stage above (chdman links ocore_sdl).
 RUN echo "deb http://deb.debian.org/debian bookworm main contrib" \
         > /etc/apt/sources.list.d/contrib.list \
  && apt-get update \
@@ -116,7 +149,7 @@ RUN echo "deb http://deb.debian.org/debian bookworm main contrib" \
         libbluray-bdj libbluray2 libbluray-bin \
         libssl3 libexpat1 libavcodec59 \
         libass9 libturbojpeg0 \
-        mame-tools \
+        libsdl2-2.0-0 \
  && DEBIAN_FRONTEND=noninteractive dpkg-reconfigure libdvd-pkg \
  && rm -rf /var/lib/apt/lists/* \
  && pip install --no-cache-dir apprise
@@ -130,6 +163,11 @@ COPY --from=makemkv-build /lib/libdriveio.so.0 /lib/libdriveio.so.0
 # against the same bookworm shared libs already present in the runtime
 # image, so no extra lib COPYs are needed.
 COPY --from=handbrake-build /usr/local/bin/HandBrakeCLI /usr/bin/HandBrakeCLI
+
+# chdman built from MAME source (see chdman-build stage). Replaces the
+# bookworm mame-tools package (0.251) which predates the createdvd
+# subcommand needed for PS2 / Xbox DVD-typed CHDs.
+COPY --from=chdman-build /src/mame/chdman /usr/bin/chdman
 
 # redumper — pre-built static Linux binary released on GitHub.
 # Pinned via REDUMPER_VERSION build arg.

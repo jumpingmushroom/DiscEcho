@@ -38,18 +38,7 @@ func (c *CHDMan) Name() string { return "chdman" }
 // subcommand from the input file extension:
 //
 //	.cue → chdman createcd  --input <input> --output <output>
-//	.iso → chdman createraw --unitsize 2048 --hunksize 8192
-//	                        --compression lzma,zlib
-//	                        --input <input> --output <output>
-//
-// The .iso path uses createraw rather than createdvd because the
-// dedicated `createdvd` subcommand was only added in MAME 0.252 (April
-// 2023); Debian bookworm still ships mame-tools 0.251 and falls over
-// with `unknown command` for createdvd. createraw with DVD-flavored
-// flags (2048-byte sectors, 4-sector hunks, lzma+zlib) produces a CHD
-// PCSX2 / RetroArch / libchdr can load just fine — the missing piece
-// is only the DVD-typed CHD metadata block, which players don't
-// actually need to mount the image.
+//	.iso → chdman createdvd --input <input> --output <output>
 //
 // Streams "Compressing, X.X% complete..." lines to sink as Progress.
 func (c *CHDMan) CreateCHD(ctx context.Context, input, output string, sink Sink) error {
@@ -58,13 +47,6 @@ func (c *CHDMan) CreateCHD(ctx context.Context, input, output string, sink Sink)
 		return err
 	}
 	args := []string{subcmd, "--input", input, "--output", output}
-	if subcmd == "createraw" {
-		args = append(args,
-			"--unitsize", "2048",
-			"--hunksize", "8192",
-			"--compression", "lzma,zlib",
-		)
-	}
 	cmd := exec.CommandContext(ctx, c.bin, args...)
 
 	stdout, err := cmd.StdoutPipe()
@@ -93,8 +75,7 @@ func chdmanSubcommandFor(input string) (string, error) {
 	case ".cue":
 		return "createcd", nil
 	case ".iso":
-		// createraw with DVD-flavored flags (see CreateCHD doc).
-		return "createraw", nil
+		return "createdvd", nil
 	default:
 		return "", fmt.Errorf("chdman: unknown input extension for %q (want .cue or .iso)", input)
 	}
