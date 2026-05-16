@@ -112,3 +112,27 @@ describe('DiscArt', () => {
     expect(container.querySelector('img')).toBeNull();
   });
 });
+
+describe('DiscArt IGDB cover URLs', () => {
+  it('renders an <img> with the IGDB cover URL when metadata_json contains cover_url', () => {
+    const disc: Disc = {
+      id: 'd1',
+      drive_id: 'drv1',
+      type: 'PS2',
+      title: 'Sly 3',
+      metadata_provider: 'IGDB',
+      metadata_id: '12345',
+      metadata_json: JSON.stringify({
+        system: 'Sony PlayStation 2',
+        cover_url: 'https://images.igdb.com/igdb/image/upload/t_cover_big/abc.jpg',
+      }),
+      candidates: [],
+      created_at: new Date().toISOString(),
+    };
+    const { container } = render(DiscArt, { disc, size: 64, ratio: 'portrait' });
+    const img = container.querySelector('img');
+    expect(img?.getAttribute('src')).toBe(
+      'https://images.igdb.com/igdb/image/upload/t_cover_big/abc.jpg',
+    );
+  });
+});
