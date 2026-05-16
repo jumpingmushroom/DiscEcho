@@ -80,7 +80,7 @@ func ParseSystemCNF(content string) *SystemCNF {
 		if m == nil {
 			continue
 		}
-		isPS2 := strings.EqualFold(m[1], "2")
+		isPS2 := m[1] == "2"
 		code := strings.ToUpper(m[2])
 		// Normalise the PS2 5-digit code (e.g. "SCES_50051") to the
 		// dotted form ("SCES_500.51") so it matches the dat-file

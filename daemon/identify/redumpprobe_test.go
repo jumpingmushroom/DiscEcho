@@ -82,3 +82,35 @@ func TestParseSystemCNF_LowercaseBootLine(t *testing.T) {
 		t.Errorf("IsPS2 = true, want false")
 	}
 }
+
+func TestParseSystemCNF_MixedCaseBootCode(t *testing.T) {
+	// (?i) on the regex permits a mixed-case file stem; strings.ToUpper
+	// canonicalises it before downstream Redump / BootCodeIndex lookups.
+	content := "BOOT = cdrom:\\Scus_944.61;1\r\n"
+	got := identify.ParseSystemCNF(content)
+	if got == nil {
+		t.Fatal("nil result for mixed-case boot code")
+	}
+	if got.BootCode != "SCUS_944.61" {
+		t.Errorf("BootCode = %q, want SCUS_944.61", got.BootCode)
+	}
+	if got.IsPS2 {
+		t.Errorf("IsPS2 = true, want false")
+	}
+}
+
+func TestParseSystemCNF_LowercasePS2Normalises(t *testing.T) {
+	// Lowercase BOOT2 with a 5-digit stem must uppercase AND normalise
+	// to the dotted Redump key form (sces_50051 → SCES_500.51).
+	content := "boot2 = cdrom0:\\sces_50051.elf;1\r\nVMODE = PAL\r\n"
+	got := identify.ParseSystemCNF(content)
+	if got == nil {
+		t.Fatal("nil result for lowercase PS2 5-digit code")
+	}
+	if got.BootCode != "SCES_500.51" {
+		t.Errorf("BootCode = %q, want SCES_500.51 (lowercased + dotted)", got.BootCode)
+	}
+	if !got.IsPS2 {
+		t.Errorf("IsPS2 = false, want true")
+	}
+}
