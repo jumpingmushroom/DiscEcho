@@ -6,7 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.16.4] - 2026-05-17
+
+### Added
+- Region inference from PSX / PS2 / Saturn / Dreamcast boot codes. PCSX2 GameDB often leaves region blank for an entry (Sly 3 PAL's SCES_534.09 has no region in the YAML), which made the output path render as `Sly 3 - Honour Among Thieves ()/Sly 3 - Honour Among Thieves ().chd` with empty parens. New `identify.InferRegion` derives region from the 4-letter prefix on PSX/PS2 (SCES→Europe, SCUS→USA, SLPS→Japan, ...) and the trailing-letter convention on Saturn/DC `T-NNNNH/N/D` codes. Used as a fallback only — when the source DB does supply a region, that wins.
+- Real-time log forwarding from redumper and chdman to the job log tail. Previously both parsers only emitted `Progress` events on regex match and silently dropped every other stdout/stderr line — users saw "No log lines yet" for the entire rip. Non-progress lines now forward as `INFO` level entries prefixed with the tool name, capped at 400 chars to defend against runaway output.
+
 ### Fixed
+- redumper / chdman progress updates with carriage-return terminators no longer buffer for the entire phase. Both parsers now use a `\r`/`\n`-aware line splitter (already used by the whipper parser since v0.15.1).
+- Slow optical drives that emit 2-3 media-change uevents per physical insertion no longer create 2-3 duplicate disc rows. `discFlow.persistDisc` now dedups game-disc rows (which lack a TOC hash) by `(drive_id, metadata_id)` within a 2-minute window — long enough to absorb the burst, short enough that a genuine eject + re-insert later gets a fresh row.
+- Awaiting-decision card no longer keeps firing `startDisc` in an infinite 409 loop after the first auto-rip claims the drive. The list filter now hides discs with a `running` or `queued` job in addition to `done`; `failed` / `cancelled` / `interrupted` stay visible (the retry-intent design is preserved).
 - PS2 / Xbox CHD files now carry proper DVD-typed metadata. The Dockerfile builds chdman from MAME 0.275 source (shallow git clone + tools-only build), replacing the bookworm `mame-tools` package (0.251) that predates the `createdvd` subcommand. The v0.16.3 `createraw` workaround is reverted: `.iso` inputs use `chdman createdvd` again, producing CHDs that emulators can correctly identify as DVD images.
 
 ## [0.16.3] - 2026-05-16
