@@ -61,6 +61,12 @@ function scheduleStatsRefresh(delayMs: number = 1000): void {
 }
 export const selectedProfileID = writable<string | null>(null);
 
+// bootCodeCounts is keyed by DiscType ('PSX' | 'PS2' | 'SAT' | 'DC' | 'XBOX')
+// and reflects how many entries are loaded in the embedded boot-code maps.
+// Populated from /api/system when the daemon ships the field (Phase 8).
+// A value of 0 (or missing key) means auto-id is unavailable for that system.
+export const bootCodeCounts = writable<Record<string, number>>({});
+
 // LOG_RING_SIZE caps the per-job in-memory log buffer. Raised from 50
 // so a chatty HandBrake transcode doesn't push earlier rip-phase lines
 // out of the ring before the user can switch to the Rip filter chip

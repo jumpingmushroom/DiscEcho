@@ -3,7 +3,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, fireEvent } from '@testing-library/svelte';
 import { tick } from 'svelte';
 import AwaitingDecisionCard from './AwaitingDecisionCard.svelte';
-import { profiles, settings } from '$lib/store';
+import { profiles, settings, bootCodeCounts } from '$lib/store';
 import type { Disc, Profile } from '$lib/wire';
 
 const dvdProfile: Profile = {
@@ -190,5 +190,212 @@ describe('AwaitingDecisionCard', () => {
       const { queryByText } = render(AwaitingDecisionCard, { disc: audioNoMatch });
       expect(queryByText(/Use top match/)).toBeNull();
     });
+  });
+});
+
+// ---- Task 7.1: game-disc search labels ----------------------------------------
+
+const dataProfile: Profile = {
+  id: 'p-data',
+  disc_type: 'DATA',
+  name: 'Data',
+  engine: 'cp',
+  format: '',
+  preset: '',
+  container: '',
+  video_codec: '',
+  quality_preset: '',
+  hdr_pipeline: '',
+  drive_policy: 'any',
+  options: {},
+  output_path_template: '{{.Title}}',
+  enabled: true,
+  step_count: 3,
+  created_at: '2026-05-07T12:00:00Z',
+  updated_at: '2026-05-07T12:00:00Z',
+};
+
+const ps2Profile: Profile = {
+  id: 'p-ps2',
+  disc_type: 'PS2',
+  name: 'PS2',
+  engine: 'cp',
+  format: '',
+  preset: '',
+  container: '',
+  video_codec: '',
+  quality_preset: '',
+  hdr_pipeline: '',
+  drive_policy: 'any',
+  options: {},
+  output_path_template: '{{.Title}}',
+  enabled: true,
+  step_count: 3,
+  created_at: '2026-05-07T12:00:00Z',
+  updated_at: '2026-05-07T12:00:00Z',
+};
+
+describe('AwaitingDecisionCard game-disc search labels', () => {
+  beforeEach(() => {
+    profiles.set([dvdProfile, ps2Profile]);
+    settings.set({ 'operation.mode': 'manual' });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => ({ id: 'job-new' }) }),
+    );
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+    settings.set({});
+  });
+
+  it('shows "Search IGDB" for PS2 discs', async () => {
+    const ps2Disc: Disc = {
+      id: 'd1',
+      drive_id: 'drv1',
+      type: 'PS2',
+      title: '',
+      candidates: [],
+      created_at: new Date().toISOString(),
+    };
+    const { getByPlaceholderText, getByText } = render(AwaitingDecisionCard, { disc: ps2Disc });
+    await fireEvent.click(getByText('Search manually'));
+    await tick();
+    expect(getByPlaceholderText('Game title…')).toBeInTheDocument();
+    expect(getByText('Search IGDB')).toBeInTheDocument();
+  });
+});
+
+// ---- Task 7.2: DATA disc flow --------------------------------------------------
+
+describe('AwaitingDecisionCard DATA disc flow', () => {
+  beforeEach(() => {
+    profiles.set([dvdProfile, dataProfile]);
+    settings.set({ 'operation.mode': 'manual' });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => ({ id: 'job-new' }) }),
+    );
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+    settings.set({});
+  });
+
+  it('shows "Rip as data" button and no "Search manually"', () => {
+    const dataDisc: Disc = {
+      id: 'd1',
+      drive_id: 'drv1',
+      type: 'DATA',
+      title: 'PHOTO_BACKUP_2024',
+      candidates: [],
+      created_at: new Date().toISOString(),
+    };
+    const { getByText, queryByText } = render(AwaitingDecisionCard, { disc: dataDisc });
+    expect(getByText('Rip as data')).toBeInTheDocument();
+    expect(queryByText('Search manually')).toBeNull();
+  });
+
+  it('does not show "Rip as data" for non-DATA discs', () => {
+    const ps2Disc: Disc = {
+      id: 'd2',
+      drive_id: 'drv1',
+      type: 'PS2',
+      title: '',
+      candidates: [],
+      created_at: new Date().toISOString(),
+    };
+    const { queryByText } = render(AwaitingDecisionCard, { disc: ps2Disc });
+    expect(queryByText('Rip as data')).toBeNull();
+  });
+});
+
+// ---- Task 7.3: DATA batch auto-rip ---------------------------------------------
+
+describe('AwaitingDecisionCard DATA auto-rip', () => {
+  beforeEach(() => {
+    profiles.set([dvdProfile, dataProfile]);
+    settings.set({ 'operation.mode': 'batch' });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => ({ id: 'job-new' }) }),
+    );
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+    settings.set({});
+  });
+
+  it('triggers auto-rip countdown for DATA discs in batch mode', async () => {
+    const dataDisc: Disc = {
+      id: 'd1',
+      drive_id: 'drv1',
+      type: 'DATA',
+      title: 'PHOTO_BACKUP_2024',
+      candidates: [],
+      created_at: new Date().toISOString(),
+    };
+    const { getByText } = render(AwaitingDecisionCard, { disc: dataDisc });
+    await tick();
+    expect(getByText(/Auto-rip in \d+s/)).toBeInTheDocument();
+  });
+});
+
+// ---- Task 7.5: Redump tip -------------------------------------------------------
+
+describe('AwaitingDecisionCard Redump tip', () => {
+  beforeEach(() => {
+    profiles.set([dvdProfile, ps2Profile]);
+    settings.set({ 'operation.mode': 'manual' });
+    bootCodeCounts.set({});
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => ({ id: 'job-new' }) }),
+    );
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+    settings.set({});
+    bootCodeCounts.set({});
+  });
+
+  it('shows the dat-file tip when boot-code map is empty for this system', () => {
+    bootCodeCounts.set({ PS2: 0 });
+    const ps2Disc: Disc = {
+      id: 'd1',
+      drive_id: 'drv1',
+      type: 'PS2',
+      title: '',
+      candidates: [],
+      created_at: new Date().toISOString(),
+    };
+    const { getByText } = render(AwaitingDecisionCard, { disc: ps2Disc });
+    expect(getByText(/add a Redump dat-file for PS2/i)).toBeInTheDocument();
+  });
+
+  it('hides the tip when the boot-code map is loaded', () => {
+    bootCodeCounts.set({ PS2: 11234 });
+    const ps2Disc: Disc = {
+      id: 'd2',
+      drive_id: 'drv1',
+      type: 'PS2',
+      title: '',
+      candidates: [],
+      created_at: new Date().toISOString(),
+    };
+    const { queryByText } = render(AwaitingDecisionCard, { disc: ps2Disc });
+    expect(queryByText(/add a Redump dat-file/i)).toBeNull();
   });
 });

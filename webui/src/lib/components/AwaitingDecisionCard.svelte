@@ -8,6 +8,7 @@
     pendingDiscID,
     skipDisc,
     operationMode,
+    bootCodeCounts,
   } from '$lib/store';
   import type { Disc, Candidate } from '$lib/wire';
   import DiscTypeBadge from './DiscTypeBadge.svelte';
@@ -29,15 +30,30 @@
   $: liveDisc = $discs[disc.id] ?? disc;
   $: candidates = liveDisc.candidates ?? [];
   $: topConfidence = candidates[0]?.confidence ?? 0;
+  $: isGameDisc = ['PSX', 'PS2', 'SAT', 'DC', 'XBOX'].includes(liveDisc.type);
   // The manual-search backend dispatches on disc.type — MB for audio
-  // CDs, TMDB for everything else — so the placeholder + button label
-  // must follow the same split or the user is told the wrong story.
-  $: searchPlaceholder = liveDisc.type === 'AUDIO_CD' ? 'Album or artist…' : 'Movie or show title…';
-  $: searchButtonLabel = liveDisc.type === 'AUDIO_CD' ? 'Search MusicBrainz' : 'Search TMDB';
-  // Auto-confirm only fires in batch mode. Manual mode shows the same
-  // candidate list but never starts a rip without an explicit click.
+  // CDs, IGDB for game discs, TMDB for video — so the placeholder +
+  // button label must follow the same split or the user is told the
+  // wrong story.
+  $: searchPlaceholder =
+    liveDisc.type === 'AUDIO_CD'
+      ? 'Album or artist…'
+      : isGameDisc
+        ? 'Game title…'
+        : 'Movie or show title…';
+  $: searchButtonLabel =
+    liveDisc.type === 'AUDIO_CD'
+      ? 'Search MusicBrainz'
+      : isGameDisc
+        ? 'Search IGDB'
+        : 'Search TMDB';
+  // Auto-confirm fires in batch mode for two cases:
+  //   1. A high-confidence candidate (Redump 100, BootCodeIndex 90, MB ≥50).
+  //   2. A DATA disc — title is the ISO9660 volume label, which the user
+  //      chose when burning. Skip if they want to bail.
   $: autoConfirmAllowed =
-    $operationMode === 'batch' && topConfidence >= AUTO_CONFIRM_MIN_CONFIDENCE;
+    $operationMode === 'batch' &&
+    (topConfidence >= AUTO_CONFIRM_MIN_CONFIDENCE || liveDisc.type === 'DATA');
 
   function profileForCandidate(c: Candidate): string {
     const enabled = $profiles.filter((p) => p.enabled);
@@ -49,6 +65,24 @@
       return enabled.find((p) => p.disc_type === 'DVD' && p.name === wantName)?.id ?? '';
     }
     return enabled.find((p) => p.disc_type === liveDisc.type)?.id ?? '';
+  }
+
+  function dataProfileID(): string {
+    return $profiles.find((p) => p.disc_type === 'DATA' && p.enabled)?.id ?? '';
+  }
+
+  async function ripAsData(): Promise<void> {
+    if (starting) return;
+    cancelled = true;
+    clearInterval(timer);
+    const profileId = dataProfileID();
+    if (!profileId) return;
+    starting = true;
+    try {
+      await startDisc(liveDisc.id, profileId);
+    } catch (_e) {
+      starting = false;
+    }
   }
 
   const timer: ReturnType<typeof setInterval> = setInterval(() => {
@@ -84,13 +118,21 @@
   async function autoConfirm(): Promise<void> {
     if (starting || cancelled || !autoConfirmAllowed) return;
     cancelled = true;
-    const c = candidates[0];
-    if (!c) return;
-    const profileId = profileForCandidate(c);
+    let profileId: string;
+    let candidateIndex: number | undefined;
+    if (liveDisc.type === 'DATA') {
+      profileId = dataProfileID();
+      candidateIndex = undefined;
+    } else {
+      const c = candidates[0];
+      if (!c) return;
+      profileId = profileForCandidate(c);
+      candidateIndex = 0;
+    }
     if (!profileId) return;
     starting = true;
     try {
-      await startDisc(liveDisc.id, profileId, 0);
+      await startDisc(liveDisc.id, profileId, candidateIndex);
     } catch (_e) {
       starting = false;
     }
@@ -196,8 +238,21 @@
           <div class="mt-1 text-[11px] text-warn">
             No MusicBrainz match · eject and retry, or skip
           </div>
+        {:else if liveDisc.type === 'DATA'}
+          <div class="mt-1 text-[11px] text-text-3">
+            {liveDisc.title ?? 'Data disc'} · rip as-is or skip
+          </div>
         {:else}
           <div class="mt-1 text-[11px] text-warn">No match found · search manually</div>
+        {/if}
+        {#if isGameDisc && candidates.length === 0 && ($bootCodeCounts[liveDisc.type] ?? 0) === 0}
+          <div class="mt-2 text-[11px] text-text-3">
+            Tip: add a Redump dat-file for {liveDisc.type} to
+            <code class="rounded bg-surface-2 px-1"
+              >/var/lib/discecho/redump/{liveDisc.type.toLowerCase()}/</code
+            >
+            to enable auto-match.
+          </div>
         {/if}
       {/if}
     </div>
@@ -283,21 +338,31 @@
     </div>
 
     <div class="mt-5 flex flex-col gap-2 sm:flex-row">
-      {#if candidates.length > 0}
+      {#if liveDisc.type === 'DATA'}
         <button
           class="min-h-[44px] flex-1 rounded-xl bg-accent text-[14px] font-semibold text-black disabled:opacity-50"
-          on:click={() => pick(0)}
+          on:click={ripAsData}
           disabled={starting}
         >
-          Use top match · Start rip
+          Rip as data
+        </button>
+      {:else}
+        {#if candidates.length > 0}
+          <button
+            class="min-h-[44px] flex-1 rounded-xl bg-accent text-[14px] font-semibold text-black disabled:opacity-50"
+            on:click={() => pick(0)}
+            disabled={starting}
+          >
+            Use top match · Start rip
+          </button>
+        {/if}
+        <button
+          class="min-h-[44px] flex-1 rounded-xl border border-border text-[14px] text-text-2"
+          on:click={openSearch}
+        >
+          Search manually
         </button>
       {/if}
-      <button
-        class="min-h-[44px] flex-1 rounded-xl border border-border text-[14px] text-text-2"
-        on:click={openSearch}
-      >
-        Search manually
-      </button>
       <button
         class="min-h-[36px] text-[13px] text-text-3 disabled:opacity-50"
         on:click={skip}
