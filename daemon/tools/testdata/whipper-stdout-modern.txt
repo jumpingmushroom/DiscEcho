@@ -1,0 +1,17 @@
+INFO:whipper.command.cd:checking device /dev/sr0
+INFO:whipper.command.main:loading the AccurateRip™ database, this can take a while
+INFO:whipper.command.cd:picked requested release id b191c347-d368-4ba9-b808-1172a0264e57
+INFO:whipper.command.cd:creating output directory /tmp/whipper-work/soundtrack/Graeme Revell - The Crow: Original Motion Picture Score
+INFO:whipper.command.cd:changing to working directory /tmp/whipper-work
+INFO:whipper.command.cd:ripping track 1 of 4: 01. Graeme Revell - Birth of the Legend.flac
+INFO:whipper.command.cd:checksums match, 1466742a
+INFO:whipper.command.cd:CRCs match for track 1
+INFO:whipper.command.cd:ripping track 2 of 4: 02. Graeme Revell - Resurrection.flac
+INFO:whipper.command.cd:checksums match, 026e9b68
+INFO:whipper.command.cd:CRCs match for track 2
+INFO:whipper.command.cd:ripping track 3 of 4: 03. Graeme Revell - The Crow Descends.flac
+INFO:whipper.command.cd:checksums match, d8c41928
+INFO:whipper.command.cd:CRCs match for track 3
+INFO:whipper.command.cd:ripping track 4 of 4: 04. Graeme Revell - Remembrance.flac
+INFO:whipper.command.cd:checksums match, ab44de01
+INFO:whipper.command.cd:CRCs match for track 4

@@ -6,6 +6,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/jumpingmushroom/DiscEcho/daemon/state"
 	"github.com/jumpingmushroom/DiscEcho/daemon/tools"
@@ -180,6 +181,58 @@ func TestParseWhipperStream_BoundaryProgress(t *testing.T) {
 		if got[i].eta != 0 {
 			t.Errorf("progress[%d].eta: want 0, got %d", i, got[i].eta)
 		}
+	}
+}
+
+func TestParseWhipperStream_ModernPythonLogging_EmitsProgressAndETA(t *testing.T) {
+	// Simulate a slow drive: each parser step advances the clock by
+	// 180s. Track 1 starts at t=0, completes at t=180s; track 2 starts
+	// at t=360s, completes at t=540s; … After track 1's CRCs-match we
+	// have 1 completed track in 180s elapsed → ETA for the remaining 3
+	// tracks is 540s.
+	var nowCalls int
+	base := time.Date(2026, 5, 16, 12, 0, 0, 0, time.UTC)
+	restore := tools.SetWhipperClockForTest(func() time.Time {
+		t := base.Add(time.Duration(nowCalls) * 180 * time.Second)
+		nowCalls++
+		return t
+	})
+	defer restore()
+
+	body, err := os.ReadFile("testdata/whipper-stdout-modern.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sink := &recordingSink{}
+	tools.ParseWhipperStream(strings.NewReader(string(body)), sink)
+
+	got := progressOnly(sink.events)
+	// 4 track-start emits + 4 CRCs-match emits = 8 progress events.
+	wantSeq := []float64{0, 25, 25, 50, 50, 75, 75, 100}
+	if len(got) != len(wantSeq) {
+		t.Fatalf("progress events: want %d, got %d (%v)", len(wantSeq), len(got), got)
+	}
+	for i, want := range wantSeq {
+		if diff := got[i].pct - want; diff > 0.001 || diff < -0.001 {
+			t.Errorf("progress[%d].pct: want %.1f, got %.3f", i, want, got[i].pct)
+		}
+	}
+	// Track 1 start: completed=0 → ETA=0.
+	if got[0].eta != 0 {
+		t.Errorf("progress[0].eta (track 1 start): want 0, got %d", got[0].eta)
+	}
+	// Track 1 CRCs match: completed=1, elapsed=180s, remaining=3 → 540s.
+	if got[1].eta == 0 {
+		t.Error("progress[1].eta (track 1 done): want non-zero, got 0")
+	}
+	// After track 2 completes (completed=2, more elapsed) the ETA
+	// should still be a positive, decreasing-over-time estimate.
+	if got[3].eta == 0 {
+		t.Error("progress[3].eta (track 2 done): want non-zero, got 0")
+	}
+	// Final emit (track 4 done, completed==totalTracks) → ETA=0.
+	if got[7].eta != 0 {
+		t.Errorf("progress[7].eta (track 4 done, all complete): want 0, got %d", got[7].eta)
 	}
 }
 

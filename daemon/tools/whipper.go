@@ -11,9 +11,14 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/jumpingmushroom/DiscEcho/daemon/state"
 )
+
+// whipperNow is a seam so tests can inject a deterministic clock for
+// the time-based ETA computation in parseWhipperLines.
+var whipperNow = time.Now
 
 // FormatLog applies fmt.Sprintf and is exposed so test sinks can format
 // log lines the same way production ones do.
@@ -101,6 +106,16 @@ var (
 	whipperReadingRE    = regexp.MustCompile(`Reading:\s+([0-9.]+)%,\s*([0-9.]+×),\s*ETA:\s*(\d+):(\d+)`)
 	whipperErrorRE      = regexp.MustCompile(`(?i)^(ERROR|FATAL):\s*(.+)$`)
 	whipperTrackOKRE    = regexp.MustCompile(`^Track (\d+) OK \(AccurateRip:\s*(\d+)/\d+`)
+	// Lowercase modern-whipper variants. Real whipper emits everything
+	// through Python's `logging` module — once whipperPyLogRE strips the
+	// `LEVEL:logger.path:` prefix, the inner message looks like
+	// `ripping track 1 of 15: 01. ...flac` (no "(Track N)" suffix and
+	// no per-track `Track N OK` summary). The per-track signal we get
+	// instead is `CRCs match for track N` (or `track N already ripped`
+	// when AccurateRip already covers the track).
+	whipperTrackStartLowerRE    = regexp.MustCompile(`^ripping track (\d+) of (\d+)`)
+	whipperTrackCRCsMatchRE     = regexp.MustCompile(`^CRCs match for track (\d+)`)
+	whipperTrackAlreadyRippedRE = regexp.MustCompile(`^track (\d+) already ripped`)
 	// whipperPyLogRE matches Python `logging` framework output
 	// (`LEVEL:logger.path:message`) which whipper uses for all its
 	// status messages during the startup phase — AccurateRip lookup,
@@ -129,6 +144,25 @@ func parseWhipperStreamShared(r io.Reader, sink Sink, announced *atomic.Bool) {
 func parseWhipperLines(scanner *bufio.Scanner, sink Sink, announced *atomic.Bool) {
 	currentTrack := 0
 	totalTracks := 0
+	var ripStart time.Time
+
+	// etaFor returns a time-based ETA (seconds) given the number of
+	// fully-completed tracks. Returns 0 when there isn't enough signal
+	// yet (no tracks done, or rip hasn't started). The extrapolation
+	// assumes roughly constant per-track read time — true enough for
+	// CDDA, and a useful number on slow drives that never emit
+	// "Reading: NN%" lines.
+	etaFor := func(completed int) int {
+		if completed < 1 || totalTracks <= completed || ripStart.IsZero() {
+			return 0
+		}
+		elapsed := whipperNow().Sub(ripStart).Seconds()
+		if elapsed <= 0 {
+			return 0
+		}
+		remaining := totalTracks - completed
+		return int(elapsed / float64(completed) * float64(remaining))
+	}
 
 	for scanner.Scan() {
 		line := scanner.Text()
@@ -144,19 +178,59 @@ func parseWhipperLines(scanner *bufio.Scanner, sink Sink, announced *atomic.Bool
 			sink.Log(state.LogLevelInfo, "whipper: preparing drive (this can take 1–3 min)")
 		}
 
-		if m := whipperTrackStartRE.FindStringSubmatch(trimmed); m != nil {
+		// Unwrap Python-logging-formatted lines (`LEVEL:logger.path:msg`)
+		// up front. Modern whipper emits every status line — including
+		// the track-start / CRCs-match progress signals — through this
+		// wrapper, so the structured regex checks below have to run on
+		// the unwrapped message. DEBUG is dropped (cdparanoia chatter).
+		level := state.LogLevelInfo
+		msg := trimmed
+		wasPyLog := false
+		if m := whipperPyLogRE.FindStringSubmatch(trimmed); m != nil {
+			if m[1] == "DEBUG" {
+				continue
+			}
+			switch m[1] {
+			case "WARNING":
+				level = state.LogLevelWarn
+			case "ERROR", "FATAL", "CRITICAL":
+				level = state.LogLevelError
+			}
+			msg = strings.TrimSpace(m[2])
+			wasPyLog = true
+		}
+
+		if m := whipperTrackStartRE.FindStringSubmatch(msg); m != nil {
 			t, _ := strconv.Atoi(m[1])
 			n, _ := strconv.Atoi(m[2])
 			currentTrack = t
 			totalTracks = n
+			if ripStart.IsZero() {
+				ripStart = whipperNow()
+			}
 			sink.Log(state.LogLevelInfo, "whipper: starting track %d/%d", t, n)
 			if n > 0 {
-				sink.Progress(float64(t-1)/float64(n)*100, "", 0)
+				sink.Progress(float64(t-1)/float64(n)*100, "", etaFor(t-1))
 			}
 			continue
 		}
 
-		if m := whipperReadingRE.FindStringSubmatch(trimmed); m != nil {
+		if m := whipperTrackStartLowerRE.FindStringSubmatch(msg); m != nil {
+			t, _ := strconv.Atoi(m[1])
+			n, _ := strconv.Atoi(m[2])
+			currentTrack = t
+			totalTracks = n
+			if ripStart.IsZero() {
+				ripStart = whipperNow()
+			}
+			sink.Log(state.LogLevelInfo, "whipper: starting track %d/%d", t, n)
+			if n > 0 {
+				sink.Progress(float64(t-1)/float64(n)*100, "", etaFor(t-1))
+			}
+			continue
+		}
+
+		if m := whipperReadingRE.FindStringSubmatch(msg); m != nil {
 			if currentTrack == 0 || totalTracks == 0 {
 				continue
 			}
@@ -169,38 +243,46 @@ func parseWhipperLines(scanner *bufio.Scanner, sink Sink, announced *atomic.Bool
 			continue
 		}
 
-		if m := whipperTrackOKRE.FindStringSubmatch(trimmed); m != nil {
+		if m := whipperTrackOKRE.FindStringSubmatch(msg); m != nil {
 			tNum, _ := strconv.Atoi(m[1])
 			conf, _ := strconv.Atoi(m[2])
 			sink.Log(state.LogLevelInfo, "whipper: track %d OK (AccurateRip %d)", tNum, conf)
 			if totalTracks > 0 {
-				sink.Progress(float64(tNum)/float64(totalTracks)*100, "", 0)
+				sink.Progress(float64(tNum)/float64(totalTracks)*100, "", etaFor(tNum))
 			}
 			continue
 		}
 
-		if m := whipperErrorRE.FindStringSubmatch(trimmed); m != nil {
+		if m := whipperTrackCRCsMatchRE.FindStringSubmatch(msg); m != nil {
+			tNum, _ := strconv.Atoi(m[1])
+			sink.Log(state.LogLevelInfo, "whipper: CRCs match for track %d", tNum)
+			if totalTracks > 0 {
+				sink.Progress(float64(tNum)/float64(totalTracks)*100, "", etaFor(tNum))
+			}
+			continue
+		}
+
+		if m := whipperTrackAlreadyRippedRE.FindStringSubmatch(msg); m != nil {
+			tNum, _ := strconv.Atoi(m[1])
+			sink.Log(state.LogLevelInfo, "whipper: track %d already ripped", tNum)
+			if totalTracks > 0 {
+				sink.Progress(float64(tNum)/float64(totalTracks)*100, "", etaFor(tNum))
+			}
+			continue
+		}
+
+		if m := whipperErrorRE.FindStringSubmatch(msg); m != nil {
 			sink.Log(state.LogLevelError, "whipper: %s", m[2])
 			continue
 		}
 
-		// Forward Python-logging-formatted output so the user sees
-		// whipper's startup phase activity in the Log tab. DEBUG is
-		// dropped (cdparanoia chatter). Everything else maps to the
-		// matching DiscEcho log level.
-		if m := whipperPyLogRE.FindStringSubmatch(trimmed); m != nil {
-			lvl := m[1]
-			if lvl == "DEBUG" {
-				continue
-			}
-			level := state.LogLevelInfo
-			switch lvl {
-			case "WARNING":
-				level = state.LogLevelWarn
-			case "ERROR", "FATAL", "CRITICAL":
-				level = state.LogLevelError
-			}
-			sink.Log(level, "whipper: %s", strings.TrimSpace(m[2]))
+		// Default: forward the line as a log entry if it came from the
+		// Python-logging wrapper (gives the user whipper's startup-phase
+		// chatter in the Log tab). Lines that aren't wrapped and didn't
+		// match any structured pattern are intentionally ignored to
+		// avoid spamming the UI with raw scanner noise.
+		if wasPyLog {
+			sink.Log(level, "whipper: %s", msg)
 		}
 	}
 }
