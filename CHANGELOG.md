@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+- Re-rip button on the dashboard drive card (desktop and mobile) and on every history row, posting to the existing `/api/discs/{id}/start` endpoint with the last-used profile. Closes the gap where re-ripping a previously-successful disc required clearing the entire history.
+
+### Changed
+- A disc whose only prior jobs failed, were cancelled, or were interrupted now auto-prompts as a candidate-pick card on the dashboard. Previously any prior job — even a failure — hid the disc until history was cleared.
+
 ### Fixed
 - Audio-CD rip progress bar no longer sits at 0% for the full rip; the bar advances at every track boundary even when whipper does not emit per-percent `Reading:` lines.
 
