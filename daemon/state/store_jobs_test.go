@@ -161,6 +161,49 @@ func TestStore_Job_ListActiveAndRecent(t *testing.T) {
 	}
 }
 
+// Regression: ListActiveAndRecentJobs hydrates Steps for every returned
+// job from a single batched query. Without batching, the dashboard's
+// SSE bootstrap fanned out one query per job; the steps must match
+// what ListJobSteps would return per-id.
+func TestStore_Job_ListActiveAndRecent_HydratesSteps(t *testing.T) {
+	s := openStore(t)
+	ctx := context.Background()
+	drv := newDrive(t, s, "/dev/sr0")
+	prof := newProfile(t, s, "CD-FLAC", state.DiscTypeAudioCD)
+	disc := newDisc(t, s, drv)
+
+	jobs := make([]*state.Job, 4)
+	for i := 0; i < 4; i++ {
+		jobs[i] = newJob(t, s, drv, prof, disc)
+	}
+
+	got, err := s.ListActiveAndRecentJobs(ctx, 50)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 4 {
+		t.Fatalf("want 4 jobs, got %d", len(got))
+	}
+	for _, j := range got {
+		if len(j.Steps) == 0 {
+			t.Errorf("job %s has no steps after hydration", j.ID)
+		}
+		want, err := s.ListJobSteps(ctx, j.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(want) != len(j.Steps) {
+			t.Errorf("job %s: hydrated %d steps, per-id query returned %d", j.ID, len(j.Steps), len(want))
+			continue
+		}
+		for i := range want {
+			if want[i].Step != j.Steps[i].Step || want[i].State != j.Steps[i].State {
+				t.Errorf("job %s step %d: hydrated %+v vs per-id %+v", j.ID, i, j.Steps[i], want[i])
+			}
+		}
+	}
+}
+
 func TestStore_Job_UpdateProgress(t *testing.T) {
 	s := openStore(t)
 	ctx := context.Background()

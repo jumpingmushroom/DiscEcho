@@ -903,14 +903,69 @@ func (s *Store) ListActiveAndRecentJobs(ctx context.Context, recentLimit int) ([
 	// the mobile job rows can render the correct dot colors without an
 	// extra round-trip. Without this, /api/state and the SSE snapshot
 	// always return step_count=0 and the stepper renders empty.
-	for i := range out {
-		steps, err := s.ListJobSteps(ctx, out[i].ID)
-		if err != nil {
-			return nil, fmt.Errorf("hydrate steps for %s: %w", out[i].ID, err)
-		}
-		out[i].Steps = steps
+	//
+	// Single batched query: at recentLimit=50 the prior per-job loop did
+	// 51 round-trips, fired on every /api/state and every SSE bootstrap.
+	if err := s.hydrateJobSteps(ctx, out); err != nil {
+		return nil, err
 	}
 	return out, nil
+}
+
+// hydrateJobSteps fills in jobs[i].Steps for every job in the slice
+// using one IN (...) query. Empty slice is a no-op.
+func (s *Store) hydrateJobSteps(ctx context.Context, jobs []Job) error {
+	if len(jobs) == 0 {
+		return nil
+	}
+	ids := make([]any, len(jobs))
+	for i, j := range jobs {
+		ids[i] = j.ID
+	}
+	placeholders := strings.Repeat("?,", len(ids))
+	placeholders = placeholders[:len(placeholders)-1]
+	q := `SELECT job_id, step, state, attempt_count, started_at, finished_at, notes_json
+	      FROM job_steps WHERE job_id IN (` + placeholders + `) ORDER BY job_id, id`
+	rows, err := s.db.Conn().QueryContext(ctx, q, ids...)
+	if err != nil {
+		return fmt.Errorf("hydrate steps: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	byJob := make(map[string][]JobStep, len(jobs))
+	for rows.Next() {
+		var jobID, step, stateStr, startedStr, finishedStr, notesJSON string
+		var attempt int
+		if err := rows.Scan(&jobID, &step, &stateStr, &attempt, &startedStr, &finishedStr, &notesJSON); err != nil {
+			return fmt.Errorf("hydrate steps scan: %w", err)
+		}
+		st := JobStep{
+			Step:         StepID(step),
+			State:        JobStepState(stateStr),
+			AttemptCount: attempt,
+		}
+		if st.StartedAt, err = parseTimePtr(startedStr); err != nil {
+			return fmt.Errorf("parse started_at: %w", err)
+		}
+		if st.FinishedAt, err = parseTimePtr(finishedStr); err != nil {
+			return fmt.Errorf("parse finished_at: %w", err)
+		}
+		if notesJSON != "" && notesJSON != "{}" {
+			var notes map[string]any
+			if err := json.Unmarshal([]byte(notesJSON), &notes); err != nil {
+				return fmt.Errorf("unmarshal notes_json: %w", err)
+			}
+			st.Notes = notes
+		}
+		byJob[jobID] = append(byJob[jobID], st)
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	for i := range jobs {
+		jobs[i].Steps = byJob[jobs[i].ID]
+	}
+	return nil
 }
 
 // HasActiveJobOnDrive reports whether the given drive currently has a
