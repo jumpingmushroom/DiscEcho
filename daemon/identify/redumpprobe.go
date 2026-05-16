@@ -51,18 +51,16 @@ func (p *isoinfoSystemCNFProber) Probe(ctx context.Context, devPath string) (*Sy
 	return ParseSystemCNF(string(out)), nil
 }
 
-// bootLineRE matches both PSX and PS2 boot lines:
+// bootLineRE matches both PSX and PS2 boot lines, case-insensitive:
 //
-//	BOOT  = cdrom:\SCUS_004.34;1
-//	BOOT2 = cdrom0:\SCES_50051.ELF;1
+//	BOOT  = cdrom:\SCUS_004.34;1   (PSX, uppercase)
+//	boot2 = cdrom0:\sces_50051.elf;1   (PS2, rare lowercase shipment)
 //
 // Capture groups:
 //
 //	1 = "" or "2" (PS2 marker)
-//	2 = the boot code (filename stem). For PS2, this is the 5-digit
-//	    form ("SCES_50051"); ParseSystemCNF normalises it to the
-//	    dotted form ("SCES_500.51") so it matches the dat-file key.
-var bootLineRE = regexp.MustCompile(`^\s*BOOT(2)?\s*=\s*cdrom\d?:\\([A-Z]{4}_\d{3}\.\d{2}|[A-Z]{4}_\d{5})`)
+//	2 = the boot code (filename stem)
+var bootLineRE = regexp.MustCompile(`(?i)^\s*BOOT(2)?\s*=\s*cdrom\d?:\\([A-Z]{4}_\d{3}\.\d{2}|[A-Z]{4}_\d{5})`)
 
 // ParseSystemCNF parses raw SYSTEM.CNF content, returning nil if no
 // recognisable BOOT/BOOT2 line is present.
@@ -82,8 +80,8 @@ func ParseSystemCNF(content string) *SystemCNF {
 		if m == nil {
 			continue
 		}
-		isPS2 := m[1] == "2"
-		code := m[2]
+		isPS2 := strings.EqualFold(m[1], "2")
+		code := strings.ToUpper(m[2])
 		// Normalise the PS2 5-digit code (e.g. "SCES_50051") to the
 		// dotted form ("SCES_500.51") so it matches the dat-file
 		// boot-code key.

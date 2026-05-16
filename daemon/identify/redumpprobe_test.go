@@ -66,3 +66,19 @@ func TestNewSystemCNFProber_Default(t *testing.T) {
 		t.Errorf("want error from /dev/null")
 	}
 }
+
+func TestParseSystemCNF_LowercaseBootLine(t *testing.T) {
+	// A small minority of PSX titles ship SYSTEM.CNF with lowercase
+	// `boot = cdrom:\...`. The regex must accept both cases.
+	content := "boot = cdrom:\\SCUS_944.61;1\r\nver = 1.00\r\n"
+	got := identify.ParseSystemCNF(content)
+	if got == nil {
+		t.Fatal("nil result for lowercase boot line")
+	}
+	if got.BootCode != "SCUS_944.61" {
+		t.Errorf("BootCode = %q, want SCUS_944.61", got.BootCode)
+	}
+	if got.IsPS2 {
+		t.Errorf("IsPS2 = true, want false")
+	}
+}
