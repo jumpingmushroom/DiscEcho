@@ -61,24 +61,16 @@ func (h *Handlers) StreamEvents(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// writeSnapshot emits the bootstrap state.snapshot event. Errors from
-// the read calls are logged and the snapshot still goes out (with the
-// erroring section empty), so the SSE stream stays alive even on a
-// transient DB hiccup.
+// writeSnapshot emits the bootstrap state.snapshot event. A DB error
+// is swallowed so the SSE stream stays alive on a transient hiccup;
+// the client receives an empty payload and the next event will
+// refresh the relevant slice.
 func (h *Handlers) writeSnapshot(ctx context.Context, w http.ResponseWriter, flusher http.Flusher) error {
-	drives, _ := h.Store.ListDrives(ctx)
-	jobs, _ := h.Store.ListActiveAndRecentJobs(ctx, 50)
-	discs, _ := h.Store.ListRecentDiscs(ctx, 50)
-	profiles, _ := h.Store.ListProfiles(ctx)
-	settings, _ := h.Store.GetAllSettings(ctx)
-	return writeSSE(w, flusher, "state.snapshot", map[string]any{
-		"drives":   drives,
-		"jobs":     jobs,
-		"discs":    discs,
-		"profiles": profiles,
-		"settings": settings,
-		"stats":    h.computeStats(ctx),
-	})
+	payload, err := h.buildSnapshot(ctx)
+	if err != nil {
+		payload = map[string]any{}
+	}
+	return writeSSE(w, flusher, "state.snapshot", payload)
 }
 
 // writeSSE writes one SSE event in the canonical
