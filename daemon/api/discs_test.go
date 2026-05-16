@@ -673,6 +673,79 @@ func (s *stubIGDB) GameDetails(_ context.Context, _ int) (*identify.IGDBGameDeta
 }
 func (s *stubIGDB) Configured() bool { return true }
 
+// stubDiscHandlerForType is a no-op pipeline handler that reports a given disc type.
+type stubDiscHandlerForType struct {
+	dt state.DiscType
+}
+
+func (s *stubDiscHandlerForType) DiscType() state.DiscType { return s.dt }
+func (s *stubDiscHandlerForType) Identify(_ context.Context, _ *state.Drive) (*state.Disc, []state.Candidate, error) {
+	return nil, nil, nil
+}
+func (s *stubDiscHandlerForType) Plan(_ *state.Disc, _ *state.Profile) []pipelines.StepPlan {
+	return nil
+}
+func (s *stubDiscHandlerForType) Run(_ context.Context, _ *state.Drive, _ *state.Disc, _ *state.Profile, _ pipelines.EventSink) error {
+	return nil
+}
+
+func TestStartDisc_IGDBCandidate_PersistsIGDBIDAsMetadataID(t *testing.T) {
+	reg := pipelines.NewRegistry()
+	reg.Register(&stubDiscHandlerForType{dt: state.DiscTypePS2})
+	h := apitestServerWithOrch(t, reg)
+	drv := seedDrive(t, h)
+	prof := seedProfile(t, h)
+	disc := seedDiscOfType(t, h, drv.ID, state.DiscTypePS2)
+	disc.Candidates = []state.Candidate{
+		{Source: "IGDB", Title: "Sly 3", Year: 2005, IGDBID: 12345, Confidence: 25},
+	}
+	if err := h.Store.UpdateDiscCandidates(context.Background(), disc.ID, disc.Candidates); err != nil {
+		t.Fatal(err)
+	}
+	h.IGDB = &stubIGDB{
+		details: &identify.IGDBGameDetails{
+			ID:       12345,
+			Name:     "Sly 3",
+			CoverURL: "https://images.igdb.com/igdb/image/upload/t_cover_big/abc.jpg",
+		},
+	}
+
+	r := chi.NewRouter()
+	r.Post("/api/discs/{id}/start", h.StartDisc)
+
+	body := bytes.NewBufferString(`{"profile_id":"` + prof.ID + `","candidate_index":0}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/discs/"+disc.ID+"/start", body)
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+	r.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", rr.Code, rr.Body.String())
+	}
+	updated, err := h.Store.GetDisc(context.Background(), disc.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.MetadataProvider != "IGDB" {
+		t.Errorf("MetadataProvider = %q, want IGDB", updated.MetadataProvider)
+	}
+	if updated.MetadataID != "12345" {
+		t.Errorf("MetadataID = %q, want 12345", updated.MetadataID)
+	}
+
+	// Drain the orchestrator's stub job so cleanup doesn't race.
+	var j state.Job
+	_ = json.Unmarshal(rr.Body.Bytes(), &j)
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		gj, err := h.Store.GetJob(context.Background(), j.ID)
+		if err == nil && (gj.State == state.JobStateDone || gj.State == state.JobStateFailed) {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
 func TestIdentifyDisc_GameDiscDispatchesToIGDB(t *testing.T) {
 	h := apitestServer(t)
 	drv := seedDrive(t, h)

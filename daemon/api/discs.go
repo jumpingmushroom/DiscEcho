@@ -63,15 +63,17 @@ func (h *Handlers) StartDisc(w http.ResponseWriter, r *http.Request) {
 	// the source of truth once submitted.
 	if req.CandidateIndex >= 0 && req.CandidateIndex < len(disc.Candidates) {
 		c := disc.Candidates[req.CandidateIndex]
-		// MBID is set for MusicBrainz candidates; TMDBID for TMDB
-		// (movie/TV) candidates. Pick whichever is present so the
-		// chosen candidate's ID actually persists.
+		// Pick the source-appropriate ID so the chosen candidate's
+		// identity actually persists. MBID for MusicBrainz, TMDBID
+		// for TMDB (movie/TV), IGDBID for game discs.
 		var metaID string
 		switch {
 		case c.MBID != "":
 			metaID = c.MBID
 		case c.TMDBID > 0:
 			metaID = strconv.Itoa(c.TMDBID)
+		case c.IGDBID > 0:
+			metaID = strconv.Itoa(c.IGDBID)
 		}
 		// Persist the chosen identity. The orchestrator re-reads the
 		// disc row inside Submit, so without this the user choice is
@@ -298,6 +300,18 @@ func (h *Handlers) fetchExtendedMetadata(ctx context.Context, disc *state.Disc, 
 			return "", err
 		}
 		payload = m
+	case c.IGDBID > 0 && h.IGDB != nil:
+		g, err := h.IGDB.GameDetails(ctx, c.IGDBID)
+		if err != nil {
+			return "", err
+		}
+		payload = map[string]any{
+			"system":    gameSystemName(disc.Type),
+			"serial":    strconv.Itoa(c.IGDBID),
+			"cover_url": g.CoverURL,
+			"summary":   g.Summary,
+			"platforms": g.Platforms,
+		}
 	case isGameDisc(disc.Type) && c.Source == "Redump":
 		// Game discs build their blob from already-stored candidate data
 		// (Redump matched at identify time). No external fetch needed.
