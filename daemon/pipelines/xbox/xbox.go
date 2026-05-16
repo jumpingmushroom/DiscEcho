@@ -5,8 +5,8 @@
 //	detect → identify → rip (redumper xbox) → move → notify → eject
 //
 // Identify reads default.xbe off the disc via isoinfo, parses the XBE
-// certificate for title ID, and looks up against the user-supplied Redump dat.
-// ErrNoCandidates surfaces when the dat is missing OR the title ID is unknown.
+// certificate for title ID, then tries Redump dat (tier 1) and BootCodeIndex
+// (tier 2). ErrNoCandidates surfaces when both miss.
 package xbox
 
 import (
@@ -65,13 +65,14 @@ type RedumperRipper interface {
 
 // Deps bundles the handler's dependencies.
 type Deps struct {
-	Redumper       RedumperRipper
-	XboxProber     XboxProber
-	RedumpDB       *identify.RedumpDB
-	Tools          *tools.Registry // looked up: apprise, eject
-	LibraryRoot    string
-	WorkRoot       string
-	LibraryProbe   func(string) error
+	Redumper      RedumperRipper
+	XboxProber    XboxProber
+	RedumpDB      *identify.RedumpDB
+	BootCodeIndex *identify.BootCodeIndex // Tier-2 fallback when Redump dat lacks the title ID
+	Tools         *tools.Registry         // looked up: apprise, eject
+	LibraryRoot   string
+	WorkRoot      string
+	LibraryProbe  func(string) error
 	URLsForTrigger func(ctx context.Context, trigger string) []string
 	// ShouldEject gates the rip-end eject step; nil = always eject.
 	ShouldEject func(ctx context.Context) bool
@@ -90,14 +91,12 @@ func New(d Deps) *Handler {
 
 func (h *Handler) DiscType() state.DiscType { return state.DiscTypeXBOX }
 
-// Identify reads default.xbe via isoinfo, looks up title ID in RedumpDB.
+// Identify reads default.xbe via isoinfo, then tries two tiers of lookup:
+// tier 1 — Redump dat (also enables post-rip MD5 verify when it hits);
+// tier 2 — BootCodeIndex (Libretro).
 func (h *Handler) Identify(ctx context.Context, drv *state.Drive) (*state.Disc, []state.Candidate, error) {
 	disc := &state.Disc{Type: state.DiscTypeXBOX, DriveID: drv.ID}
 
-	if h.deps.RedumpDB == nil {
-		slog.Warn("xbox: redump xbox.dat missing", "dev", drv.DevPath)
-		return disc, nil, pipelines.ErrNoCandidates
-	}
 	if h.deps.XboxProber == nil {
 		return nil, nil, errors.New("xbox: XboxProber not configured")
 	}
@@ -108,24 +107,42 @@ func (h *Handler) Identify(ctx context.Context, drv *state.Drive) (*state.Disc, 
 	if info == nil {
 		return disc, nil, pipelines.ErrNoCandidates
 	}
-	entry := h.deps.RedumpDB.LookupByXboxTitleID(info.TitleID)
-	if entry == nil {
-		return disc, nil, pipelines.ErrNoCandidates
-	}
-	disc.Title = entry.Title
-	disc.Year = entry.Year
-	disc.MetadataProvider = "Redump"
+
 	// Store the 8-hex-digit title ID so Run can re-fetch the entry for MD5 verify.
-	disc.MetadataID = fmt.Sprintf("%08X", info.TitleID)
-	cand := state.Candidate{
-		Source:     "Redump",
-		Title:      entry.Title,
-		Year:       entry.Year,
-		Region:     entry.Region,
-		Confidence: 100,
+	code := fmt.Sprintf("%08X", info.TitleID)
+
+	// Tier 1: Redump dat.
+	if h.deps.RedumpDB != nil {
+		if entry := h.deps.RedumpDB.LookupByXboxTitleID(info.TitleID); entry != nil {
+			disc.Title = entry.Title
+			disc.Year = entry.Year
+			disc.MetadataProvider = "Redump"
+			disc.MetadataID = code
+			disc.Candidates = []state.Candidate{{
+				Source: "Redump", Title: entry.Title, Year: entry.Year,
+				Region: entry.Region, Confidence: 100,
+			}}
+			return disc, disc.Candidates, nil
+		}
 	}
-	disc.Candidates = []state.Candidate{cand}
-	return disc, disc.Candidates, nil
+
+	// Tier 2: BootCodeIndex (Libretro).
+	if h.deps.BootCodeIndex != nil {
+		if entry := h.deps.BootCodeIndex.Lookup(state.DiscTypeXBOX, code); entry != nil {
+			disc.Title = entry.Title
+			disc.Year = entry.Year
+			disc.MetadataProvider = h.deps.BootCodeIndex.Source(state.DiscTypeXBOX)
+			disc.MetadataID = code
+			disc.Candidates = []state.Candidate{{
+				Source: disc.MetadataProvider, Title: entry.Title, Year: entry.Year,
+				Region: entry.Region, Confidence: 90,
+			}}
+			return disc, disc.Candidates, nil
+		}
+	}
+
+	slog.Info("xbox: no Redump or BootCodeIndex match", "dev", drv.DevPath, "title_id", code)
+	return disc, nil, pipelines.ErrNoCandidates
 }
 
 // Plan returns the 6-active-step plan; both transcode and compress are skipped.

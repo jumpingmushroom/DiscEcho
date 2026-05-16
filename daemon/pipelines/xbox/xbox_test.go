@@ -239,5 +239,35 @@ func TestRun_RipFailure(t *testing.T) {
 	}
 }
 
+func TestXboxIdentify_BootCodeIndexFallback(t *testing.T) {
+	idx := identify.NewBootCodeIndex()
+	if err := idx.MergeFile(state.DiscTypeXBOX, []byte(`{
+		"system":"XBOX","source":"Libretro","entries":{
+			"4D530002":{"title":"Halo: Combat Evolved","region":"USA","year":2001}
+		}
+	}`)); err != nil {
+		t.Fatal(err)
+	}
+
+	h := xbox.New(xbox.Deps{
+		XboxProber:    &fakeXboxProber{info: &identify.XboxInfo{TitleID: 0x4D530002}},
+		RedumpDB:      identify.NewEmptyRedumpDB(),
+		BootCodeIndex: idx,
+	})
+	disc, cands, err := h.Identify(context.Background(), &state.Drive{ID: "drv1"})
+	if err != nil {
+		t.Fatalf("Identify: %v", err)
+	}
+	if disc.Title != "Halo: Combat Evolved" {
+		t.Errorf("Title = %q", disc.Title)
+	}
+	if disc.MetadataID != "4D530002" {
+		t.Errorf("MetadataID = %q", disc.MetadataID)
+	}
+	if len(cands) != 1 || cands[0].Confidence != 90 {
+		t.Errorf("cands = %+v", cands)
+	}
+}
+
 // Compile-time guard.
 var _ = pipelines.ErrNoCandidates
