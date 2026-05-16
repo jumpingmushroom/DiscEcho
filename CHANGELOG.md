@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.14.0] - 2026-05-16
+
 ### Added
 - Re-rip button on the dashboard drive card (desktop and mobile) and on every history row, posting to the existing `/api/discs/{id}/start` endpoint with the last-used profile. Closes the gap where re-ripping a previously-successful disc required clearing the entire history.
 
