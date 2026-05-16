@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/jumpingmushroom/DiscEcho/daemon/identify"
@@ -52,6 +53,10 @@ type fakeWhipper struct {
 	// `album/<Artist> - <Album>/` inside the working dir; the empty
 	// default keeps older tests that expected flat output working.
 	subdir string
+	// nameFn, if non-nil, builds the per-track filename. Defaults to
+	// `trackNN.flac`. Real whipper writes `NN. Artist - Title.flac`; the
+	// duplicate-track-number test uses that shape to pin the strip.
+	nameFn func(trackInfo) string
 }
 
 func (f *fakeWhipper) Name() string { return "whipper" }
@@ -65,7 +70,12 @@ func (f *fakeWhipper) Run(_ context.Context, _ []string, _ map[string]string,
 		}
 	}
 	for _, tr := range f.tracks {
-		fname := fmt.Sprintf("track%02d.flac", tr.num)
+		var fname string
+		if f.nameFn != nil {
+			fname = f.nameFn(tr)
+		} else {
+			fname = fmt.Sprintf("track%02d.flac", tr.num)
+		}
 		_ = os.WriteFile(filepath.Join(dir, fname), []byte("fake"), 0o644)
 		sink.Progress(float64(tr.num)/float64(len(f.tracks))*100, "10×", 5)
 	}
@@ -362,5 +372,77 @@ func TestAudioCD_Run_FailsLoudlyWhenWhipperProducesNoFLACs(t *testing.T) {
 	}
 	if !moveFailed {
 		t.Error("expected StepMove failure event")
+	}
+}
+
+// TestAudioCD_Run_StripsWhipperTrackPrefix pins the bug where the
+// default audio-CD template (`{{printf "%02d" .TrackNumber}} - {{.Title}}.flac`)
+// rendered the track number twice because whipper's per-track filename
+// already starts with `NN. Artist - Title`. moveOutputs now strips that
+// prefix before feeding the basename in as `.Title`.
+func TestAudioCD_Run_StripsWhipperTrackPrefix(t *testing.T) {
+	libRoot := t.TempDir()
+
+	whip := &fakeWhipper{
+		subdir: "album/Graeme Revell - The Crow",
+		tracks: []trackInfo{
+			{num: 1, title: "Birth of the Legend"},
+			{num: 2, title: "Resurrection"},
+		},
+		nameFn: func(tr trackInfo) string {
+			return fmt.Sprintf("%02d. Graeme Revell - %s.flac", tr.num, tr.title)
+		},
+	}
+	reg := tools.NewRegistry()
+	reg.Register(whip)
+	reg.Register(tools.NewMockTool("apprise", nil))
+	reg.Register(tools.NewMockTool("eject", nil))
+
+	h := audiocd.New(audiocd.Deps{
+		Tools:        reg,
+		LibraryRoot:  libRoot,
+		WorkRoot:     t.TempDir(),
+		LibraryProbe: func(string) error { return nil },
+	})
+
+	drv := &state.Drive{ID: "drv-1", DevPath: "/dev/sr0"}
+	disc := &state.Disc{
+		ID: "disc-crow", Type: state.DiscTypeAudioCD, DriveID: "drv-1",
+		Title: "The Crow", Year: 1994,
+		MetadataID: "crow-mb",
+		Candidates: []state.Candidate{
+			{Source: "MusicBrainz", Title: "The Crow", Artist: "Graeme Revell", Year: 1994, MBID: "crow-mb"},
+		},
+	}
+	prof := &state.Profile{
+		DiscType: state.DiscTypeAudioCD, Engine: "whipper", Format: "FLAC",
+		OutputPathTemplate: `{{.Artist}}/{{.Album}} ({{.Year}})/{{printf "%02d" .TrackNumber}} - {{.Title}}.flac`,
+	}
+
+	sink := testutil.NewRecordingSink()
+	if err := h.Run(context.Background(), drv, disc, prof, sink); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	matches, _ := filepath.Glob(filepath.Join(libRoot, "Graeme Revell", "The Crow (1994)", "*.flac"))
+	if len(matches) != 2 {
+		t.Fatalf("want 2 FLACs, got %d (%v)", len(matches), matches)
+	}
+	for _, m := range matches {
+		base := filepath.Base(m)
+		// Reject the dup-prefix shape: `NN - NN. ...`.
+		if strings.HasPrefix(base, "01 - 01.") || strings.HasPrefix(base, "02 - 02.") {
+			t.Errorf("track-number prefix not stripped: %s", base)
+		}
+	}
+	wantNames := map[string]bool{
+		"01 - Graeme Revell - Birth of the Legend.flac": true,
+		"02 - Graeme Revell - Resurrection.flac":        true,
+	}
+	for _, m := range matches {
+		base := filepath.Base(m)
+		if !wantNames[base] {
+			t.Errorf("unexpected filename: %s", base)
+		}
 	}
 }

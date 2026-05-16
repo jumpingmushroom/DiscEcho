@@ -6,6 +6,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Fixed
+- Audio-CD ripped filenames no longer duplicate the track number (e.g. `01 - 01. Artist - Title.flac`). Whipper writes each track as `NN. Artist - Title.flac`, and the default output template already prefixes `NN - `, so the leading `NN. ` from whipper's filename is now stripped before the basename is fed to the template as `.Title`.
+
 ## [0.15.1] - 2026-05-16
 
 ### Fixed

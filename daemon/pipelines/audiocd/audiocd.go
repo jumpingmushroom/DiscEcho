@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -241,7 +242,7 @@ func (h *Handler) moveOutputs(tmpdir string, disc *state.Disc, prof *state.Profi
 			Album:       disc.Title,
 			Year:        disc.Year,
 			TrackNumber: trackNumberFromFilename(name),
-			Title:       strings.TrimSuffix(name, ext),
+			Title:       stripTrackPrefix(strings.TrimSuffix(name, ext)),
 		}
 		if len(disc.Candidates) > 0 {
 			fields.Artist = disc.Candidates[0].Artist
@@ -261,6 +262,23 @@ func (h *Handler) moveOutputs(tmpdir string, disc *state.Disc, prof *state.Profi
 		moved = append(moved, dst)
 	}
 	return moved, nil
+}
+
+// trackPrefixRE matches the leading track-number marker whipper emits at
+// the start of a per-track filename, so it can be removed before the
+// remainder is fed to the output-path template as `.Title`. The default
+// audio-CD template already prepends `{{printf "%02d" .TrackNumber}} - `,
+// and without this strip the rendered name carries the track number
+// twice (e.g. `01 - 01. Artist - Title.flac`).
+//
+// Covers the two shapes we actually see:
+//   - real whipper: `NN. Artist - Title` (default whipper template
+//     `%a - %d/%t. %a - %n`)
+//   - test fakes: `trackNN`
+var trackPrefixRE = regexp.MustCompile(`(?i)^(track)?\s*\d+\s*[.\-)\s]*`)
+
+func stripTrackPrefix(name string) string {
+	return trackPrefixRE.ReplaceAllString(name, "")
 }
 
 func trackNumberFromFilename(name string) int {
