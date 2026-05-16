@@ -1,0 +1,10 @@
+{
+  "system": "PS2",
+  "source": "synthetic test fixture",
+  "source_url": "",
+  "fetched_at": "2026-05-16T18:00:00Z",
+  "entries": {
+    "SCES_534.09": {"title": "Sly 3: Honor Among Thieves", "region": "Europe", "year": 0, "cover_url": ""},
+    "SCUS_973.30": {"title": "God of War", "region": "USA", "year": 2005, "cover_url": ""}
+  }
+}

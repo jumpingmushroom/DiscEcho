@@ -13,8 +13,10 @@ coverage.html
 
 # Local data + secrets
 data/
-# Negation: daemon/pipelines/data/ is source code, not a data directory.
+# Negation: daemon/pipelines/data/ and daemon/identify/data/ are source code,
+# not data directories.
 !daemon/pipelines/data/
+!daemon/identify/data/
 config/
 .env
 .env.local
