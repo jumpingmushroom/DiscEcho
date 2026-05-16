@@ -6,6 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.16.3] - 2026-05-16
+
+### Fixed
+- PS2 / Xbox compress step no longer fails with `chdman: exit status 1`. The pipeline was calling `chdman createdvd` for `.iso` inputs, but the dedicated `createdvd` subcommand was only added in MAME 0.252 (April 2023); Debian bookworm's `mame-tools` is pinned at 0.251 and rejects `createdvd` as an unknown command. Switched to `chdman createraw --unitsize 2048 --hunksize 8192 --compression lzma,zlib`, which is the equivalent invocation that 0.251 supports. Produces a CHD that PCSX2 / RetroArch / libchdr load identically — only difference is the missing DVD-typed CHD metadata block, which players don't need to mount the image.
+
 ## [0.16.2] - 2026-05-16
 
 ### Fixed
