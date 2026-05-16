@@ -1,14 +1,47 @@
 {
   "id": "1a0ba71b-fb23-3931-a426-3e4ab35f2a7c",
   "title": "Kind of Blue",
-  "label-info": [{"label": {"name": "Columbia"}, "catalog-number": "CL 1355"}],
-  "media": [{
-    "tracks": [
-      {"position": 1, "title": "So What", "length": 562000},
-      {"position": 2, "title": "Freddie Freeloader", "length": 586000},
-      {"position": 3, "title": "Blue in Green", "length": 337000},
-      {"position": 4, "title": "All Blues", "length": 693000},
-      {"position": 5, "title": "Flamenco Sketches", "length": 566000}
-    ]
-  }]
+  "label-info": [
+    {
+      "label": {
+        "name": "Columbia"
+      },
+      "catalog-number": "CL 1355"
+    }
+  ],
+  "media": [
+    {
+      "tracks": [
+        {
+          "position": 1,
+          "title": "So What",
+          "length": 562000
+        },
+        {
+          "position": 2,
+          "title": "Freddie Freeloader",
+          "length": 586000
+        },
+        {
+          "position": 3,
+          "title": "Blue in Green",
+          "length": 337000
+        },
+        {
+          "position": 4,
+          "title": "All Blues",
+          "length": 693000
+        },
+        {
+          "position": 5,
+          "title": "Flamenco Sketches",
+          "length": 566000
+        }
+      ]
+    }
+  ],
+  "release-group": {
+    "id": "7c3218d7-75e0-4e8c-971f-8a3a0a3a3a3a",
+    "title": "Kind of Blue"
+  }
 }

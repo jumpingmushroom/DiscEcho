@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom/vitest';
 import { describe, it, expect } from 'vitest';
-import { render } from '@testing-library/svelte';
+import { fireEvent, render } from '@testing-library/svelte';
 import DiscArt from './DiscArt.svelte';
 import type { Disc } from '$lib/wire';
 
@@ -77,6 +77,29 @@ describe('DiscArt', () => {
     expect(container.querySelector('img')?.getAttribute('src')).toBe(
       'https://example.com/custom.jpg',
     );
+  });
+
+  it('falls back to the release-group CAA URL after the release URL 404s', async () => {
+    const audio: Disc = {
+      ...baseDisc,
+      type: 'AUDIO_CD',
+      metadata_provider: 'MusicBrainz',
+      metadata_id: '7ad65c20-9abd-4e78-afcb-39b1ed445041',
+      metadata_json: JSON.stringify({
+        release_group_mbid: '3544bef9-6999-3e3a-978f-5f47b894f6fd',
+      }),
+    };
+    const { container } = render(DiscArt, { disc: audio, size: 56 });
+    const img = container.querySelector('img')!;
+    expect(img.getAttribute('src')).toBe(
+      'https://coverartarchive.org/release/7ad65c20-9abd-4e78-afcb-39b1ed445041/front-250',
+    );
+    await fireEvent.error(img);
+    expect(container.querySelector('img')?.getAttribute('src')).toBe(
+      'https://coverartarchive.org/release-group/3544bef9-6999-3e3a-978f-5f47b894f6fd/front-250',
+    );
+    await fireEvent.error(container.querySelector('img')!);
+    expect(container.querySelector('img')).toBeNull();
   });
 
   it('does not synthesise a CAA URL for non-audio discs', () => {

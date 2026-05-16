@@ -200,6 +200,9 @@ func TestMusicBrainz_ReleaseDetails(t *testing.T) {
 	if d.Tracks[0].Number != 1 || d.Tracks[0].Title != "So What" || d.Tracks[0].DurationSeconds != 562 {
 		t.Errorf("track[0]: %+v", d.Tracks[0])
 	}
+	if d.ReleaseGroupMBID != "7c3218d7-75e0-4e8c-971f-8a3a0a3a3a3a" {
+		t.Errorf("release_group_mbid: %q", d.ReleaseGroupMBID)
+	}
 }
 
 func TestMusicBrainz_ReleaseDetails_EmptyMBID(t *testing.T) {

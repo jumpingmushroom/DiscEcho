@@ -31,6 +31,12 @@ type AudioCDMetadata struct {
 	CatalogNumber string       `json:"catalog_number,omitempty"`
 	Tracks        []AudioTrack `json:"tracks,omitempty"`
 	CoverURL      string       `json:"cover_url,omitempty"`
+	// ReleaseGroupMBID lets the UI fall back to the release-group's
+	// cover-art when the specific release has none. Cover Art Archive
+	// serves art at both /release/{id}/front and /release-group/{id}/front,
+	// and the release-group level is populated far more often (a single
+	// album cover used across reissues, regional pressings, etc.).
+	ReleaseGroupMBID string `json:"release_group_mbid,omitempty"`
 }
 
 // AudioTrack is one entry in AudioCDMetadata.Tracks. Named to avoid a

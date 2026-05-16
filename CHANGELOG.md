@@ -6,6 +6,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+- Cover art for audio CDs now falls back to the MusicBrainz release-group when the specific release has none on Cover Art Archive. Many releases (regional pressings, reissues) have no art at the release level but the release-group nearly always does — DiscArt builds a CAA candidate list (`/release/<id>/front-250` → `/release-group/<id>/front-250` → placeholder) and walks it on `<img>` error. The daemon now fetches and persists the release-group MBID into `disc.metadata_json` during audio-CD identify.
+
 ### Changed
 - Pipeline step lists hide steps the handler marked as skipped instead of showing them with a `skipped` label. Audio-CD jobs no longer surface Transcode and Compress as separate "skipped" rows — whipper does the FLAC encode inside Rip, so the rows were an internal accounting detail, not something the user did or didn't do.
 

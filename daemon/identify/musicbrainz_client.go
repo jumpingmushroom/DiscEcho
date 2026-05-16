@@ -186,7 +186,7 @@ func (c *mbClient) ReleaseDetails(ctx context.Context, mbid string) (AudioCDMeta
 
 	u := strings.TrimRight(c.cfg.BaseURL, "/") +
 		"/ws/2/release/" + mbid +
-		"?fmt=json&inc=recordings+labels"
+		"?fmt=json&inc=recordings+labels+release-groups"
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 	if err != nil {
 		return AudioCDMetadata{}, fmt.Errorf("build request: %w", err)
@@ -227,6 +227,7 @@ func (c *mbClient) ReleaseDetails(ctx context.Context, mbid string) (AudioCDMeta
 			})
 		}
 	}
+	out.ReleaseGroupMBID = raw.ReleaseGroup.ID
 	return out, nil
 }
 
@@ -246,6 +247,9 @@ type mbReleaseResponse struct {
 			Length   int    `json:"length"`
 		} `json:"tracks"`
 	} `json:"media"`
+	ReleaseGroup struct {
+		ID string `json:"id"`
+	} `json:"release-group"`
 }
 
 func (c *mbClient) waitForRateLimit(ctx context.Context) error {
