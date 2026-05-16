@@ -4,10 +4,8 @@
 //
 //	detect → identify → rip (redumper) → compress (chdman) → move → notify → eject
 //
-// Identify reads Saturn IP.BIN off sector 0 of the disc, looks up the
-// product number against the user-supplied Redump dat.
-// ErrNoCandidates surfaces when the dat is missing OR the product number
-// is unknown — both fall through to manualIdentify (M2.2 sheet).
+// Identify reads Saturn IP.BIN off sector 0 of the disc, then tries Redump
+// dat (tier 1) and BootCodeIndex (tier 2). ErrNoCandidates surfaces when both miss.
 package saturn
 
 import (
@@ -17,6 +15,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/jumpingmushroom/DiscEcho/daemon/identify"
 	"github.com/jumpingmushroom/DiscEcho/daemon/pipelines"
@@ -36,14 +35,15 @@ type CHDManCompressor interface {
 
 // Deps bundles the handler's dependencies.
 type Deps struct {
-	Redumper       RedumperRipper
-	CHDMan         CHDManCompressor
-	SaturnProber   identify.SaturnProber
-	RedumpDB       *identify.RedumpDB
-	Tools          *tools.Registry // looked up: apprise, eject
-	LibraryRoot    string
-	WorkRoot       string
-	LibraryProbe   func(string) error
+	Redumper      RedumperRipper
+	CHDMan        CHDManCompressor
+	SaturnProber  identify.SaturnProber
+	RedumpDB      *identify.RedumpDB
+	BootCodeIndex *identify.BootCodeIndex // Tier-2 fallback when Redump dat lacks bracketed product numbers
+	Tools         *tools.Registry         // looked up: apprise, eject
+	LibraryRoot   string
+	WorkRoot      string
+	LibraryProbe  func(string) error
 	URLsForTrigger func(ctx context.Context, trigger string) []string
 	// ShouldEject gates the rip-end eject step; nil = always eject.
 	ShouldEject func(ctx context.Context) bool
@@ -61,14 +61,11 @@ func New(d Deps) *Handler {
 
 func (h *Handler) DiscType() state.DiscType { return state.DiscTypeSAT }
 
-// Identify reads Saturn IP.BIN, looks up the product number in RedumpDB.
+// Identify reads Saturn IP.BIN, then tries two tiers of lookup:
+// tier 1 — Redump dat; tier 2 — BootCodeIndex (Libretro).
 func (h *Handler) Identify(ctx context.Context, drv *state.Drive) (*state.Disc, []state.Candidate, error) {
 	disc := &state.Disc{Type: state.DiscTypeSAT, DriveID: drv.ID}
 
-	if h.deps.RedumpDB == nil {
-		slog.Warn("saturn: redump saturn.dat missing", "dev", drv.DevPath)
-		return disc, nil, pipelines.ErrNoCandidates
-	}
 	if h.deps.SaturnProber == nil {
 		return nil, nil, errors.New("saturn: SaturnProber not configured")
 	}
@@ -79,23 +76,44 @@ func (h *Handler) Identify(ctx context.Context, drv *state.Drive) (*state.Disc, 
 	if info == nil || info.ProductNumber == "" {
 		return disc, nil, pipelines.ErrNoCandidates
 	}
-	entry := h.deps.RedumpDB.LookupByBootCode(info.ProductNumber)
-	if entry == nil {
+
+	code := strings.ToUpper(strings.TrimSpace(info.ProductNumber))
+	if code == "" {
 		return disc, nil, pipelines.ErrNoCandidates
 	}
-	disc.Title = entry.Title
-	disc.Year = entry.Year
-	disc.MetadataProvider = "Redump"
-	disc.MetadataID = info.ProductNumber
-	cand := state.Candidate{
-		Source:     "Redump",
-		Title:      entry.Title,
-		Year:       entry.Year,
-		Region:     entry.Region,
-		Confidence: 100,
+
+	// Tier 1: Redump dat.
+	if h.deps.RedumpDB != nil {
+		if entry := h.deps.RedumpDB.LookupByBootCode(code); entry != nil {
+			disc.Title = entry.Title
+			disc.Year = entry.Year
+			disc.MetadataProvider = "Redump"
+			disc.MetadataID = entry.BootCode
+			disc.Candidates = []state.Candidate{{
+				Source: "Redump", Title: entry.Title, Year: entry.Year,
+				Region: entry.Region, Confidence: 100,
+			}}
+			return disc, disc.Candidates, nil
+		}
 	}
-	disc.Candidates = []state.Candidate{cand}
-	return disc, disc.Candidates, nil
+
+	// Tier 2: BootCodeIndex (Libretro).
+	if h.deps.BootCodeIndex != nil {
+		if entry := h.deps.BootCodeIndex.Lookup(state.DiscTypeSAT, code); entry != nil {
+			disc.Title = entry.Title
+			disc.Year = entry.Year
+			disc.MetadataProvider = h.deps.BootCodeIndex.Source(state.DiscTypeSAT)
+			disc.MetadataID = code
+			disc.Candidates = []state.Candidate{{
+				Source: disc.MetadataProvider, Title: entry.Title, Year: entry.Year,
+				Region: entry.Region, Confidence: 90,
+			}}
+			return disc, disc.Candidates, nil
+		}
+	}
+
+	slog.Info("sat: no Redump or BootCodeIndex match", "dev", drv.DevPath, "product", code)
+	return disc, nil, pipelines.ErrNoCandidates
 }
 
 // Plan returns the 7-active-step plan; transcode is skipped.

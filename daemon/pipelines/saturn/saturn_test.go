@@ -261,5 +261,38 @@ func TestRun_RipFailure(t *testing.T) {
 	}
 }
 
+func TestSaturnIdentify_BootCodeIndexFallback(t *testing.T) {
+	idx := identify.NewBootCodeIndex()
+	if err := idx.MergeFile(state.DiscTypeSAT, []byte(`{
+		"system":"SAT","source":"Libretro","entries":{
+			"MK-81088":{"title":"NiGHTS into Dreams...","region":"USA"}
+		}
+	}`)); err != nil {
+		t.Fatal(err)
+	}
+
+	h := saturn.New(saturn.Deps{
+		SaturnProber:  &fakeSaturnProber{info: &identify.SaturnInfo{ProductNumber: "MK-81088"}},
+		RedumpDB:      identify.NewEmptyRedumpDB(),
+		BootCodeIndex: idx,
+	})
+	disc, cands, err := h.Identify(context.Background(), &state.Drive{ID: "drv1"})
+	if err != nil {
+		t.Fatalf("Identify: %v", err)
+	}
+	if disc.Title != "NiGHTS into Dreams..." {
+		t.Errorf("Title = %q", disc.Title)
+	}
+	if disc.MetadataProvider != "Libretro" {
+		t.Errorf("MetadataProvider = %q", disc.MetadataProvider)
+	}
+	if disc.MetadataID != "MK-81088" {
+		t.Errorf("MetadataID = %q", disc.MetadataID)
+	}
+	if len(cands) != 1 || cands[0].Confidence != 90 {
+		t.Errorf("cands = %+v, want one entry at confidence 90", cands)
+	}
+}
+
 // Compile-time guard.
 var _ = pipelines.ErrNoCandidates
