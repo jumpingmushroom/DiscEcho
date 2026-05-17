@@ -54,8 +54,15 @@ var cdInfoErrorMarkers = []string{
 // drive retries internally. The classifier has everything it needs as
 // soon as cd-info prints "Disc mode is listed as: …", so we don't wait
 // for the rest of the run.
+// perCallCDInfoTimeout caps each cd-info invocation so a single
+// drive-hang doesn't eat the caller's whole deadline. The retry loop
+// in runCDInfo moves on after backoff when this fires.
+const perCallCDInfoTimeout = 25 * time.Second
+
 func defaultCDInfoRunner(ctx context.Context, bin, devPath string) ([]byte, error) {
-	cmd := exec.CommandContext(ctx, bin, devPath) //nolint:gosec // bin path is configured by the operator.
+	cctx, cancel := context.WithTimeout(ctx, perCallCDInfoTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(cctx, bin, devPath) //nolint:gosec // bin path is configured by the operator.
 	w := newCDInfoWatcher(cdInfoDiscModePrefix)
 	cmd.Stdout = w
 	cmd.Stderr = w
@@ -80,10 +87,10 @@ func defaultCDInfoRunner(ctx context.Context, bin, devPath string) ([]byte, erro
 		_ = cmd.Process.Kill()
 		<-done
 		return w.Bytes(), nil
-	case <-ctx.Done():
+	case <-cctx.Done():
 		_ = cmd.Process.Kill()
 		<-done
-		return w.Bytes(), ctx.Err()
+		return w.Bytes(), cctx.Err()
 	}
 }
 

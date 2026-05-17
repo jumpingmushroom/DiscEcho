@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"regexp"
 	"strings"
+	"time"
 )
 
 // SystemCNF holds the boot-code line parsed out of a PSX/PS2 disc's
@@ -42,8 +43,15 @@ func NewSystemCNFProber(isoinfoBin string) SystemCNFProber {
 
 type isoinfoSystemCNFProber struct{ bin string }
 
+// perCallSysCNFTimeout caps each `isoinfo -x SYSTEM.CNF;1` invocation so
+// a single hang on a finicky disc can't eat the caller's whole deadline.
+// The retry decorator (retryingSystemCNFProber) moves on after backoff.
+const perCallSysCNFTimeout = 20 * time.Second
+
 func (p *isoinfoSystemCNFProber) Probe(ctx context.Context, devPath string) (*SystemCNF, error) {
-	cmd := exec.CommandContext(ctx, p.bin, "-i", devPath, "-x", "/SYSTEM.CNF;1")
+	cctx, cancel := context.WithTimeout(ctx, perCallSysCNFTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(cctx, p.bin, "-i", devPath, "-x", "/SYSTEM.CNF;1")
 	out, err := cmd.Output()
 	if err != nil {
 		return nil, fmt.Errorf("isoinfo -x SYSTEM.CNF: %w", err)

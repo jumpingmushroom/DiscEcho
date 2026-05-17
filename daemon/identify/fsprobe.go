@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os/exec"
 	"strings"
+	"time"
 )
 
 // FSProber lists filenames present on an optical disc's ISO9660/UDF
@@ -30,8 +31,16 @@ func NewFSProber(c FSProberConfig) FSProber {
 
 type isoinfoFSProber struct{ bin string }
 
+// perCallIsoinfoTimeout caps each isoinfo invocation so a single hang
+// on a finicky disc can't eat the caller's whole deadline. The retry
+// decorator (retryingFSProber) then moves on to the next attempt after
+// its own backoff, instead of being stuck on one slow call.
+const perCallIsoinfoTimeout = 20 * time.Second
+
 func (p *isoinfoFSProber) List(ctx context.Context, devPath string) ([]string, error) {
-	cmd := exec.CommandContext(ctx, p.bin, "-R", "-l", "-i", devPath)
+	cctx, cancel := context.WithTimeout(ctx, perCallIsoinfoTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(cctx, p.bin, "-R", "-l", "-i", devPath)
 	out, err := cmd.Output()
 	if err != nil {
 		return nil, fmt.Errorf("isoinfo -R -l: %w", err)

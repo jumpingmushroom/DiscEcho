@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.17.4] - 2026-05-17
+
+### Fixed
+- Each cd-info / isoinfo invocation now has a per-call timeout (25s for cd-info, 20s for isoinfo). Without this, a single hung call inherited the caller's entire remaining deadline and consumed the whole 180s budget on slow drives — the retry decorators never got a chance to move on. Now a stuck call dies in seconds and the retry loop continues, bounding each probe to its own backoff schedule rather than the request timeout.
+
+
 ## [0.17.3] - 2026-05-17
 
 ### Fixed
