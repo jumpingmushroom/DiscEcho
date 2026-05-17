@@ -210,7 +210,7 @@ func (h *Handler) Run(ctx context.Context, drv *state.Drive, disc *state.Disc, p
 	}
 	if err := h.deps.DD.Copy(ctx, drv.DevPath, isoPath, totalBytes, pipelines.NewStepSink(sink, state.StepRip)); err != nil {
 		sink.OnStepFailed(state.StepRip, err)
-		return fmt.Errorf("dd: %w", err)
+		return err
 	}
 
 	// sha256 hash + size stored in the existing Disc fields:
