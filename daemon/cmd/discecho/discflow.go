@@ -95,6 +95,7 @@ func (df *discFlow) handle(ev drive.Uevent) {
 	dt, err := df.classifier.Classify(ctx, devPath)
 	if err != nil {
 		slog.Warn("classify failed", "dev", devPath, "err", err)
+		df.recordDriveError(drv.ID, err.Error())
 		df.releaseDriveState(drv.ID, state.DriveStateError)
 		return
 	}
@@ -225,6 +226,18 @@ func (df *discFlow) reuseDiscRow(ctx context.Context, existing, disc *state.Disc
 	disc.ID = existing.ID
 	disc.CreatedAt = existing.CreatedAt
 	return nil
+}
+
+// recordDriveError persists the raw error message from a classify
+// failure so the dashboard can surface it on the drive card. Uses a
+// fresh background context for the same reason releaseDriveState does —
+// the identify ctx may already be cancelled.
+func (df *discFlow) recordDriveError(driveID, errMsg string) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := df.store.UpdateDriveLastError(ctx, driveID, errMsg); err != nil {
+		slog.Warn("disc-flow: UpdateDriveLastError", "err", err, "drive_id", driveID)
+	}
 }
 
 // releaseDriveState writes the drive's terminal state for this handle()
