@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.17.7] - 2026-05-17
+
+### Changed
+- redumper now retries each problem sector up to 50 times by default (was 0). With the default, a single SCSI or C2 read error near the end of the disc aborted the entire rip at the split phase — common on lightly scratched PSX / PS2 / Xbox discs. 50 retries recovers most surface scratches without dragging out the rip on a clean disc (where the first read succeeds and the retry budget is never spent).
+
+
 ## [0.17.6] - 2026-05-17
 
 ### Fixed

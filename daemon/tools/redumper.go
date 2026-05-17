@@ -75,6 +75,12 @@ func (r *Redumper) Rip(ctx context.Context, devPath, outDir, name, mode string, 
 		"--drive", devPath,
 		"--image-path", outDir,
 		"--image-name", name,
+		// Default is 0 — any SCSI / C2 read error makes redumper refuse
+		// to split, aborting the rip near 100%. 50 retries per problem
+		// sector recovers most surface scratches without dragging out
+		// the rip on a clean disc (where the first read succeeds and
+		// the retry budget is never spent).
+		"--retries=50",
 	}
 	cmd := exec.CommandContext(ctx, r.bin, args...)
 
