@@ -364,7 +364,7 @@
         </button>
       {/if}
       <button
-        class="min-h-[36px] text-[13px] text-text-3 disabled:opacity-50"
+        class="min-h-[44px] rounded-xl border border-border px-4 text-[14px] text-text-2 disabled:opacity-50 sm:w-auto"
         on:click={skip}
         disabled={skipping}
       >
