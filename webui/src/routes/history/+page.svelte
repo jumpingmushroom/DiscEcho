@@ -13,6 +13,7 @@
   import AppBar from '$lib/components/mobile/AppBar.svelte';
   import TabBar from '$lib/components/mobile/TabBar.svelte';
   import LiveDot from '$lib/components/LiveDot.svelte';
+  import { isDesktop } from '$lib/viewport';
   import FilterChips from '$lib/components/FilterChips.svelte';
   import HistoryRow from '$lib/components/HistoryRow.svelte';
   import ClearHistoryButton from '$lib/components/ClearHistoryButton.svelte';
@@ -141,4 +142,6 @@
   {/if}
 </div>
 
-<TabBar active="history" />
+{#if !$isDesktop}
+  <TabBar active="history" />
+{/if}

@@ -255,9 +255,30 @@
       </div>
     {/if}
 
-    <!-- sticky actions -->
+    <!-- desktop inline action (mirrors the mobile sticky bar below) -->
+    <div class="hidden lg:flex lg:px-5 lg:pt-6">
+      {#if isTerminal}
+        <button
+          class="min-h-[36px] rounded-lg border px-4"
+          style="border-color: var(--error); color: var(--error); background: rgba(255,91,91,0.08); font-size: var(--ts-meta)"
+          on:click={onDelete}
+        >
+          Delete from history
+        </button>
+      {:else}
+        <button
+          class="min-h-[36px] rounded-lg border px-4"
+          style="border-color: var(--error); color: var(--error); background: rgba(255,91,91,0.08); font-size: var(--ts-meta)"
+          on:click={onCancel}
+        >
+          Cancel
+        </button>
+      {/if}
+    </div>
+
+    <!-- sticky actions (mobile only — desktop renders the inline action above) -->
     <div
-      class="fixed bottom-0 left-0 right-0 z-30 flex items-center gap-2 border-t border-border bg-bg px-3 py-3"
+      class="fixed bottom-0 left-0 right-0 z-30 flex items-center gap-2 border-t border-border bg-bg px-3 py-3 lg:hidden"
       style="padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 12px)"
     >
       {#if isTerminal}
