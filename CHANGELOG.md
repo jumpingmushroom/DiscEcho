@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.18.0] - 2026-05-17
+
 ### Added
 - Dashboard drive cards now show the current redumper sub-phase during the rip step. The `*** PHASE (time check: ...)` markers that redumper emits for DUMP / DUMP::EXTRA / PROTECTION / REFINE / DVDKEY / SPLIT transitions are persisted to a new `jobs.active_substep` column and rendered as text below the pipeline stepper (e.g. "Rip — Recovering damaged sectors (this can take a while)"). Without this the user saw a frozen 0% bar and no indication that redumper was alive during the multi-minute refine phase.
 
