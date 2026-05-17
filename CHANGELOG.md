@@ -6,6 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.16.7] - 2026-05-17
+
+### Added
+- Live speed (MB/s) and ETA seconds during PSX / PS2 / Xbox rips. redumper b720+ doesn't print either on its progress line, so the daemon derives them from the LBA cursor and percent stream: speed is the instantaneous `(deltaSectors × 2048) / deltaWallTime`, ETA extrapolates remaining percent against the elapsed wall time since the first progress sample. Dashboard speed chip + ETA chip now populate within a couple of seconds of the rip starting.
+
 ## [0.16.6] - 2026-05-17
 
 ### Added

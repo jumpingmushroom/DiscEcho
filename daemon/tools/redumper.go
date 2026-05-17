@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/jumpingmushroom/DiscEcho/daemon/state"
 )
@@ -132,9 +133,16 @@ var (
 //
 // Recognised lines:
 //
-//	"LBA: <current>/<max>"   → sink.Progress(percent, speed, 0)
-//	"Speed: <N.N>x"          → carries forward as the speed string on
-//	                           the next progress event
+//	"/ [ NN%] LBA: <cur>/<max>"  → sink.Progress(pct, speed, etaSeconds)
+//	"LBA: <cur>/<max>"           → same, computing percent from cur/max
+//	"Speed: <N.N>x"              → legacy redumper format; carries forward
+//
+// Speed and ETA are derived because b720+ doesn't print either on the
+// progress line. Speed = (deltaSectors × 2048) / deltaWallTime, formatted
+// as "X.X MB/s". ETA = elapsedWallTime × (100-pct) / (pct-firstPct),
+// where firstPct is the percent when we first saw a progress line — this
+// extrapolates from real elapsed time rather than a static read-speed
+// assumption.
 //
 // All other non-empty lines are forwarded to sink.Log so they appear
 // in the job's log tail. The scanner treats both '\r' and '\n' as line
@@ -144,39 +152,116 @@ var (
 func ParseRedumperProgress(r io.Reader, sink Sink) {
 	drainAfterScan(r, func(scanner *bufio.Scanner) {
 		scanner.Split(splitCROrLF)
-		var speed string
+		state := newRedumperRate()
+		var legacySpeed string
 		for scanner.Scan() {
 			line := strings.TrimSpace(scanner.Text())
 			if line == "" {
 				continue
 			}
 			if m := redumperSpeedRE.FindStringSubmatch(line); m != nil {
-				speed = m[1] + "x"
-				// don't continue — a single line may carry Speed AND
-				// progress (rare but seen on phase headers).
+				legacySpeed = m[1] + "x"
+				// don't continue — single line may carry Speed AND progress.
 			}
-			// Prefer the pre-computed percent from `[ NN%]` when
-			// present — it's what redumper itself displays. The LBA
-			// pair is the fallback for lines that omit the percent.
+
+			lbaMatch := redumperLBARE.FindStringSubmatch(line)
+			var cur int
+			if lbaMatch != nil {
+				cur, _ = strconv.Atoi(lbaMatch[1])
+			}
+
+			emit := func(pct float64) {
+				now := redumperNow()
+				speed := legacySpeed
+				if lbaMatch != nil {
+					if s := state.observeLBA(cur, now); s != "" {
+						speed = s
+					}
+				}
+				eta := state.observePercent(pct, now)
+				sink.Progress(pct, speed, eta)
+			}
+
+			// Prefer the pre-computed `[ NN%]` percent.
 			if m := redumperPercentRE.FindStringSubmatch(line); m != nil {
 				pct, _ := strconv.Atoi(m[1])
-				sink.Progress(float64(pct), speed, 0)
+				emit(float64(pct))
 				continue
 			}
-			if m := redumperLBARE.FindStringSubmatch(line); m != nil {
-				cur, _ := strconv.Atoi(m[1])
-				max, _ := strconv.Atoi(m[2])
+			if lbaMatch != nil {
+				max, _ := strconv.Atoi(lbaMatch[2])
 				if max <= 0 {
 					continue
 				}
-				pct := float64(cur) / float64(max) * 100
-				sink.Progress(pct, speed, 0)
+				emit(float64(cur) / float64(max) * 100)
 				continue
 			}
 			if len(line) > 400 {
 				line = line[:400]
 			}
-			sink.Log(state.LogLevelInfo, "redumper: %s", line)
+			sink.Log(stateLogLevelInfoConst, "redumper: %s", line)
 		}
 	})
+}
+
+// redumperNow is a package var so tests can substitute a deterministic clock.
+var redumperNow = func() time.Time { return time.Now() }
+
+// stateLogLevelInfoConst aliases the state.LogLevelInfo constant. Pulled
+// out into a var so the import stays in one place and tests can reference
+// the same constant without a circular import.
+var stateLogLevelInfoConst = state.LogLevelInfo
+
+// redumperRateTracker derives speed (MB/s) and ETA seconds from a stream
+// of LBA + percent samples. Zero-value is unusable; call newRedumperRate.
+type redumperRateTracker struct {
+	firstSeen      time.Time
+	firstPct       float64
+	lastSampleTime time.Time
+	lastLBA        int
+}
+
+func newRedumperRate() *redumperRateTracker {
+	return &redumperRateTracker{}
+}
+
+// observeLBA computes an instantaneous MB/s from the LBA delta since the
+// previous sample. Returns the empty string when there's no usable delta
+// (first sample, or no time has elapsed). 2048 bytes per DVD/CD sector.
+func (r *redumperRateTracker) observeLBA(cur int, now time.Time) string {
+	defer func() { r.lastLBA = cur; r.lastSampleTime = now }()
+	if r.lastSampleTime.IsZero() {
+		return ""
+	}
+	dt := now.Sub(r.lastSampleTime).Seconds()
+	if dt <= 0 {
+		return ""
+	}
+	dSec := cur - r.lastLBA
+	if dSec <= 0 {
+		return ""
+	}
+	bytesPerSec := float64(dSec) * 2048 / dt
+	return fmt.Sprintf("%.1f MB/s", bytesPerSec/(1024*1024))
+}
+
+// observePercent extrapolates ETA seconds from wall-time elapsed since
+// the first observation. Returns 0 until we have a measurable percent
+// delta (avoids divide-by-zero and noisy first-sample ETAs).
+func (r *redumperRateTracker) observePercent(pct float64, now time.Time) int {
+	if r.firstSeen.IsZero() {
+		r.firstSeen = now
+		r.firstPct = pct
+		return 0
+	}
+	pctDone := pct - r.firstPct
+	if pctDone <= 0 {
+		return 0
+	}
+	elapsed := now.Sub(r.firstSeen).Seconds()
+	remaining := 100 - pct
+	if remaining <= 0 {
+		return 0
+	}
+	return int(elapsed * remaining / pctDone)
 }

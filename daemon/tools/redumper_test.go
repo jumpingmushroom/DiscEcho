@@ -7,6 +7,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jumpingmushroom/DiscEcho/daemon/state"
 	"github.com/jumpingmushroom/DiscEcho/daemon/tools"
@@ -14,11 +15,15 @@ import (
 
 type captureSinkRedumper struct {
 	progress []float64
+	speeds   []string
+	etas     []int
 	logs     []string
 }
 
-func (c *captureSinkRedumper) Progress(pct float64, _ string, _ int) {
+func (c *captureSinkRedumper) Progress(pct float64, speed string, eta int) {
 	c.progress = append(c.progress, pct)
+	c.speeds = append(c.speeds, speed)
+	c.etas = append(c.etas, eta)
 }
 func (c *captureSinkRedumper) Log(_ state.LogLevel, format string, args ...any) {
 	c.logs = append(c.logs, fmt.Sprintf(format, args...))
@@ -191,5 +196,58 @@ func TestParseRedumperProgress_B720Format(t *testing.T) {
 	last := sink.progress[len(sink.progress)-1]
 	if last != 100 {
 		t.Errorf("last progress = %f, want exactly 100", last)
+	}
+}
+
+func TestParseRedumperProgress_DerivedSpeedAndETA(t *testing.T) {
+	// Substitute a deterministic clock so the derived MB/s and ETA are
+	// reproducible. Each scanner.Scan iteration calls redumperNow once
+	// (via the emit closure), so advance the clock by 1s per line.
+	base := time.Unix(1_700_000_000, 0).UTC()
+	step := time.Duration(0)
+	prev := tools.RedumperNowForTest()
+	tools.SetRedumperNowForTest(func() time.Time {
+		now := base.Add(step)
+		step += time.Second
+		return now
+	})
+	defer tools.SetRedumperNowForTest(prev)
+
+	// Three samples at 1-sec intervals. LBA advances by 1024 sectors/sec
+	// (= 1024 * 2048 bytes/sec = 2 MiB/s). Percent goes 1 → 2 → 3 over
+	// 2 seconds elapsed, so at the third line:
+	//   pctDone = 2, remaining = 97, elapsed = 2s → ETA = 2 * 97 / 2 = 97s.
+	in := strings.NewReader(
+		"/ [ 1%] LBA: 1024/100000\n" +
+			"- [ 2%] LBA: 2048/100000\n" +
+			"\\ [ 3%] LBA: 3072/100000\n",
+	)
+	sink := &captureSinkRedumper{}
+	tools.ParseRedumperProgress(in, sink)
+
+	if len(sink.progress) != 3 {
+		t.Fatalf("want 3 progress events, got %d", len(sink.progress))
+	}
+	// First sample: no prior LBA → speed empty; no pctDone → ETA 0.
+	if sink.speeds[0] != "" {
+		t.Errorf("first speed = %q, want empty (no prior sample)", sink.speeds[0])
+	}
+	if sink.etas[0] != 0 {
+		t.Errorf("first ETA = %d, want 0", sink.etas[0])
+	}
+	// Second sample: 1024 sectors over 1s = 2.0 MB/s; pctDone = 1, remaining
+	// = 98, elapsed = 1s → ETA = 98s.
+	if sink.speeds[1] != "2.0 MB/s" {
+		t.Errorf("second speed = %q, want 2.0 MB/s", sink.speeds[1])
+	}
+	if sink.etas[1] != 98 {
+		t.Errorf("second ETA = %d, want 98", sink.etas[1])
+	}
+	// Third sample: another 2 MB/s; ETA = 97s.
+	if sink.speeds[2] != "2.0 MB/s" {
+		t.Errorf("third speed = %q, want 2.0 MB/s", sink.speeds[2])
+	}
+	if sink.etas[2] != 97 {
+		t.Errorf("third ETA = %d, want 97", sink.etas[2])
 	}
 }
