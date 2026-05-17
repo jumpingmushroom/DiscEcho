@@ -173,7 +173,7 @@
           <div>
             <div class="text-[13px] font-medium text-text">{d.model || '—'}</div>
             <div class="font-mono text-[11px] text-text-3">
-              {d.bus || 'unknown'} · {d.dev_path}
+              {d.dev_path}
             </div>
           </div>
           <span
