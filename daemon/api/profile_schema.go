@@ -45,8 +45,21 @@ var engineSchemas = map[string]EngineSchema{
 		Formats:     []string{"FLAC"},
 		Containers:  []string{"FLAC"},
 		VideoCodecs: []string{},
-		Options:     map[string]OptionSchema{},
-		StepCount:   6,
+		Options: map[string]OptionSchema{
+			// embed_cover_art: download release-level cover art from
+			// the MusicBrainz Cover Art Archive and embed it into each
+			// ripped FLAC via metaflac. Best-effort: a 404 / network
+			// failure / missing metaflac binary logs a WARN and does
+			// not fail the rip.
+			"embed_cover_art": {Type: OptBool},
+			// replaygain_album_mode: write per-track + album-mode
+			// ReplayGain 2.0 tags onto the rip via loudgain. Best-effort
+			// same as above. Album-mode requires loudgain to see every
+			// track of the album in one invocation; the pipeline gathers
+			// them automatically before the call.
+			"replaygain_album_mode": {Type: OptBool},
+		},
+		StepCount: 6,
 	},
 	"MakeMKV": {
 		Formats:     []string{"MKV"},

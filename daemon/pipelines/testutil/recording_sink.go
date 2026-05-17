@@ -19,6 +19,7 @@ const (
 	EventLog      EventKind = "log"
 	EventDone     EventKind = "step.done"
 	EventFailed   EventKind = "step.failed"
+	EventSubStep  EventKind = "step.substep"
 )
 
 // RecordedEvent is one captured Sink call.
@@ -32,6 +33,7 @@ type RecordedEvent struct {
 	Message    string
 	Notes      map[string]any
 	Err        error
+	SubStep    string
 }
 
 // RecordingSink implements pipelines.EventSink and records every call.
@@ -70,8 +72,12 @@ func (r *RecordingSink) OnLog(level state.LogLevel, format string, args ...any) 
 	r.append(RecordedEvent{Kind: EventLog, Level: level, Message: fmt.Sprintf(format, args...)})
 }
 
-// OnSubStep records a sub-step transition.
-func (r *RecordingSink) OnSubStep(string) {}
+// OnSubStep records a sub-step transition. Empty name signals the
+// pipeline is clearing the current sub-step; both are recorded so
+// callers can assert on the full transition sequence.
+func (r *RecordingSink) OnSubStep(name string) {
+	r.append(RecordedEvent{Kind: EventSubStep, SubStep: name})
+}
 
 // OnStepDone records a step.done event with optional notes.
 func (r *RecordingSink) OnStepDone(s state.StepID, notes map[string]any) {

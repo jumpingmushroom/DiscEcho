@@ -12,6 +12,12 @@ export type OptionType = 'string' | 'int' | 'bool';
 export interface OptionSpec {
   type: OptionType;
   required?: boolean;
+  // defaultBool is the value the daemon will see when the option key is
+  // absent from `Profile.options`. Used by the form to render a sensible
+  // initial checkbox state for new profiles (the daemon's
+  // `optBoolDefaultTrue` helper makes "missing" = "true" for the
+  // whipper post-processing options, so the UI should match).
+  defaultBool?: boolean;
 }
 
 export interface EngineSpec {
@@ -27,7 +33,10 @@ export const ENGINES: Record<string, EngineSpec> = {
     formats: ['FLAC'],
     containers: ['FLAC'],
     videoCodecs: [],
-    options: {},
+    options: {
+      embed_cover_art: { type: 'bool', defaultBool: true },
+      replaygain_album_mode: { type: 'bool', defaultBool: true },
+    },
     stepCount: 6,
   },
   MakeMKV: {

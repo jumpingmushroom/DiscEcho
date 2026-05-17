@@ -30,6 +30,11 @@ type Deps struct {
 	URLsForTrigger func(ctx context.Context, trigger string) []string // returns Apprise URLs; nil → no notifications
 	// ShouldEject gates the rip-end eject step; nil = always eject.
 	ShouldEject func(ctx context.Context) bool
+	// MusicBrainzBaseURL + MusicBrainzUserAgent feed the cover-art
+	// release-group fallback lookup. Empty MusicBrainzBaseURL defaults
+	// to "https://musicbrainz.org" inside the cover-art helper.
+	MusicBrainzBaseURL   string
+	MusicBrainzUserAgent string
 }
 
 // Handler implements pipelines.Handler for audio CDs.
@@ -176,6 +181,11 @@ func (h *Handler) Run(ctx context.Context, drv *state.Drive, disc *state.Disc, p
 		return fmt.Errorf("whipper: %w", err)
 	}
 
+	// Post-rip best-effort: cover-art embed, then album-mode ReplayGain.
+	// Profile-gated; failures log a WARN and continue (a botched embed
+	// or missing loudgain ≠ a botched rip).
+	h.runPostRipExtras(ctx, disc, prof, tmpdir, sink)
+
 	ripNotes := buildAccurateRipNotes(drv, arResult)
 	sink.OnStepDone(state.StepRip, ripNotes)
 
@@ -203,6 +213,155 @@ func (h *Handler) Run(ctx context.Context, drv *state.Drive, disc *state.Disc, p
 
 func (h *Handler) createWorkDir(discID string) (string, error) {
 	return pipelines.CreateWorkDir(h.deps.WorkRoot, "", discID)
+}
+
+// runPostRipExtras drives the cover-art embed and ReplayGain steps.
+// Both default to on; explicit profile options can disable either.
+// Every error is best-effort — log + continue — because a missing
+// cover or absent loudgain shouldn't fail an otherwise good rip.
+func (h *Handler) runPostRipExtras(
+	ctx context.Context,
+	disc *state.Disc,
+	prof *state.Profile,
+	tmpdir string,
+	sink pipelines.EventSink,
+) {
+	embed := optBoolDefaultTrue(prof.Options, "embed_cover_art")
+	rg := optBoolDefaultTrue(prof.Options, "replaygain_album_mode")
+	if !embed && !rg {
+		return
+	}
+
+	flacPaths := walkFLACs(tmpdir)
+	if len(flacPaths) == 0 {
+		// Nothing for the post-rip helpers to touch; the move-step
+		// guard will surface the missing-files failure shortly.
+		return
+	}
+
+	if embed && disc.MetadataID != "" {
+		sink.OnSubStep("embed-art")
+		h.embedCoverArt(ctx, disc, tmpdir, flacPaths, sink)
+	}
+	if rg {
+		sink.OnSubStep("replaygain")
+		h.tagReplayGain(ctx, flacPaths, sink)
+	}
+	sink.OnSubStep("")
+}
+
+func (h *Handler) embedCoverArt(
+	ctx context.Context,
+	disc *state.Disc,
+	tmpdir string,
+	flacPaths []string,
+	sink pipelines.EventSink,
+) {
+	coverPath, err := downloadFrontCover(ctx, disc.MetadataID,
+		h.deps.MusicBrainzBaseURL, h.deps.MusicBrainzUserAgent, tmpdir)
+	if err != nil {
+		if errors.Is(err, errCoverArtNotFound) {
+			sink.OnLog(state.LogLevelInfo, "audiocd: no cover art found for release %s, skipping embed", disc.MetadataID)
+		} else {
+			sink.OnLog(state.LogLevelWarn, "audiocd: cover-art download failed: %v", err)
+		}
+		return
+	}
+
+	metaTool, ok := h.deps.Tools.Get("metaflac")
+	if !ok {
+		sink.OnLog(state.LogLevelWarn, "audiocd: metaflac tool not registered, skipping cover embed")
+		return
+	}
+	embedder, ok := metaTool.(interface {
+		EmbedFrontCover(ctx context.Context, flacPath, imagePath string) error
+	})
+	if !ok {
+		sink.OnLog(state.LogLevelWarn, "audiocd: metaflac tool does not expose EmbedFrontCover, skipping cover embed")
+		return
+	}
+
+	embedded := 0
+	for _, p := range flacPaths {
+		if err := embedder.EmbedFrontCover(ctx, p, coverPath); err != nil {
+			if errors.Is(err, tools.ErrToolNotInstalled) {
+				sink.OnLog(state.LogLevelWarn, "audiocd: metaflac binary not installed; skipping cover embed")
+				return
+			}
+			sink.OnLog(state.LogLevelWarn, "audiocd: cover embed failed for %s: %v", filepath.Base(p), err)
+			continue
+		}
+		embedded++
+	}
+	if embedded > 0 {
+		sink.OnLog(state.LogLevelInfo, "audiocd: embedded front cover into %d FLAC(s)", embedded)
+	}
+}
+
+func (h *Handler) tagReplayGain(
+	ctx context.Context,
+	flacPaths []string,
+	sink pipelines.EventSink,
+) {
+	lgTool, ok := h.deps.Tools.Get("loudgain")
+	if !ok {
+		sink.OnLog(state.LogLevelWarn, "audiocd: loudgain tool not registered, skipping ReplayGain")
+		return
+	}
+	tagger, ok := lgTool.(interface {
+		TagAlbum(ctx context.Context, flacPaths []string) error
+	})
+	if !ok {
+		sink.OnLog(state.LogLevelWarn, "audiocd: loudgain tool does not expose TagAlbum, skipping ReplayGain")
+		return
+	}
+	if err := tagger.TagAlbum(ctx, flacPaths); err != nil {
+		if errors.Is(err, tools.ErrToolNotInstalled) {
+			sink.OnLog(state.LogLevelWarn, "audiocd: loudgain binary not installed; skipping ReplayGain")
+			return
+		}
+		sink.OnLog(state.LogLevelWarn, "audiocd: ReplayGain tagging failed: %v", err)
+		return
+	}
+	sink.OnLog(state.LogLevelInfo, "audiocd: ReplayGain tags written (album mode)")
+}
+
+// walkFLACs returns the absolute path of every .flac under root, in
+// directory-walk order (sufficient for album-mode ReplayGain).
+func walkFLACs(root string) []string {
+	var out []string
+	_ = filepath.WalkDir(root, func(path string, d fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if d.IsDir() {
+			return nil
+		}
+		if strings.EqualFold(filepath.Ext(d.Name()), ".flac") {
+			out = append(out, path)
+		}
+		return nil
+	})
+	return out
+}
+
+// optBoolDefaultTrue returns the bool stored under key in opts, defaulting
+// to true when the key is absent or holds a non-bool value. Profile
+// options encoded via JSON come back as `bool` for the typed paths and
+// `nil` when the key was never written; both cases route through this
+// helper so missing-key behaves as "feature on".
+func optBoolDefaultTrue(opts map[string]any, key string) bool {
+	if opts == nil {
+		return true
+	}
+	v, ok := opts[key]
+	if !ok || v == nil {
+		return true
+	}
+	if b, ok := v.(bool); ok {
+		return b
+	}
+	return true
 }
 
 // buildAccurateRipNotes turns the parsed per-track AccurateRip map plus

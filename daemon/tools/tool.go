@@ -6,10 +6,17 @@ package tools
 
 import (
 	"context"
+	"errors"
 	"sync"
 
 	"github.com/jumpingmushroom/DiscEcho/daemon/state"
 )
+
+// ErrToolNotInstalled is returned by tool wrappers whose binary is not
+// on the runtime container's PATH. Callers (typically best-effort
+// post-processing steps such as ReplayGain tagging) check for this
+// sentinel to log a WARN and continue instead of failing the rip.
+var ErrToolNotInstalled = errors.New("tool not installed")
 
 // Tool wraps one external binary. Implementations parse stdout/stderr
 // and emit structured progress through Sink.

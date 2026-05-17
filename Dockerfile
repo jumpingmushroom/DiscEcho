@@ -123,6 +123,42 @@ RUN strip /src/mame/chdman \
  && /src/mame/chdman --help 2>&1 | head -5
 
 ###############################################################################
+# Stage — build loudgain from source
+#
+# loudgain (https://github.com/Moonbase59/loudgain) is the audiophile-grade
+# EBU R128 ReplayGain 2.0 tagger DiscEcho uses for the audio-CD post-rip
+# pass. It is not packaged in Debian bookworm (apt-cache returns nothing
+# in either main or contrib), so we build it from a tagged release here
+# and copy only the resulting binary into the runtime image. Runtime
+# shared-lib deps (libebur128 + libavformat/swresample/avutil) are
+# installed via apt in the runtime stage; this stage adds the matching
+# -dev headers + cmake for the build.
+###############################################################################
+FROM debian:bookworm-slim AS loudgain-build
+ARG LOUDGAIN_VERSION=v0.6.8
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends \
+        build-essential cmake pkg-config git ca-certificates \
+        libavformat-dev libavutil-dev libswresample-dev \
+        libebur128-dev libtag1-dev \
+ && rm -rf /var/lib/apt/lists/*
+RUN git clone --depth 1 --branch "${LOUDGAIN_VERSION}" \
+        https://github.com/Moonbase59/loudgain.git /src/loudgain
+# Patch out the av_register_all() call in scan.c. loudgain v0.6.8 wraps
+# it in a runtime version-check `if`, but the linker still needs the
+# symbol — and FFmpeg 5.x (Debian bookworm) removed it entirely. The
+# version-check has been "always false" since lavf 58.9.100 (FFmpeg 4.0,
+# 2018), so replacing the call with a no-op is functionally equivalent
+# and lets the link succeed against modern libavformat.
+RUN sed -i 's/av_register_all();/(void)0;/' /src/loudgain/src/scan.c
+WORKDIR /src/loudgain/build
+RUN cmake -DCMAKE_BUILD_TYPE=Release .. \
+ && make -j"$(nproc)" \
+ && ( find . -maxdepth 3 -type f -name 'loudgain' -executable -exec cp {} /usr/local/bin/loudgain \; ) \
+ && strip /usr/local/bin/loudgain \
+ && /usr/local/bin/loudgain --version
+
+###############################################################################
 # Stage 4 — runtime: python slim + apprise + the daemon binary
 ###############################################################################
 FROM python:3.12-slim-bookworm AS runtime
@@ -145,12 +181,14 @@ RUN echo "deb http://deb.debian.org/debian bookworm main contrib" \
  && apt-get install -y --no-install-recommends \
         ca-certificates eject cdparanoia libcdio-utils whipper \
         python3-cdio \
+        flac \
         libdvd-pkg dvdbackup genisoimage \
         gddrescue \
         libbluray-bdj libbluray2 libbluray-bin \
         libssl3 libexpat1 libavcodec59 \
         libass9 libturbojpeg0 \
         libsdl2-2.0-0 \
+        libebur128-1 libavformat59 libswresample4 libavutil57 libtag1v5 \
  && DEBIAN_FRONTEND=noninteractive dpkg-reconfigure libdvd-pkg \
  && rm -rf /var/lib/apt/lists/* \
  && pip install --no-cache-dir apprise
@@ -169,6 +207,10 @@ COPY --from=handbrake-build /usr/local/bin/HandBrakeCLI /usr/bin/HandBrakeCLI
 # bookworm mame-tools package (0.251) which predates the createdvd
 # subcommand needed for PS2 / Xbox DVD-typed CHDs.
 COPY --from=chdman-build /src/mame/chdman /usr/bin/chdman
+
+# loudgain built from source (see loudgain-build stage). Not in Debian.
+# Used for audio-CD post-rip ReplayGain 2.0 album-mode tagging.
+COPY --from=loudgain-build /usr/local/bin/loudgain /usr/bin/loudgain
 
 # redumper — pre-built static Linux binary released on GitHub.
 # Pinned via REDUMPER_VERSION build arg.

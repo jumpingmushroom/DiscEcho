@@ -35,6 +35,8 @@ type Settings struct {
 	WhipperBin           string
 	AppriseBin           string
 	EjectBin             string
+	MetaflacBin          string
+	LoudgainBin          string
 	CDInfoBin            string
 	CDParanoiaBin        string
 	MusicBrainzBaseURL   string
@@ -69,6 +71,8 @@ func Load(getenv func(string) string, store *state.Store, version string) (*Sett
 		WhipperBin:           firstNonEmpty(getenv("DISCECHO_WHIPPER_BIN"), "whipper"),
 		AppriseBin:           firstNonEmpty(getenv("DISCECHO_APPRISE_BIN"), "apprise"),
 		EjectBin:             firstNonEmpty(getenv("DISCECHO_EJECT_BIN"), "eject"),
+		MetaflacBin:          firstNonEmpty(getenv("DISCECHO_METAFLAC_BIN"), "metaflac"),
+		LoudgainBin:          firstNonEmpty(getenv("DISCECHO_LOUDGAIN_BIN"), "loudgain"),
 		CDInfoBin:            firstNonEmpty(getenv("DISCECHO_CDINFO_BIN"), "cd-info"),
 		CDParanoiaBin:        firstNonEmpty(getenv("DISCECHO_CDPARANOIA_BIN"), "cdparanoia"),
 		MusicBrainzBaseURL:   firstNonEmpty(getenv("DISCECHO_MB_BASE_URL"), "https://musicbrainz.org"),

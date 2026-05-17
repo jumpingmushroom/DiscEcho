@@ -6,11 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.20.0] - 2026-05-17
+
 ### Added
 - Per-drive AccurateRip read-offset is now persisted in the database. Settings → System → Drives gains an "Edit" affordance next to each drive that takes a number from −3000 to +3000 (look it up on the AccurateRip drive DB or run `whipper offset find` inside the container). Persisted offset is passed to whipper as `-o <N>` on every audio-CD rip. Default 0 + source `''` preserves the legacy uncalibrated behavior (rip output identical to pre-v0.20), so upgrading installs see no change until they explicitly calibrate. Auto-detect-from-UI is a follow-up; the manual path is enough to unlock AccurateRip verification today. Adds migration 013.
 - Audio-CD rips now surface AccurateRip verification status. The whipper output parser already captured per-track confidence numbers but the data never reached the UI; rip-step notes now carry a structured `accuraterip: { status, verified_tracks, total_tracks, min/max_confidence }` summary that the RipCard renders as a verified (green ✓ N/N · conf X) / unverified (amber N/M verified) / uncalibrated (grey) pill. "uncalibrated" pins the status whenever a drive has no calibration set, so the user is never told a rip "didn't match" when the offset was the actual problem.
+- Audio-CD rips now embed front cover art into every FLAC by default. After whipper finishes, the pipeline downloads the release-level cover from the MusicBrainz Cover Art Archive (falling back to the release-group cover when the release has none), saves a 500px JPEG to the workdir, and invokes `metaflac --import-picture-from` per file. The new `embed_cover_art` whipper-engine profile option (default on) lets users opt out per-profile.
+- Audio-CD rips now write album-mode ReplayGain 2.0 tags via loudgain. The post-rip step gathers every FLAC in the workdir and passes them in one invocation (album-gain requires a single call). Tags use the `-a -k -s e` recipe: album mode, prevent clipping, extended R128 tags with LU/LRA info. The new `replaygain_album_mode` whipper-engine profile option (default on) lets users opt out per-profile.
+- Settings → Profiles editor now renders bool engine options with their schema default when the key is absent from `profile.options`. New whipper profiles therefore display the embed + ReplayGain checkboxes as checked (matching the daemon's "missing means on" semantics), rather than misleadingly showing them as off until first interaction.
 
 ### Changed
+- Runtime container now ships `metaflac` (from the Debian `flac` package) and `loudgain` (built from source in a new Dockerfile stage — not packaged in Debian bookworm). Image size grows ~10 MB. The loudgain build patches out the `av_register_all()` call in `scan.c` so it links against FFmpeg 5.x (Debian bookworm) without an undefined-symbol error — the call has been a no-op since FFmpeg 4.0 anyway, the guarded `if` was dead code.
 - `Whipper.Run` keeps its existing `error` return for the generic `tools.Tool` interface; new `Whipper.RunWithResult` returns a `WhipperResult` with the parsed per-track AccurateRip confidence map. The audio-CD pipeline probes for the optional method at runtime, so tests that stub a minimal Tool keep working.
 
 ## [0.19.0] - 2026-05-17

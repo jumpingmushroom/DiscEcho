@@ -387,7 +387,9 @@
               {#if opt?.type === 'bool'}
                 <input
                   type="checkbox"
-                  checked={Boolean(working.options[k])}
+                  checked={working.options[k] === undefined
+                    ? Boolean(opt.defaultBool)
+                    : Boolean(working.options[k])}
                   on:change={(e) => onOptionBoolChange(k, e)}
                 />
               {:else if opt?.type === 'int'}

@@ -91,13 +91,17 @@ func main() {
 	}
 
 	// Tools — Whipper for ripping, Apprise for notifications, Eject
-	// for the post-rip eject step.
+	// for the post-rip eject step. Metaflac + Loudgain are best-effort
+	// audio-CD post-processing (cover-art embed + ReplayGain); both
+	// degrade to WARN+continue if the binary is missing.
 	toolReg := tools.NewRegistry()
 	toolReg.Register(tools.NewWhipper(cfg.WhipperBin))
 	appriseTool := tools.NewApprise(cfg.AppriseBin)
 	toolReg.Register(appriseTool)
 	ejectTool := tools.NewEject(cfg.EjectBin)
 	toolReg.Register(ejectTool)
+	toolReg.Register(tools.NewMetaflac(cfg.MetaflacBin))
+	toolReg.Register(tools.NewLoudgain(cfg.LoudgainBin))
 
 	// Identify (TOC + MusicBrainz)
 	tocReader := identify.NewCDParanoiaTOCReader(cfg.CDParanoiaBin)
@@ -140,13 +144,15 @@ func main() {
 	// Pipelines: register the audio-CD handler.
 	pipeReg := pipelines.NewRegistry()
 	pipeReg.Register(audiocd.New(audiocd.Deps{
-		TOC:            tocReader,
-		MB:             mbClient,
-		Tools:          toolReg,
-		LibraryRoot:    cfg.LibraryMusic,
-		WorkRoot:       filepath.Join(cfg.DataPath, "work"),
-		URLsForTrigger: urlsForTrigger,
-		ShouldEject:    shouldEjectOnFinish,
+		TOC:                  tocReader,
+		MB:                   mbClient,
+		Tools:                toolReg,
+		LibraryRoot:          cfg.LibraryMusic,
+		WorkRoot:             filepath.Join(cfg.DataPath, "work"),
+		URLsForTrigger:       urlsForTrigger,
+		ShouldEject:          shouldEjectOnFinish,
+		MusicBrainzBaseURL:   cfg.MusicBrainzBaseURL,
+		MusicBrainzUserAgent: cfg.MusicBrainzUserAgent,
 	}))
 
 	// DVD-Video pipeline
