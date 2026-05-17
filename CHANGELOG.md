@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.17.0] - 2026-05-17
+
 ### Added
 - Drive cards now surface a red error banner when the daemon's classify step fails. The banner shows the raw error (e.g. `cd-info: exit status 1`) plus a context-aware tip when one is available. Motivating case: an Xbox game disc on a non-Kreon drive can only expose a tiny UDF "decoy" partition; cd-info errors out and the user previously saw nothing. The tip now points at https://kreon.dev for compatible drives.
 - `drives.last_error` column plus a derived `last_error_tip` field on `/api/state`. The error persists across daemon restarts so the dashboard's drive card stays honest about the last failure mode until the drive successfully classifies a new disc.
