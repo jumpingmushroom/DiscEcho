@@ -35,15 +35,15 @@ type CHDManCompressor interface {
 
 // Deps bundles the handler's dependencies.
 type Deps struct {
-	Redumper      RedumperRipper
-	CHDMan        CHDManCompressor
-	SystemCNF     identify.SystemCNFProber
-	RedumpDB      *identify.RedumpDB
-	BootCodeIndex *identify.BootCodeIndex // Tier-2 fallback; DuckStation provides cover URLs
-	Tools         *tools.Registry         // looked up: apprise, eject
-	LibraryRoot   string
-	WorkRoot      string
-	LibraryProbe  func(string) error
+	Redumper       RedumperRipper
+	CHDMan         CHDManCompressor
+	SystemCNF      identify.SystemCNFProber
+	RedumpDB       *identify.RedumpDB
+	BootCodeIndex  *identify.BootCodeIndex // Tier-2 fallback; DuckStation provides cover URLs
+	Tools          *tools.Registry         // looked up: apprise, eject
+	LibraryRoot    string
+	WorkRoot       string
+	LibraryProbe   func(string) error
 	URLsForTrigger func(ctx context.Context, trigger string) []string
 	// ShouldEject gates the rip-end eject step; nil = always eject.
 	ShouldEject func(ctx context.Context) bool

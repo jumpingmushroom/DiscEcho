@@ -65,14 +65,14 @@ type RedumperRipper interface {
 
 // Deps bundles the handler's dependencies.
 type Deps struct {
-	Redumper      RedumperRipper
-	XboxProber    XboxProber
-	RedumpDB      *identify.RedumpDB
-	BootCodeIndex *identify.BootCodeIndex // Tier-2 fallback when Redump dat lacks the title ID
-	Tools         *tools.Registry         // looked up: apprise, eject
-	LibraryRoot   string
-	WorkRoot      string
-	LibraryProbe  func(string) error
+	Redumper       RedumperRipper
+	XboxProber     XboxProber
+	RedumpDB       *identify.RedumpDB
+	BootCodeIndex  *identify.BootCodeIndex // Tier-2 fallback when Redump dat lacks the title ID
+	Tools          *tools.Registry         // looked up: apprise, eject
+	LibraryRoot    string
+	WorkRoot       string
+	LibraryProbe   func(string) error
 	URLsForTrigger func(ctx context.Context, trigger string) []string
 	// ShouldEject gates the rip-end eject step; nil = always eject.
 	ShouldEject func(ctx context.Context) bool

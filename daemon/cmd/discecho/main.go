@@ -371,10 +371,10 @@ func main() {
 	// disc-flow: listen for udev optical-media-change events and run
 	// classify → identify → persist.
 	df := &discFlow{
-		store:       store,
-		bc:          bc,
-		classifier:  classifier,
-		pipelines:   pipeReg,
+		store:      store,
+		bc:         bc,
+		classifier: classifier,
+		pipelines:  pipeReg,
 		// 60s is long enough to absorb a worst-case cd-info retry burst
 		// (~12s) PLUS a slow isoinfo listing + extract pass on a dirty
 		// disc or slow drive. 30s was too tight for the ASUS SDRW-08D2S-U

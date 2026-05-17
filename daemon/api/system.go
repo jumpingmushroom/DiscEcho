@@ -42,12 +42,12 @@ type DiskInfo struct {
 // Items for one release so existing clients (mobile read-only view,
 // older webui) keep working. New UI code should prefer Items.
 type IntegrationsInfo struct {
-	TMDB            TMDBIntegration        `json:"tmdb"`
-	MusicBrainz     MusicBrainzIntegration `json:"musicbrainz"`
-	Apprise         AppriseIntegration     `json:"apprise"`
-	LibraryRoots    map[string]string      `json:"library_roots,omitempty"`
-	Items           []IntegrationStatus    `json:"items,omitempty"`
-	BootCodeCounts  map[state.DiscType]int `json:"boot_code_counts,omitempty"`
+	TMDB           TMDBIntegration        `json:"tmdb"`
+	MusicBrainz    MusicBrainzIntegration `json:"musicbrainz"`
+	Apprise        AppriseIntegration     `json:"apprise"`
+	LibraryRoots   map[string]string      `json:"library_roots,omitempty"`
+	Items          []IntegrationStatus    `json:"items,omitempty"`
+	BootCodeCounts map[state.DiscType]int `json:"boot_code_counts,omitempty"`
 }
 
 // IntegrationStatus is a single row in the connections list. Status

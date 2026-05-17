@@ -121,7 +121,7 @@ func (c *igdbClient) SearchGames(ctx context.Context, query string, discType sta
 	}
 
 	var raw []struct {
-		ID               int   `json:"id"`
+		ID               int    `json:"id"`
 		Name             string `json:"name"`
 		FirstReleaseDate int64  `json:"first_release_date"`
 		Cover            struct {

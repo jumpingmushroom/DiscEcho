@@ -856,8 +856,8 @@ func TestLoad_IGDB(t *testing.T) {
 	store := openStore(t)
 	dataDir := t.TempDir()
 	env := envFn(map[string]string{
-		"DISCECHO_DATA":              dataDir,
-		"DISCECHO_IGDB_CLIENT_ID":    "abc123",
+		"DISCECHO_DATA":               dataDir,
+		"DISCECHO_IGDB_CLIENT_ID":     "abc123",
 		"DISCECHO_IGDB_CLIENT_SECRET": "xyz789",
 	})
 	cfg, err := settings.Load(env, store, "test")
