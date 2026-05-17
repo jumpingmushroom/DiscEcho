@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.19.0] - 2026-05-17
+
 ### Changed
 - Data-profile engine label is now `ddrescue` (was `dd`) and reports the correct visible `step_count` of 6 (was 5). The v0.18.4 implementation switch left the schema, seeder, and existing profile rows stale, so the profile editor's "Reader" field still read `dd` and the footer reported "Step count: 5" even though six steps run end-to-end. Migration 012 rewrites existing `engine='dd'` rows to `engine='ddrescue', step_count=6`.
 
