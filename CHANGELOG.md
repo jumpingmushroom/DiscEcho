@@ -6,6 +6,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Fixed
+- Crash-recovery (`MarkInterruptedJobs`) now also flips orphan `job_steps` rows from `running` to `failed` with `finished_at` stamped. Previously the parent job correctly transitioned to `interrupted` at startup but its active step row stayed `running` forever, so the job-detail Pipeline view showed a stale spinning indicator on a step the daemon had already abandoned. The whole flip is in a transaction so partial recovery is impossible.
+
 ## [0.18.6] - 2026-05-17
 
 ### Fixed

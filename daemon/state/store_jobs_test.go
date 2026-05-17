@@ -283,6 +283,58 @@ func TestStore_Job_MarkInterrupted(t *testing.T) {
 	}
 }
 
+func TestStore_Job_MarkInterrupted_FlipsRunningSteps(t *testing.T) {
+	s := openStore(t)
+	ctx := context.Background()
+	drv := newDrive(t, s, "/dev/sr0")
+	prof := newProfile(t, s, "CD-FLAC", state.DiscTypeAudioCD)
+	disc := newDisc(t, s, drv)
+
+	j := newJob(t, s, drv, prof, disc)
+	if err := s.UpdateJobState(ctx, j.ID, state.JobStateRunning, ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.UpdateJobStepState(ctx, j.ID, state.StepRip, state.JobStepStateRunning); err != nil {
+		t.Fatalf("step running: %v", err)
+	}
+
+	if _, err := s.MarkInterruptedJobs(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := s.GetJob(ctx, j.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.State != state.JobStateInterrupted {
+		t.Errorf("job: want interrupted, got %s", got.State)
+	}
+	var rip *state.JobStep
+	for i := range got.Steps {
+		if got.Steps[i].Step == state.StepRip {
+			rip = &got.Steps[i]
+		}
+	}
+	if rip == nil {
+		t.Fatal("rip step missing")
+	}
+	if rip.State != state.JobStepStateFailed {
+		t.Errorf("rip step: want failed, got %s", rip.State)
+	}
+	if rip.FinishedAt == nil {
+		t.Errorf("rip step: finished_at not stamped")
+	}
+
+	for _, st := range got.Steps {
+		if st.Step == state.StepRip {
+			continue
+		}
+		if st.State == state.JobStepStateRunning {
+			t.Errorf("step %s still running after MarkInterruptedJobs", st.Step)
+		}
+	}
+}
+
 func TestStore_Job_FK_DiscDeleteCascades(t *testing.T) {
 	s := openStore(t)
 	ctx := context.Background()

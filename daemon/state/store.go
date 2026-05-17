@@ -1158,9 +1158,21 @@ func (s *Store) RecordOutputBytes(ctx context.Context, jobID string, bytes int64
 // MarkInterruptedJobs flips every job in {queued, identifying, running}
 // to interrupted. Used at daemon startup so crashed-mid-rip jobs are
 // visible in the UI for resolution. Returns the count flipped.
+//
+// Also flips any orphan job_steps still in 'running' for those jobs to
+// 'failed' (with finished_at stamped). Without this, the job-detail
+// pipeline view shows a stale "running" indicator on the step that was
+// active when the daemon crashed. The job's parent state already carries
+// the "interrupted" context for the user.
 func (s *Store) MarkInterruptedJobs(ctx context.Context) (int, error) {
 	now := timestamp(time.Now())
-	res, err := s.db.Conn().ExecContext(ctx, `
+	tx, err := s.db.Conn().BeginTx(ctx, nil)
+	if err != nil {
+		return 0, err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	res, err := tx.ExecContext(ctx, `
 		UPDATE jobs
 		SET state = 'interrupted', finished_at = ?
 		WHERE state IN ('queued','identifying','running')`, now)
@@ -1168,6 +1180,18 @@ func (s *Store) MarkInterruptedJobs(ctx context.Context) (int, error) {
 		return 0, err
 	}
 	n, _ := res.RowsAffected()
+
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE job_steps
+		SET state = 'failed', finished_at = ?
+		WHERE state = 'running'
+		  AND job_id IN (SELECT id FROM jobs WHERE state = 'interrupted')`, now); err != nil {
+		return 0, err
+	}
+
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
 	return int(n), nil
 }
 
