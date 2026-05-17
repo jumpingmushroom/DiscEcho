@@ -273,7 +273,7 @@ func TestStore_UpdateDriveLastError_RoundTrip(t *testing.T) {
 		t.Errorf("LastError = %q", got.LastError)
 	}
 	if got.LastErrorTip == "" {
-		t.Errorf("LastErrorTip empty; expected Kreon tip for cd-info error")
+		t.Errorf("LastErrorTip empty; expected a tip for cd-info error")
 	}
 }
 
@@ -307,7 +307,7 @@ func TestStore_UpdateDriveState_PreservesLastErrorOnError(t *testing.T) {
 
 func TestDriveErrorTip(t *testing.T) {
 	tests := []struct{ in, wantContains string }{
-		{"cd-info: exit status 1", "Kreon"},
+		{"cd-info: exit status 1", "couldn't read this disc"},
 		{"isoinfo: timed out", ""},
 		{"", ""},
 	}

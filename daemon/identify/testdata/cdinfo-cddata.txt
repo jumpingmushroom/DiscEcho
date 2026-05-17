@@ -1,0 +1,14 @@
+cd-info version 2.1.0 x86_64-pc-linux-gnu
+
+CD-ROM Device          : /dev/sr0
+Disc mode is listed as: CD-DATA (Mode 1)
+__________________________________
+
+CD-ROM Track List (1 - 1)
+  #: MSF       LSN    Type   Green? Copy?
+  1: 00:02:00  000000 data   false  no
+170: 74:34:11  335411 leadout (752 MB raw, 655 MB formatted)
+__________________________________
+CD Analysis Report
+CD-ROM with ISO 9660 filesystem
+ISO 9660: 335261 blocks, label `MORROWIND                       '

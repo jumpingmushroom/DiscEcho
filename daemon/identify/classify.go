@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os/exec"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -432,6 +433,14 @@ func (r *retryingSystemCNFProber) Probe(ctx context.Context, devPath string) (*S
 	return info, nil
 }
 
+// cdDATokenRE matches the bare CD-DA disc-mode token. Anchored with
+// word boundaries so it does NOT match CD-DATA, the value cd-info
+// prints for single-data-track CD-ROMs (e.g. Morrowind's "CD-DATA
+// (Mode 1)") — without the boundary, a plain substring check sends
+// those discs down the audio-CD pipeline and cdparanoia fails to
+// read a TOC.
+var cdDATokenRE = regexp.MustCompile(`(?i)\bcd-da\b`)
+
 // ClassifyFromCDInfo parses cd-info stdout/stderr and returns the
 // disc-mode-level type. Recognises CD-DA → AUDIO_CD; everything else
 // falls through as DATA. The higher-level classifier (RefineDiscType)
@@ -445,7 +454,7 @@ func ClassifyFromCDInfo(s string) (state.DiscType, error) {
 		if !strings.Contains(l, "disc mode") {
 			continue
 		}
-		if strings.Contains(l, "cd-da") {
+		if cdDATokenRE.MatchString(l) {
 			return state.DiscTypeAudioCD, nil
 		}
 	}

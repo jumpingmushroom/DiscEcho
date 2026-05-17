@@ -41,6 +41,26 @@ func TestClassify_DataFromCDInfo(t *testing.T) {
 	}
 }
 
+// TestClassify_CDDATAModeIsData covers the substring-match trap where
+// cd-info prints `Disc mode is listed as: CD-DATA (Mode 1)` for a
+// single-data-track CD-ROM (Morrowind's PC release does this). A naive
+// `strings.Contains(l, "cd-da")` on the lowercased line matches the
+// CD-DATA token and sends the disc down the audio-CD pipeline where
+// cdparanoia fails to read a TOC.
+func TestClassify_CDDATAModeIsData(t *testing.T) {
+	out, err := os.ReadFile("testdata/cdinfo-cddata.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := identify.ClassifyFromCDInfo(string(out))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != state.DiscTypeData {
+		t.Errorf("want DATA for CD-DATA disc mode, got %s", got)
+	}
+}
+
 func TestClassify_EmptyCDInfo(t *testing.T) {
 	if _, err := identify.ClassifyFromCDInfo(""); err == nil {
 		t.Errorf("want error on empty input")

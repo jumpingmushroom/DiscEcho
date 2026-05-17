@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Fixed
+- PC data CDs whose cd-info disc mode reports `CD-DATA (Mode 1)` (e.g. the original Morrowind PC CD-ROM) no longer get mis-classified as audio CDs. The disc-mode parser was matching `cd-da` as a substring of `cd-data` and sending the disc down the audio pipeline, where cdparanoia would fail to read a TOC and the disc never got a row in the UI. Now matched as a word-bounded token.
+- The "drive error" tip surfaced under the dashboard error banner no longer claims the failure is an Xbox / Kreon firmware issue. cd-info's exit-1 has multiple common causes (dirty disc, spin-up race, unsupported disc type); the tip now lists them in rough likelihood order instead of pointing only at XGD.
+
 ## [0.18.0] - 2026-05-17
 
 ### Added
