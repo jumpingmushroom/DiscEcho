@@ -12,6 +12,7 @@
 
   type DiskInfo = {
     path: string;
+    paths?: string[];
     total_bytes: number;
     used_bytes: number;
     available_bytes: number;
@@ -267,6 +268,11 @@
                   · {formatBytes(d.available_bytes)} free
                 </span>
               </div>
+              {#if d.paths && d.paths.length > 0}
+                <div class="font-mono text-[10px] text-text-3">
+                  shared with {d.paths.join(', ')}
+                </div>
+              {/if}
               <div class="mt-1 h-1.5 overflow-hidden rounded-full bg-surface-2">
                 <div class="h-full bg-accent" style="width: {diskPercent(d)}%"></div>
               </div>

@@ -96,18 +96,27 @@ func (h *Handlers) computeStats(ctx context.Context) state.Stats {
 		stats.ActiveJobs.Spark24h = ring[:]
 		stats.ActiveJobs.Delta1h = delta
 	}
-	stats.Library.TotalBytes = h.libraryTotalBytes(ctx)
+	used, total := h.libraryFSBytes(ctx)
+	stats.Library.TotalBytes = total
+	// Prefer the on-disk used figure when statfs returned anything: the
+	// jobs-sum fallback only counts DiscEcho's done jobs, so it reads 0
+	// after a fresh install or if every recent rip failed even though
+	// the user's library shares may already hold gigabytes from other
+	// sources or from history-pruned jobs. statfs measures what's
+	// actually there.
+	if used > 0 {
+		stats.Library.UsedBytes = used
+	}
 	return stats
 }
 
-// libraryTotalBytes walks the configured library roots, deduplicates
-// by filesystem device id, and sums each filesystem's total bytes.
-// Returns 0 on any error (the widget gracefully renders the headline
-// without the "of X TB" subline).
-func (h *Handlers) libraryTotalBytes(ctx context.Context) int64 {
+// libraryFSBytes walks the configured library roots, deduplicates by
+// filesystem id, and returns (used, total) across distinct mounts.
+// Returns (0, 0) on any error (the widget gracefully renders the
+// headline without the "of X TB" subline).
+func (h *Handlers) libraryFSBytes(ctx context.Context) (used, total int64) {
 	roots := h.libraryRoots(ctx)
 	seen := map[uint64]bool{}
-	var total int64
 	for _, root := range roots {
 		if root == "" {
 			continue
@@ -126,8 +135,11 @@ func (h *Handlers) libraryTotalBytes(ctx context.Context) int64 {
 		}
 		seen[key] = true
 		total += int64(stat.Blocks) * stat.Bsize
+		// Used = total - free. Bfree (vs Bavail) matches what `df` reports
+		// for total used since we don't differentiate root-reserved space.
+		used += int64(stat.Blocks-stat.Bfree) * stat.Bsize
 	}
-	return total
+	return used, total
 }
 
 func (h *Handlers) libraryRoots(ctx context.Context) []string {

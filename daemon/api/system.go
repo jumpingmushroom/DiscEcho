@@ -29,10 +29,16 @@ type HostInfo struct {
 }
 
 type DiskInfo struct {
-	Path           string `json:"path"`
-	TotalBytes     uint64 `json:"total_bytes"`
-	UsedBytes      uint64 `json:"used_bytes"`
-	AvailableBytes uint64 `json:"available_bytes"`
+	// Path is one configured library root that lives on this filesystem.
+	// When several configured roots share the same underlying mount
+	// (typical Unraid / single-array setups) only the first is returned;
+	// the rest are listed in Paths to avoid five identical bars in the
+	// UI.
+	Path           string   `json:"path"`
+	Paths          []string `json:"paths,omitempty"`
+	TotalBytes     uint64   `json:"total_bytes"`
+	UsedBytes      uint64   `json:"used_bytes"`
+	AvailableBytes uint64   `json:"available_bytes"`
 }
 
 // IntegrationsInfo is the payload for GET /api/system/integrations.
@@ -98,13 +104,28 @@ func (h *Handlers) GetSystemHost(w http.ResponseWriter, r *http.Request) {
 	if up, ok := readUptime("/proc/uptime"); ok {
 		info.UptimeSeconds = up
 	}
+	// Group statfs results by filesystem-identity key so a single
+	// underlying mount only produces one bar in the UI even when several
+	// library paths point to it.
+	type bucket struct {
+		idx   int
+		paths []string
+	}
+	buckets := map[uint64]*bucket{}
 	for _, p := range hostDiskPaths(h.Settings) {
 		if p == "" {
 			continue
 		}
-		if d, ok := statDisk(p); ok {
-			info.Disks = append(info.Disks, d)
+		d, key, ok := statDiskWithKey(p)
+		if !ok {
+			continue
 		}
+		if b, seen := buckets[key]; seen {
+			info.Disks[b.idx].Paths = append(info.Disks[b.idx].Paths, p)
+			continue
+		}
+		info.Disks = append(info.Disks, d)
+		buckets[key] = &bucket{idx: len(info.Disks) - 1, paths: nil}
 	}
 	writeJSON(w, http.StatusOK, info)
 }
@@ -392,13 +413,17 @@ func readUptime(path string) (int64, bool) {
 	return int64(f), true
 }
 
-func statDisk(path string) (DiskInfo, bool) {
+// statDiskWithKey returns the DiskInfo and a filesystem-identity key
+// usable to dedupe several configured paths that resolve to the same
+// underlying mount. Same Type+Bsize+Blocks composite as
+// libraryFSBytes uses — Fsid layout isn't portable.
+func statDiskWithKey(path string) (DiskInfo, uint64, bool) {
 	if _, err := os.Stat(path); err != nil {
-		return DiskInfo{}, false
+		return DiskInfo{}, 0, false
 	}
 	var st syscall.Statfs_t
 	if err := syscall.Statfs(path, &st); err != nil {
-		return DiskInfo{}, false
+		return DiskInfo{}, 0, false
 	}
 	bs := uint64(st.Bsize)
 	total := st.Blocks * bs
@@ -407,12 +432,13 @@ func statDisk(path string) (DiskInfo, bool) {
 	if total > avail {
 		used = total - avail
 	}
+	key := uint64(st.Type)<<48 | uint64(st.Bsize)<<16 | uint64(st.Blocks)
 	return DiskInfo{
 		Path:           path,
 		TotalBytes:     total,
 		UsedBytes:      used,
 		AvailableBytes: avail,
-	}, true
+	}, key, true
 }
 
 // appriseVersion shells out with a tight timeout and returns the
