@@ -12,6 +12,7 @@ const drive: Drive = {
   dev_path: '/dev/sr0',
   state: 'ripping',
   last_seen_at: '2026-05-13T12:00:00Z',
+  read_offset: 0,
 };
 
 const disc: Disc = {
@@ -75,6 +76,43 @@ describe('RipCard', () => {
   it('renders the state pill derived from active_step', () => {
     const { getByText } = render(RipCard, { drive, disc, job, profile });
     expect(getByText('TRANSCODING')).toBeInTheDocument();
+  });
+
+  it('renders the AccurateRip badge when the rip step carries an accuraterip note', () => {
+    const jobWithAR: Job = {
+      ...job,
+      steps: [
+        { step: 'detect', state: 'done', attempt_count: 1 },
+        { step: 'identify', state: 'done', attempt_count: 1 },
+        {
+          step: 'rip',
+          state: 'done',
+          attempt_count: 1,
+          notes: {
+            accuraterip: {
+              status: 'verified',
+              verified_tracks: 12,
+              total_tracks: 12,
+              max_confidence: 87,
+              min_confidence: 28,
+            },
+          },
+        },
+      ],
+    };
+    const { getByTestId, getByText } = render(RipCard, {
+      drive,
+      disc,
+      job: jobWithAR,
+      profile,
+    });
+    expect(getByTestId('accuraterip-badge')).toBeInTheDocument();
+    expect(getByText(/AccurateRip ✓ 12\/12/)).toBeInTheDocument();
+  });
+
+  it('omits the AccurateRip badge when no rip-step notes carry it', () => {
+    const { queryByTestId } = render(RipCard, { drive, disc, job, profile });
+    expect(queryByTestId('accuraterip-badge')).toBeNull();
   });
 
   it('falls back to drive.state when active_step is empty', () => {

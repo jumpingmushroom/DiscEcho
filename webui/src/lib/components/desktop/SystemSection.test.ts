@@ -73,16 +73,25 @@ function mockEndpoints(overrides: Record<string, unknown> = {}) {
         apiPutMock(url, init?.body ? JSON.parse(init.body as string) : null);
         return Promise.resolve(jsonResponse({ ok: true }));
       }
+      if (method === 'PATCH' && url.endsWith('/offset')) {
+        const body = init?.body ? JSON.parse(init.body as string) : null;
+        apiPatchMock(url, body);
+        return Promise.resolve(
+          jsonResponse({ id: 'd1', read_offset: body?.read_offset, read_offset_source: 'manual' }),
+        );
+      }
       return Promise.reject(new Error('unexpected ' + method + ' ' + url));
     }),
   );
 }
 
 const apiPutMock = vi.fn();
+const apiPatchMock = vi.fn();
 
 describe('SystemSection', () => {
   beforeEach(() => {
     apiPutMock.mockReset();
+    apiPatchMock.mockReset();
     mockEndpoints();
     toasts.set([]);
     settings.set({});
@@ -94,6 +103,7 @@ describe('SystemSection', () => {
         dev_path: '/dev/sr0',
         state: 'idle',
         last_seen_at: '2026-05-08T00:00:00Z',
+        read_offset: 0,
       },
     ]);
   });
@@ -216,5 +226,79 @@ describe('SystemSection', () => {
     drives.set([]);
     const { container } = render(SystemSection);
     await waitFor(() => expect(container.textContent).toContain('No drives detected'));
+  });
+
+  it('shows the read-offset row with uncalibrated badge when unset', async () => {
+    const { container } = render(SystemSection);
+    await waitFor(() => expect(container.textContent).toContain('ASUS BW-16D1HT'));
+    const offsetRow = container.querySelector('[data-testid="drive-offset-row"]');
+    expect(offsetRow).toBeTruthy();
+    const source = offsetRow?.querySelector('[data-testid="drive-offset-source"]');
+    expect(source?.textContent).toContain('uncalibrated');
+    const value = offsetRow?.querySelector('[data-testid="drive-offset-value"]');
+    expect(value?.textContent?.trim()).toBe('0');
+  });
+
+  it('disables the offset edit button while the drive is busy', async () => {
+    drives.set([
+      {
+        id: 'd1',
+        model: 'ASUS BW-16D1HT',
+        bus: 'usb',
+        dev_path: '/dev/sr0',
+        state: 'ripping',
+        last_seen_at: '2026-05-08T00:00:00Z',
+        read_offset: 0,
+      },
+    ]);
+    const { container } = render(SystemSection);
+    await waitFor(() => expect(container.textContent).toContain('ASUS BW-16D1HT'));
+    const btn = container.querySelector(
+      '[data-testid="drive-offset-edit"]',
+    ) as HTMLButtonElement | null;
+    expect(btn).toBeTruthy();
+    expect(btn?.disabled).toBe(true);
+  });
+
+  it('saves a new offset via PATCH and updates the drive store', async () => {
+    const { container } = render(SystemSection);
+    await waitFor(() => expect(container.textContent).toContain('ASUS BW-16D1HT'));
+    await fireEvent.click(
+      container.querySelector('[data-testid="drive-offset-edit"]') as HTMLButtonElement,
+    );
+    const input = container.querySelector('[data-testid="drive-offset-input"]') as HTMLInputElement;
+    expect(input).toBeTruthy();
+    input.value = '667';
+    await fireEvent.input(input);
+    await fireEvent.click(
+      container.querySelector('[data-testid="drive-offset-save"]') as HTMLButtonElement,
+    );
+    await waitFor(() =>
+      expect(apiPatchMock).toHaveBeenCalledWith('/api/drives/d1/offset', { read_offset: 667 }),
+    );
+    await waitFor(() => {
+      const stored = get(drives)[0];
+      expect(stored.read_offset).toBe(667);
+      expect(stored.read_offset_source).toBe('manual');
+    });
+  });
+
+  it('rejects an out-of-range offset client-side without calling the API', async () => {
+    const { container } = render(SystemSection);
+    await waitFor(() => expect(container.textContent).toContain('ASUS BW-16D1HT'));
+    await fireEvent.click(
+      container.querySelector('[data-testid="drive-offset-edit"]') as HTMLButtonElement,
+    );
+    const input = container.querySelector('[data-testid="drive-offset-input"]') as HTMLInputElement;
+    input.value = '9001';
+    await fireEvent.input(input);
+    await fireEvent.click(
+      container.querySelector('[data-testid="drive-offset-save"]') as HTMLButtonElement,
+    );
+    await waitFor(() => {
+      const err = container.querySelector('[data-testid="drive-offset-error"]');
+      expect(err?.textContent).toMatch(/within ±3000/);
+    });
+    expect(apiPatchMock).not.toHaveBeenCalled();
   });
 });

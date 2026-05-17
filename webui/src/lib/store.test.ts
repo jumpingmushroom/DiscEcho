@@ -43,6 +43,7 @@ const seedDrive: Drive = {
   dev_path: '/dev/sr0',
   state: 'idle',
   last_seen_at: '2026-05-07T12:00:00Z',
+  read_offset: 0,
 };
 const seedProfile: Profile = {
   id: 'p1',

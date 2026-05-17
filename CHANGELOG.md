@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+- Per-drive AccurateRip read-offset is now persisted in the database. Settings → System → Drives gains an "Edit" affordance next to each drive that takes a number from −3000 to +3000 (look it up on the AccurateRip drive DB or run `whipper offset find` inside the container). Persisted offset is passed to whipper as `-o <N>` on every audio-CD rip. Default 0 + source `''` preserves the legacy uncalibrated behavior (rip output identical to pre-v0.20), so upgrading installs see no change until they explicitly calibrate. Auto-detect-from-UI is a follow-up; the manual path is enough to unlock AccurateRip verification today. Adds migration 013.
+- Audio-CD rips now surface AccurateRip verification status. The whipper output parser already captured per-track confidence numbers but the data never reached the UI; rip-step notes now carry a structured `accuraterip: { status, verified_tracks, total_tracks, min/max_confidence }` summary that the RipCard renders as a verified (green ✓ N/N · conf X) / unverified (amber N/M verified) / uncalibrated (grey) pill. "uncalibrated" pins the status whenever a drive has no calibration set, so the user is never told a rip "didn't match" when the offset was the actual problem.
+
+### Changed
+- `Whipper.Run` keeps its existing `error` return for the generic `tools.Tool` interface; new `Whipper.RunWithResult` returns a `WhipperResult` with the parsed per-track AccurateRip confidence map. The audio-CD pipeline probes for the optional method at runtime, so tests that stub a minimal Tool keep working.
+
 ## [0.19.0] - 2026-05-17
 
 ### Changed

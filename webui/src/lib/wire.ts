@@ -51,6 +51,24 @@ export interface Drive {
   current_disc_id?: string;
   last_error?: string;
   last_error_tip?: string;
+  // CDDA sample read-offset, in samples. Set via Settings → System →
+  // Drives. 0 + source '' means uncalibrated (rip output identical to
+  // pre-v0.20 but AccurateRip cannot match); a manually entered value
+  // (source 'manual') or auto-detected value (source 'auto') enables
+  // AccurateRip verification.
+  read_offset: number;
+  read_offset_source?: '' | 'manual' | 'auto';
+}
+
+// AccurateRipSummary lives inside JobStep.notes.accuraterip for the
+// `rip` step of audio-CD jobs (since v0.20). The UI renders a verified
+// / unverified / uncalibrated badge off the `status` discriminator.
+export interface AccurateRipSummary {
+  status: 'verified' | 'unverified' | 'uncalibrated';
+  verified_tracks: number;
+  total_tracks: number;
+  min_confidence?: number;
+  max_confidence?: number;
 }
 
 export interface Candidate {

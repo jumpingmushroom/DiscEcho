@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
-  import type { Drive, Disc, Job, Profile, StepID } from '$lib/wire';
+  import type { Drive, Disc, Job, Profile, StepID, AccurateRipSummary } from '$lib/wire';
   import { logs, ensureLogBackfill } from '$lib/store';
   import { formatDuration } from '$lib/time';
   import { trackSummary } from '$lib/format';
@@ -10,6 +10,31 @@
   import PipelineStepperHorizontal from './PipelineStepperHorizontal.svelte';
   import ProgressBar from './ProgressBar.svelte';
   import SpeedEtaChip from './SpeedEtaChip.svelte';
+  import AccurateRipBadge from './AccurateRipBadge.svelte';
+
+  // accurateRipFor pulls the AccurateRipSummary out of a Job's rip-step
+  // notes, if any. Used by RipCard to render a verified/unverified/
+  // uncalibrated badge during and after audio-CD rips. Returns undefined
+  // when the rip step has no notes or no `accuraterip` key (most
+  // pre-v0.20 jobs and all non-audio jobs).
+  function accurateRipFor(j: Job): AccurateRipSummary | undefined {
+    const ripStep = j.steps?.find((s) => s.step === 'rip');
+    const raw = ripStep?.notes?.accuraterip as Record<string, unknown> | undefined;
+    if (!raw || typeof raw !== 'object') return undefined;
+    const status = raw.status;
+    if (status !== 'verified' && status !== 'unverified' && status !== 'uncalibrated') {
+      return undefined;
+    }
+    return {
+      status,
+      verified_tracks: Number(raw.verified_tracks ?? 0),
+      total_tracks: Number(raw.total_tracks ?? 0),
+      min_confidence:
+        typeof raw.min_confidence === 'number' ? (raw.min_confidence as number) : undefined,
+      max_confidence:
+        typeof raw.max_confidence === 'number' ? (raw.max_confidence as number) : undefined,
+    };
+  }
 
   export let drive: Drive;
   export let disc: Disc | undefined = undefined;
@@ -56,6 +81,7 @@
   })();
 
   $: tracks = trackSummary(disc?.metadata_json);
+  $: accurateRip = accurateRipFor(job);
 
   // State pill — derived from active_step where possible so the user sees
   // "TRANSCODING" instead of a generic "RIPPING" once the laser is done.
@@ -150,6 +176,12 @@
   <div class="mt-5">
     <PipelineStepperHorizontal {job} />
   </div>
+
+  {#if accurateRip}
+    <div class="mt-3" data-testid="accuraterip-badge">
+      <AccurateRipBadge summary={accurateRip} />
+    </div>
+  {/if}
 
   <!-- Progress bar -->
   <div class="mt-5 space-y-2">

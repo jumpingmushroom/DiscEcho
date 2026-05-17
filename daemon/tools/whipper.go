@@ -42,10 +42,45 @@ func NewWhipper(bin string) *Whipper {
 
 func (w *Whipper) Name() string { return "whipper" }
 
+// WhipperResult holds structured data extracted from a whipper run's
+// stdout/stderr stream — currently per-track AccurateRip confidence so
+// the pipeline can persist a verification summary alongside the FLACs.
+// Keys are track numbers (1-indexed). Values are:
+//
+//	N > 0  — classic whipper format `Track N OK (AccurateRip: X/Y)`,
+//	         X is the confidence count.
+//	1      — modern whipper format `CRCs match for track N` (verified
+//	         against AccurateRip but the new logging format does not
+//	         expose a confidence count; treat as "matched at conf >= 1").
+//	0      — explicit mismatch (`Rip NOT accurate` or equivalent).
+//
+// An empty map means whipper either was uncalibrated (offset 0 with no
+// AR consultation) or no entry exists in the AccurateRip database for
+// this disc — both legitimate "not checked" cases. The caller has to
+// distinguish them by inspecting the drive's calibration source.
+type WhipperResult struct {
+	AccurateRip map[int]int
+}
+
 // Run shells out to whipper and parses its combined stdout/stderr
-// stream into Sink events. Returns the exec error (or nil) verbatim.
+// stream into Sink events. Discards the structured AccurateRip data
+// — implements the generic Tool interface. Pipelines that need the
+// per-track AccurateRip summary call RunWithResult instead.
 func (w *Whipper) Run(ctx context.Context, args []string, env map[string]string,
 	workdir string, sink Sink) error {
+	_, err := w.RunWithResult(ctx, args, env, workdir, sink)
+	return err
+}
+
+// RunWithResult is like Run but also returns the structured WhipperResult
+// (per-track AccurateRip confidence map) parsed off the stream. The
+// audio-CD pipeline uses this to persist verification status on the job
+// step + disc record.
+//
+// Result is always non-nil — an empty AccurateRip map is the legitimate
+// "uncalibrated or disc not in AR database" case.
+func (w *Whipper) RunWithResult(ctx context.Context, args []string, env map[string]string,
+	workdir string, sink Sink) (WhipperResult, error) {
 
 	cmd := exec.CommandContext(ctx, w.bin, args...)
 	if workdir != "" {
@@ -61,44 +96,84 @@ func (w *Whipper) Run(ctx context.Context, args []string, env map[string]string,
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
-		return fmt.Errorf("stdout pipe: %w", err)
+		return WhipperResult{AccurateRip: map[int]int{}}, fmt.Errorf("stdout pipe: %w", err)
 	}
 	stderr, err := cmd.StderrPipe()
 	if err != nil {
-		return fmt.Errorf("stderr pipe: %w", err)
+		return WhipperResult{AccurateRip: map[int]int{}}, fmt.Errorf("stderr pipe: %w", err)
 	}
 
 	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("whipper start: %w", err)
+		return WhipperResult{AccurateRip: map[int]int{}}, fmt.Errorf("whipper start: %w", err)
 	}
 
-	ParseWhipperStreams(stdout, stderr, sink)
+	result := ParseWhipperStreams(stdout, stderr, sink)
 
-	return cmd.Wait()
+	return result, cmd.Wait()
 }
 
 // ParseWhipperStreams drains stdout + stderr in parallel through the
-// whipper parser with a single shared "preparing drive" announce flag.
-// Exposed so tests can exercise the shared-flag invariant without
-// shelling out to a fake binary.
-func ParseWhipperStreams(stdout, stderr io.Reader, sink Sink) {
+// whipper parser with a single shared "preparing drive" announce flag
+// and a single shared AccurateRip accumulator. Exposed so tests can
+// exercise the shared-state invariants without shelling out to a fake
+// binary. Returns the aggregated WhipperResult once both streams are
+// drained.
+func ParseWhipperStreams(stdout, stderr io.Reader, sink Sink) WhipperResult {
 	// announcedStart is shared by both parser goroutines so the
 	// "preparing drive" hint fires exactly once per run, not once per
 	// stream. Without this, whipper's stdout and stderr each trigger
 	// the message — historically seen as the same log line twice in
 	// the dashboard, ~80s apart.
 	var announcedStart atomic.Bool
+	acc := &whipperAccumulator{accurateRip: make(map[int]int)}
 	var wg sync.WaitGroup
 	wg.Add(2)
 	go func() {
 		defer wg.Done()
-		parseWhipperStreamShared(stdout, sink, &announcedStart)
+		parseWhipperStreamShared(stdout, sink, &announcedStart, acc)
 	}()
 	go func() {
 		defer wg.Done()
-		parseWhipperStreamShared(stderr, sink, &announcedStart)
+		parseWhipperStreamShared(stderr, sink, &announcedStart, acc)
 	}()
 	wg.Wait()
+	return WhipperResult{AccurateRip: acc.snapshot()}
+}
+
+// whipperAccumulator buffers stream-derived structured data behind a
+// single mutex. Both parser goroutines (stdout + stderr) share one
+// instance, so all writes go through the lock.
+type whipperAccumulator struct {
+	mu          sync.Mutex
+	accurateRip map[int]int
+}
+
+// recordAR stores per-track AccurateRip confidence. Later writes for the
+// same track win — modern whipper sometimes emits both a `Track N OK`
+// (classic) and a `CRCs match` line; the classic one's explicit
+// confidence count is the more useful signal, but ordering is not
+// guaranteed, so prefer the larger of the two stored values to bias
+// toward "more information" (sentinel 1 vs explicit 87 → keep 87;
+// sentinel 0 mismatch vs successful 1 → keep 1 to reflect at-least-once
+// match). Mismatches recorded as 0 only stick when nothing better
+// arrived.
+func (a *whipperAccumulator) recordAR(track, confidence int) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if prev, ok := a.accurateRip[track]; ok && prev >= confidence {
+		return
+	}
+	a.accurateRip[track] = confidence
+}
+
+func (a *whipperAccumulator) snapshot() map[int]int {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	out := make(map[int]int, len(a.accurateRip))
+	for k, v := range a.accurateRip {
+		out[k] = v
+	}
+	return out
 }
 
 var (
@@ -106,6 +181,13 @@ var (
 	whipperReadingRE    = regexp.MustCompile(`Reading:\s+([0-9.]+)%,\s*([0-9.]+×),\s*ETA:\s*(\d+):(\d+)`)
 	whipperErrorRE      = regexp.MustCompile(`(?i)^(ERROR|FATAL):\s*(.+)$`)
 	whipperTrackOKRE    = regexp.MustCompile(`^Track (\d+) OK \(AccurateRip:\s*(\d+)/\d+`)
+	// whipperTrackNotAccurateRE catches the explicit "did not match
+	// AccurateRip" signal — used to write a 0 into the result map so
+	// the pipeline can report verified=N/total accurately. Real whipper
+	// has historically emitted variations like `Track N: rip NOT
+	// accurate (AccurateRip: …)` and `could not match … against
+	// AccurateRip`; accept the common shapes here.
+	whipperTrackNotAccurateRE = regexp.MustCompile(`(?i)^Track (\d+).*(rip NOT accurate|did not match.*AccurateRip|AccurateRip.*mismatch)`)
 	// Lowercase modern-whipper variants. Real whipper emits everything
 	// through Python's `logging` module — once whipperPyLogRE strips the
 	// `LEVEL:logger.path:` prefix, the inner message looks like
@@ -126,22 +208,25 @@ var (
 )
 
 // ParseWhipperStream scans r line-by-line and emits events to sink.
-// Exposed for testing — uses an internal announce-once flag so a
-// single ParseWhipperStream call emits "preparing drive" at most once.
-// Production calls go through parseWhipperStreamShared which threads
-// a shared flag across both stdout and stderr parsers.
-func ParseWhipperStream(r io.Reader, sink Sink) {
+// Exposed for testing — uses an internal announce-once flag and a
+// throwaway accumulator. Returns the AccurateRip summary collected
+// from this single stream. Production calls go through
+// parseWhipperStreamShared which threads a shared flag + accumulator
+// across both stdout and stderr parsers.
+func ParseWhipperStream(r io.Reader, sink Sink) WhipperResult {
 	var announced atomic.Bool
-	parseWhipperStreamShared(r, sink, &announced)
+	acc := &whipperAccumulator{accurateRip: make(map[int]int)}
+	parseWhipperStreamShared(r, sink, &announced, acc)
+	return WhipperResult{AccurateRip: acc.snapshot()}
 }
 
-func parseWhipperStreamShared(r io.Reader, sink Sink, announced *atomic.Bool) {
+func parseWhipperStreamShared(r io.Reader, sink Sink, announced *atomic.Bool, acc *whipperAccumulator) {
 	drainAfterScan(r, func(scanner *bufio.Scanner) {
-		parseWhipperLines(scanner, sink, announced)
+		parseWhipperLines(scanner, sink, announced, acc)
 	})
 }
 
-func parseWhipperLines(scanner *bufio.Scanner, sink Sink, announced *atomic.Bool) {
+func parseWhipperLines(scanner *bufio.Scanner, sink Sink, announced *atomic.Bool, acc *whipperAccumulator) {
 	currentTrack := 0
 	totalTracks := 0
 	var ripStart time.Time
@@ -247,15 +332,28 @@ func parseWhipperLines(scanner *bufio.Scanner, sink Sink, announced *atomic.Bool
 			tNum, _ := strconv.Atoi(m[1])
 			conf, _ := strconv.Atoi(m[2])
 			sink.Log(state.LogLevelInfo, "whipper: track %d OK (AccurateRip %d)", tNum, conf)
+			acc.recordAR(tNum, conf)
 			if totalTracks > 0 {
 				sink.Progress(float64(tNum)/float64(totalTracks)*100, "", etaFor(tNum))
 			}
 			continue
 		}
 
+		if m := whipperTrackNotAccurateRE.FindStringSubmatch(msg); m != nil {
+			tNum, _ := strconv.Atoi(m[1])
+			sink.Log(state.LogLevelWarn, "whipper: track %d did NOT match AccurateRip", tNum)
+			acc.recordAR(tNum, 0)
+			continue
+		}
+
 		if m := whipperTrackCRCsMatchRE.FindStringSubmatch(msg); m != nil {
 			tNum, _ := strconv.Atoi(m[1])
 			sink.Log(state.LogLevelInfo, "whipper: CRCs match for track %d", tNum)
+			// Modern whipper logging doesn't surface a confidence count
+			// here — sentinel 1 means "verified against AccurateRip with
+			// at least one peer match". Upgrading to the explicit count
+			// is a follow-up if/when whipper exposes it.
+			acc.recordAR(tNum, 1)
 			if totalTracks > 0 {
 				sink.Progress(float64(tNum)/float64(totalTracks)*100, "", etaFor(tNum))
 			}
@@ -265,6 +363,7 @@ func parseWhipperLines(scanner *bufio.Scanner, sink Sink, announced *atomic.Bool
 		if m := whipperTrackAlreadyRippedRE.FindStringSubmatch(msg); m != nil {
 			tNum, _ := strconv.Atoi(m[1])
 			sink.Log(state.LogLevelInfo, "whipper: track %d already ripped", tNum)
+			acc.recordAR(tNum, 1)
 			if totalTracks > 0 {
 				sink.Progress(float64(tNum)/float64(totalTracks)*100, "", etaFor(tNum))
 			}

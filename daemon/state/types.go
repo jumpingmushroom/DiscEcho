@@ -113,6 +113,14 @@ type Drive struct {
 	CurrentDiscID string     `json:"current_disc_id,omitempty"` // computed, not stored
 	LastError     string     `json:"last_error,omitempty"`
 	LastErrorTip  string     `json:"last_error_tip,omitempty"` // derived from LastError via DriveErrorTip; not stored
+	// ReadOffset is the per-drive CDDA sample read-offset (in samples)
+	// passed to `whipper cd rip -o <n>`. 0 is the legacy default and
+	// guarantees rip output identical to pre-v0.20.0 — but rips at
+	// offset 0 cannot match AccurateRip checksums for any drive whose
+	// hardware offset is non-zero (i.e. almost every drive). Users who
+	// want AccurateRip verification set this from Settings → System.
+	ReadOffset       int    `json:"read_offset"`
+	ReadOffsetSource string `json:"read_offset_source,omitempty"` // '' | 'manual' | 'auto'
 }
 
 // Candidate is a single MB (or other source) match for a disc.

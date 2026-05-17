@@ -151,6 +151,82 @@ func progressOnly(events []recordedEvent) []recordedEvent {
 	return out
 }
 
+func TestParseWhipperStream_AccurateRip_ClassicConfidences(t *testing.T) {
+	t.Parallel()
+	body, err := os.ReadFile("testdata/whipper-stdout-kindofblue.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	result := tools.ParseWhipperStream(strings.NewReader(string(body)), &recordingSink{})
+
+	want := map[int]int{1: 87, 2: 92, 3: 81, 4: 79, 5: 75}
+	if len(result.AccurateRip) != len(want) {
+		t.Fatalf("AccurateRip map size: want %d, got %d (%v)", len(want), len(result.AccurateRip), result.AccurateRip)
+	}
+	for track, conf := range want {
+		if got := result.AccurateRip[track]; got != conf {
+			t.Errorf("track %d confidence: want %d, got %d", track, conf, got)
+		}
+	}
+}
+
+func TestParseWhipperStream_AccurateRip_ModernCRCsMatch(t *testing.T) {
+	t.Parallel()
+	body, err := os.ReadFile("testdata/whipper-stdout-modern.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	result := tools.ParseWhipperStream(strings.NewReader(string(body)), &recordingSink{})
+
+	// Modern format reports CRCs-match without an explicit confidence
+	// count → recorded as sentinel 1.
+	for track := 1; track <= 4; track++ {
+		if got := result.AccurateRip[track]; got != 1 {
+			t.Errorf("track %d (CRCs match): want sentinel conf=1, got %d", track, got)
+		}
+	}
+	if len(result.AccurateRip) != 4 {
+		t.Errorf("AccurateRip map size: want 4, got %d (%v)", len(result.AccurateRip), result.AccurateRip)
+	}
+}
+
+func TestParseWhipperStream_AccurateRip_PrefersExplicitConfidence(t *testing.T) {
+	t.Parallel()
+	// Both a classic "Track 1 OK (AccurateRip: 87/200)" and a modern
+	// "CRCs match for track 1" can appear for the same rip on a
+	// transitional whipper build. The explicit number must win over the
+	// sentinel — we don't want to downgrade real data.
+	input := strings.Join([]string{
+		"Track 1 OK (AccurateRip: 87/200 confidence)",
+		"INFO:whipper.command.cd:CRCs match for track 1",
+	}, "\n")
+	result := tools.ParseWhipperStream(strings.NewReader(input), &recordingSink{})
+	if got := result.AccurateRip[1]; got != 87 {
+		t.Errorf("track 1: want explicit conf 87 to beat sentinel 1, got %d", got)
+	}
+
+	// Reverse order — same outcome (later writes don't clobber better data).
+	rev := strings.Join([]string{
+		"INFO:whipper.command.cd:CRCs match for track 1",
+		"Track 1 OK (AccurateRip: 87/200 confidence)",
+	}, "\n")
+	result = tools.ParseWhipperStream(strings.NewReader(rev), &recordingSink{})
+	if got := result.AccurateRip[1]; got != 87 {
+		t.Errorf("track 1 (reversed): want explicit conf 87, got %d", got)
+	}
+}
+
+func TestParseWhipperStream_AccurateRip_EmptyWhenNoARLines(t *testing.T) {
+	t.Parallel()
+	// "Preparing drive" startup output with no AR lines at all — drive
+	// uncalibrated or disc not in AR database. Result should be empty.
+	input := "INFO:whipper.command.cd:checking device /dev/sr0\nINFO:whipper.image.cue:reading TOC\n"
+	result := tools.ParseWhipperStream(strings.NewReader(input), &recordingSink{})
+	if len(result.AccurateRip) != 0 {
+		t.Errorf("AccurateRip map: want empty, got %v", result.AccurateRip)
+	}
+}
+
 func TestParseWhipperStream_BoundaryProgress(t *testing.T) {
 	t.Parallel()
 	sink := &recordingSink{}

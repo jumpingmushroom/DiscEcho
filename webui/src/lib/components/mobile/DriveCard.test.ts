@@ -12,6 +12,7 @@ const idleDrive: Drive = {
   dev_path: '/dev/sr0',
   state: 'idle',
   last_seen_at: '2026-05-15T10:00:00Z',
+  read_offset: 0,
 };
 
 const rippingDrive: Drive = {

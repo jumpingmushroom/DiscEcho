@@ -1,8 +1,9 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { drives, bootCodeCounts } from '$lib/store';
-  import { apiGet, apiPut } from '$lib/api';
+  import { apiGet, apiPut, apiPatch } from '$lib/api';
   import { pushToast } from '$lib/toasts';
+  import type { Drive } from '$lib/wire';
   import FormSection from './FormSection.svelte';
   import FormRow from './FormRow.svelte';
   import PathField from './PathField.svelte';
@@ -161,6 +162,68 @@
     if (!d.total_bytes) return 0;
     return Math.min(100, Math.round((d.used_bytes / d.total_bytes) * 100));
   }
+
+  // Per-drive offset editor state. Keyed by drive ID so multiple drives
+  // can be edited independently. The draft uses `number | null` because
+  // `<input type="number" bind:value>` writes a JavaScript number (or
+  // null when the field is empty), not a string. Saving guards against
+  // concurrent PATCH bursts.
+  let offsetEditing: Record<string, boolean> = {};
+  let offsetDraft: Record<string, number | null> = {};
+  let offsetSaving: Record<string, boolean> = {};
+  let offsetError: Record<string, string> = {};
+
+  function offsetSourceLabel(d: Drive): string {
+    if (d.read_offset_source === 'manual') return 'manual';
+    if (d.read_offset_source === 'auto') return 'auto';
+    return 'uncalibrated';
+  }
+
+  function beginOffsetEdit(d: Drive): void {
+    offsetEditing = { ...offsetEditing, [d.id]: true };
+    offsetDraft = { ...offsetDraft, [d.id]: d.read_offset ?? 0 };
+    offsetError = { ...offsetError, [d.id]: '' };
+  }
+
+  function cancelOffsetEdit(d: Drive): void {
+    offsetEditing = { ...offsetEditing, [d.id]: false };
+    offsetError = { ...offsetError, [d.id]: '' };
+  }
+
+  async function saveOffset(d: Drive): Promise<void> {
+    const draft = offsetDraft[d.id];
+    if (draft === null || draft === undefined || Number.isNaN(draft)) {
+      offsetError = { ...offsetError, [d.id]: 'Offset must be a whole number.' };
+      return;
+    }
+    if (!Number.isInteger(draft)) {
+      offsetError = { ...offsetError, [d.id]: 'Offset must be a whole number.' };
+      return;
+    }
+    if (draft < -3000 || draft > 3000) {
+      offsetError = { ...offsetError, [d.id]: 'Offset must be within ±3000 samples.' };
+      return;
+    }
+    const parsed = draft;
+    offsetSaving = { ...offsetSaving, [d.id]: true };
+    offsetError = { ...offsetError, [d.id]: '' };
+    try {
+      await apiPatch(`/api/drives/${encodeURIComponent(d.id)}/offset`, {
+        read_offset: parsed,
+      });
+      drives.update((list) =>
+        list.map((row) =>
+          row.id === d.id ? { ...row, read_offset: parsed, read_offset_source: 'manual' } : row,
+        ),
+      );
+      offsetEditing = { ...offsetEditing, [d.id]: false };
+      pushToast('success', `Saved read-offset ${parsed} for ${d.model || d.dev_path}`);
+    } catch (e) {
+      offsetError = { ...offsetError, [d.id]: (e as Error).message };
+    } finally {
+      offsetSaving = { ...offsetSaving, [d.id]: false };
+    }
+  }
 </script>
 
 <div class="space-y-7">
@@ -169,19 +232,90 @@
       <div class="px-4 py-3 text-[12px] text-text-3">No drives detected.</div>
     {:else}
       {#each $drives as d (d.id)}
-        <div class="grid items-center gap-4 px-4 py-3" style="grid-template-columns: 1fr auto auto">
-          <div>
-            <div class="text-[13px] font-medium text-text">{d.model || '—'}</div>
-            <div class="font-mono text-[11px] text-text-3">
-              {d.dev_path}
+        <div class="px-4 py-3" data-testid="drive-row" data-drive-id={d.id}>
+          <div class="grid items-center gap-4" style="grid-template-columns: 1fr auto auto">
+            <div>
+              <div class="text-[13px] font-medium text-text">{d.model || '—'}</div>
+              <div class="font-mono text-[11px] text-text-3">
+                {d.dev_path}
+              </div>
             </div>
+            <span
+              class="inline-flex items-center rounded-md border border-border bg-surface-2
+                     px-2 py-[3px] text-[11px] font-medium uppercase tracking-wide text-text-2"
+            >
+              {d.state}
+            </span>
           </div>
-          <span
-            class="inline-flex items-center rounded-md border border-border bg-surface-2
-                   px-2 py-[3px] text-[11px] font-medium uppercase tracking-wide text-text-2"
+
+          <!--
+            AccurateRip read-offset row. Inline edit affordance — number
+            entry only; auto-detect against a calibration disc is a
+            follow-up (needs whipper offset find stdout parsing
+            captured against the homelab drive first). Disabled while
+            drive is busy: changing offset mid-rip would silently mean
+            the in-flight checksums don't reflect the configured offset.
+          -->
+          <div
+            class="mt-2 flex items-center gap-3 text-[11px] text-text-3"
+            data-testid="drive-offset-row"
           >
-            {d.state}
-          </span>
+            <span class="font-mono">offset:</span>
+            {#if offsetEditing[d.id]}
+              <input
+                type="number"
+                bind:value={offsetDraft[d.id]}
+                min={-3000}
+                max={3000}
+                step="1"
+                class="w-24 rounded border border-border bg-surface-2 px-2 py-1 font-mono text-text"
+                data-testid="drive-offset-input"
+              />
+              <button
+                type="button"
+                on:click={() => saveOffset(d)}
+                disabled={offsetSaving[d.id]}
+                class="rounded-md bg-accent px-2 py-1 text-[11px] font-semibold text-black disabled:opacity-50"
+                data-testid="drive-offset-save"
+              >
+                Save
+              </button>
+              <button
+                type="button"
+                on:click={() => cancelOffsetEdit(d)}
+                disabled={offsetSaving[d.id]}
+                class="rounded-md border border-border px-2 py-1 text-[11px] text-text-2 disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              {#if offsetError[d.id]}
+                <span class="text-error" data-testid="drive-offset-error">{offsetError[d.id]}</span>
+              {/if}
+            {:else}
+              <span class="font-mono text-text" data-testid="drive-offset-value">
+                {d.read_offset ?? 0}
+              </span>
+              <span
+                class="inline-flex items-center rounded-md border border-border bg-surface-2 px-2 py-[2px] text-[10px] uppercase tracking-wide"
+                class:text-text-3={offsetSourceLabel(d) === 'uncalibrated'}
+                data-testid="drive-offset-source"
+              >
+                {offsetSourceLabel(d)}
+              </span>
+              <button
+                type="button"
+                on:click={() => beginOffsetEdit(d)}
+                disabled={d.state !== 'idle'}
+                title={d.state !== 'idle'
+                  ? 'Drive is busy — wait for it to return to idle before changing the offset.'
+                  : 'Set the per-drive read-offset to enable AccurateRip verification.'}
+                class="rounded-md border border-border px-2 py-1 text-[11px] text-text-2 disabled:opacity-50"
+                data-testid="drive-offset-edit"
+              >
+                Edit
+              </button>
+            {/if}
+          </div>
         </div>
       {/each}
     {/if}

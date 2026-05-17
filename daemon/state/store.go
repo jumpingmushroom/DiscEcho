@@ -114,7 +114,8 @@ func unmarshalOptions(s string) (map[string]any, error) {
 // GetDrive fetches a drive by ID.
 func (s *Store) GetDrive(ctx context.Context, id string) (*Drive, error) {
 	row := s.db.Conn().QueryRowContext(ctx, `
-		SELECT id, model, bus, dev_path, state, last_seen_at, notes, last_error
+		SELECT id, model, bus, dev_path, state, last_seen_at, notes, last_error,
+		       read_offset, read_offset_source
 		FROM drives WHERE id = ?`, id)
 	return scanDrive(row)
 }
@@ -122,7 +123,8 @@ func (s *Store) GetDrive(ctx context.Context, id string) (*Drive, error) {
 // ListDrives returns all drives ordered by dev_path.
 func (s *Store) ListDrives(ctx context.Context) ([]Drive, error) {
 	rows, err := s.db.Conn().QueryContext(ctx, `
-		SELECT id, model, bus, dev_path, state, last_seen_at, notes, last_error
+		SELECT id, model, bus, dev_path, state, last_seen_at, notes, last_error,
+		       read_offset, read_offset_source
 		FROM drives ORDER BY dev_path`)
 	if err != nil {
 		return nil, err
@@ -253,7 +255,8 @@ func (s *Store) ClaimDriveForIdentify(ctx context.Context, id string) (bool, err
 func scanDrive(r rowScanner) (*Drive, error) {
 	var d Drive
 	var state, lastSeenStr string
-	if err := r.Scan(&d.ID, &d.Model, &d.Bus, &d.DevPath, &state, &lastSeenStr, &d.Notes, &d.LastError); err != nil {
+	if err := r.Scan(&d.ID, &d.Model, &d.Bus, &d.DevPath, &state, &lastSeenStr,
+		&d.Notes, &d.LastError, &d.ReadOffset, &d.ReadOffsetSource); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrNotFound
 		}
@@ -267,6 +270,27 @@ func scanDrive(r rowScanner) (*Drive, error) {
 	d.LastSeenAt = t
 	d.LastErrorTip = DriveErrorTip(d.LastError)
 	return &d, nil
+}
+
+// UpdateDriveReadOffset persists a drive's calibration. source is one of
+// 'manual' (user typed) or 'auto' (`whipper offset find`). Returns
+// ErrNotFound if id has no row.
+//
+// UpsertDrive deliberately omits these columns from its UPDATE branch so
+// the device-rescan on boot does not clobber the user's calibration —
+// this updater is the only call site that ever touches them.
+func (s *Store) UpdateDriveReadOffset(ctx context.Context, id string, offset int, source string) error {
+	res, err := s.db.Conn().ExecContext(ctx,
+		`UPDATE drives SET read_offset = ?, read_offset_source = ? WHERE id = ?`,
+		offset, source, id)
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return ErrNotFound
+	}
+	return nil
 }
 
 // ---- DISCS ----------------------------------------------------------------

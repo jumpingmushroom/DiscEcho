@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/go-chi/chi/v5"
@@ -154,3 +155,135 @@ func TestEjectDrive_NotFound(t *testing.T) {
 // Compile-time use of the api package import for the Ejector type when
 // the file would otherwise not need it directly.
 var _ api.Ejector = func(context.Context, string) error { return nil }
+
+func TestPatchDriveOffset_HappyPath(t *testing.T) {
+	h := apitestServer(t)
+	d := seedDrive(t, h)
+	r := chi.NewRouter()
+	r.Patch("/api/drives/{id}/offset", h.PatchDriveOffset)
+
+	req := httptest.NewRequest(http.MethodPatch, "/api/drives/"+d.ID+"/offset",
+		strings.NewReader(`{"read_offset": 667}`))
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status %d (%s)", w.Code, w.Body.String())
+	}
+	var got state.Drive
+	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.ReadOffset != 667 || got.ReadOffsetSource != "manual" {
+		t.Errorf("got offset=%d source=%q want 667/manual", got.ReadOffset, got.ReadOffsetSource)
+	}
+}
+
+func TestPatchDriveOffset_NegativeRoundTrips(t *testing.T) {
+	h := apitestServer(t)
+	d := seedDrive(t, h)
+	r := chi.NewRouter()
+	r.Patch("/api/drives/{id}/offset", h.PatchDriveOffset)
+
+	req := httptest.NewRequest(http.MethodPatch, "/api/drives/"+d.ID+"/offset",
+		strings.NewReader(`{"read_offset": -1164}`))
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status %d", w.Code)
+	}
+	stored, _ := h.Store.GetDrive(context.Background(), d.ID)
+	if stored.ReadOffset != -1164 {
+		t.Errorf("stored offset: want -1164, got %d", stored.ReadOffset)
+	}
+}
+
+func TestPatchDriveOffset_OutOfRange(t *testing.T) {
+	h := apitestServer(t)
+	d := seedDrive(t, h)
+	r := chi.NewRouter()
+	r.Patch("/api/drives/{id}/offset", h.PatchDriveOffset)
+
+	for _, body := range []string{
+		`{"read_offset": 9001}`,
+		`{"read_offset": -9001}`,
+	} {
+		req := httptest.NewRequest(http.MethodPatch, "/api/drives/"+d.ID+"/offset",
+			strings.NewReader(body))
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+		if w.Code != http.StatusUnprocessableEntity {
+			t.Errorf("body %s: status %d want 422", body, w.Code)
+		}
+	}
+}
+
+func TestPatchDriveOffset_MissingField(t *testing.T) {
+	h := apitestServer(t)
+	d := seedDrive(t, h)
+	r := chi.NewRouter()
+	r.Patch("/api/drives/{id}/offset", h.PatchDriveOffset)
+
+	req := httptest.NewRequest(http.MethodPatch, "/api/drives/"+d.ID+"/offset",
+		strings.NewReader(`{}`))
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusUnprocessableEntity {
+		t.Errorf("status %d want 422", w.Code)
+	}
+}
+
+func TestPatchDriveOffset_InvalidJSON(t *testing.T) {
+	h := apitestServer(t)
+	d := seedDrive(t, h)
+	r := chi.NewRouter()
+	r.Patch("/api/drives/{id}/offset", h.PatchDriveOffset)
+
+	req := httptest.NewRequest(http.MethodPatch, "/api/drives/"+d.ID+"/offset",
+		strings.NewReader(`{not-json`))
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("status %d want 400", w.Code)
+	}
+}
+
+func TestPatchDriveOffset_NotFound(t *testing.T) {
+	h := apitestServer(t)
+	r := chi.NewRouter()
+	r.Patch("/api/drives/{id}/offset", h.PatchDriveOffset)
+
+	req := httptest.NewRequest(http.MethodPatch, "/api/drives/ghost/offset",
+		strings.NewReader(`{"read_offset": 0}`))
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusNotFound {
+		t.Errorf("status %d want 404", w.Code)
+	}
+}
+
+func TestPatchDriveOffset_ConflictWhenActiveJob(t *testing.T) {
+	h := apitestServer(t)
+	d := seedDrive(t, h)
+	p := seedProfile(t, h)
+	disc := seedDisc(t, h, d.ID)
+	if err := h.Store.CreateJob(context.Background(), &state.Job{
+		ID:        "job-active",
+		DiscID:    disc.ID,
+		DriveID:   d.ID,
+		ProfileID: p.ID,
+		State:     state.JobStateRunning,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	r := chi.NewRouter()
+	r.Patch("/api/drives/{id}/offset", h.PatchDriveOffset)
+	req := httptest.NewRequest(http.MethodPatch, "/api/drives/"+d.ID+"/offset",
+		strings.NewReader(`{"read_offset": 0}`))
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusConflict {
+		t.Errorf("status %d want 409", w.Code)
+	}
+}

@@ -137,36 +137,47 @@ func (h *Handler) Run(ctx context.Context, drv *state.Drive, disc *state.Disc, p
 		sink.OnStepFailed(state.StepRip, err)
 		return err
 	}
-	// Whipper 0.10's `cd rip` doesn't accept a `--keep-bad-files` flag;
-	// passing one trips Python's argparse and the process exits 2 before
-	// any disc reads happen. The default behaviour (fail the run if a
-	// track can't be ripped) is what we want.
-	//
 	// `-d` is on the `cd` subcommand and must come before `rip`. We pass
 	// the drive's `dev_path` explicitly because the daemon's container
 	// only exposes `/dev/sr0`/`/dev/sr1`, not the `/dev/cdrom` symlink
 	// whipper falls back to.
 	//
-	// `-o 0` supplies a runtime sample-offset so whipper doesn't abort
-	// with "drive offset unconfigured". The canonical workflow is
-	// `whipper offset find` once per drive against a CD known to
-	// AccurateRip — but that requires pycdio and a calibration disc,
-	// neither of which we can assume in a homelab container. Offset=0
-	// produces a rip that's audibly identical to a calibrated one
-	// (~6 samples / 0.14 ms typical drift) but won't match AccurateRip
-	// checksums. Audiophiles who care can run `whipper offset find`
-	// inside the container manually and override this default.
+	// `-o <N>` supplies the per-drive CDDA sample read-offset. 0 is the
+	// uncalibrated default — audibly identical to a calibrated rip (~6
+	// samples / 0.14 ms drift) but no AccurateRip checksum match. Users
+	// calibrate via Settings → System (manual entry from the AccurateRip
+	// drive DB, or `whipper offset find` against a calibration disc).
 	devPath := drv.DevPath
 	if devPath == "" {
 		devPath = "/dev/cdrom"
 	}
 	args := []string{"cd", "-d", devPath, "rip", "-R", disc.MetadataID,
-		"-o", "0", "--working-directory", tmpdir}
-	if err := whipper.Run(ctx, args, nil, tmpdir, pipelines.NewStepSink(sink, state.StepRip)); err != nil {
+		"-o", strconv.Itoa(drv.ReadOffset), "--working-directory", tmpdir}
+
+	// Prefer RunWithResult so we can persist per-track AccurateRip
+	// confidence on the rip step's notes for the UI badge. The Tool
+	// interface only guarantees Run() so fall back gracefully (empty
+	// result) for any registered whipper-like that doesn't expose it.
+	var arResult tools.WhipperResult
+	if rr, ok := whipper.(interface {
+		RunWithResult(ctx context.Context, args []string, env map[string]string,
+			workdir string, sink tools.Sink) (tools.WhipperResult, error)
+	}); ok {
+		var err error
+		arResult, err = rr.RunWithResult(ctx, args, nil, tmpdir,
+			pipelines.NewStepSink(sink, state.StepRip))
+		if err != nil {
+			sink.OnStepFailed(state.StepRip, err)
+			return fmt.Errorf("whipper: %w", err)
+		}
+	} else if err := whipper.Run(ctx, args, nil, tmpdir,
+		pipelines.NewStepSink(sink, state.StepRip)); err != nil {
 		sink.OnStepFailed(state.StepRip, err)
 		return fmt.Errorf("whipper: %w", err)
 	}
-	sink.OnStepDone(state.StepRip, nil)
+
+	ripNotes := buildAccurateRipNotes(drv, arResult)
+	sink.OnStepDone(state.StepRip, ripNotes)
 
 	// move
 	sink.OnStepStart(state.StepMove)
@@ -192,6 +203,69 @@ func (h *Handler) Run(ctx context.Context, drv *state.Drive, disc *state.Disc, p
 
 func (h *Handler) createWorkDir(discID string) (string, error) {
 	return pipelines.CreateWorkDir(h.deps.WorkRoot, "", discID)
+}
+
+// buildAccurateRipNotes turns the parsed per-track AccurateRip map plus
+// the drive's calibration state into the structured `accuraterip`
+// payload that lands in JobStep[rip].Notes. The UI renders a verified
+// / unverified / uncalibrated badge off the `status` field.
+//
+// status values:
+//   - "uncalibrated" — drive has no offset set (read_offset == 0 AND
+//     read_offset_source == ""); AR comparison can't be trusted, do
+//     not surface mismatches.
+//   - "verified"    — every track in the rip matched AccurateRip with
+//     confidence >= 1.
+//   - "unverified"  — drive IS calibrated but at least one track failed
+//     to match (or no AR data was returned for the disc at all).
+//
+// Returns nil when neither a calibration source nor any AR data exists
+// — keeps the rip step notes empty for the legacy "uncalibrated +
+// disc-not-in-AR" path, the same surface area as pre-v0.20.
+func buildAccurateRipNotes(drv *state.Drive, result tools.WhipperResult) map[string]any {
+	calibrated := drv != nil && (drv.ReadOffset != 0 || drv.ReadOffsetSource != "")
+	if !calibrated && len(result.AccurateRip) == 0 {
+		return nil
+	}
+
+	verified, total := 0, len(result.AccurateRip)
+	minConf, maxConf := 0, 0
+	first := true
+	for _, conf := range result.AccurateRip {
+		if conf >= 1 {
+			verified++
+		}
+		if first {
+			minConf, maxConf = conf, conf
+			first = false
+			continue
+		}
+		if conf < minConf {
+			minConf = conf
+		}
+		if conf > maxConf {
+			maxConf = conf
+		}
+	}
+
+	status := "unverified"
+	switch {
+	case !calibrated:
+		status = "uncalibrated"
+	case total > 0 && verified == total:
+		status = "verified"
+	}
+
+	summary := map[string]any{
+		"status":          status,
+		"verified_tracks": verified,
+		"total_tracks":    total,
+	}
+	if total > 0 {
+		summary["min_confidence"] = minConf
+		summary["max_confidence"] = maxConf
+	}
+	return map[string]any{"accuraterip": summary}
 }
 
 func (h *Handler) moveOutputs(tmpdir string, disc *state.Disc, prof *state.Profile) ([]string, error) {

@@ -305,6 +305,106 @@ func TestStore_UpdateDriveState_PreservesLastErrorOnError(t *testing.T) {
 	}
 }
 
+func TestStore_UpdateDriveReadOffset_RoundTrip(t *testing.T) {
+	s := openStore(t)
+	ctx := context.Background()
+
+	d := &state.Drive{
+		Model: "LG WH16NS60", Bus: "USB", DevPath: "/dev/sr0",
+		State: state.DriveStateIdle, LastSeenAt: time.Now(),
+	}
+	if err := s.UpsertDrive(ctx, d); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := s.GetDrive(ctx, d.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.ReadOffset != 0 || got.ReadOffsetSource != "" {
+		t.Errorf("fresh drive: want offset=0 source='', got offset=%d source=%q",
+			got.ReadOffset, got.ReadOffsetSource)
+	}
+
+	if err := s.UpdateDriveReadOffset(ctx, d.ID, +102, "manual"); err != nil {
+		t.Fatalf("update offset: %v", err)
+	}
+
+	got, err = s.GetDrive(ctx, d.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.ReadOffset != 102 || got.ReadOffsetSource != "manual" {
+		t.Errorf("after update: want offset=102 source='manual', got offset=%d source=%q",
+			got.ReadOffset, got.ReadOffsetSource)
+	}
+
+	// Negative offsets are real (e.g. Pioneer drives ~ -1164). Make sure
+	// the column round-trips the sign.
+	if err := s.UpdateDriveReadOffset(ctx, d.ID, -1164, "auto"); err != nil {
+		t.Fatal(err)
+	}
+	got, err = s.GetDrive(ctx, d.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.ReadOffset != -1164 || got.ReadOffsetSource != "auto" {
+		t.Errorf("negative round-trip: got offset=%d source=%q", got.ReadOffset, got.ReadOffsetSource)
+	}
+}
+
+func TestStore_UpdateDriveReadOffset_NotFound(t *testing.T) {
+	s := openStore(t)
+	if err := s.UpdateDriveReadOffset(context.Background(), "ghost", 0, "manual"); err != state.ErrNotFound {
+		t.Errorf("want ErrNotFound, got %v", err)
+	}
+}
+
+// TestStore_UpsertDrive_PreservesReadOffset guards against a regression
+// where the device-rescan-on-boot UpsertDrive path included the
+// read_offset / read_offset_source columns in its UPDATE branch, which
+// would zero out a calibration the user had explicitly set. The upsert
+// must touch model/bus/state/last_seen_at/notes only.
+func TestStore_UpsertDrive_PreservesReadOffset(t *testing.T) {
+	s := openStore(t)
+	ctx := context.Background()
+
+	// First scan: device shows up.
+	d1 := &state.Drive{
+		Model: "Old", Bus: "USB", DevPath: "/dev/sr0",
+		State: state.DriveStateIdle, LastSeenAt: time.Now(),
+	}
+	if err := s.UpsertDrive(ctx, d1); err != nil {
+		t.Fatal(err)
+	}
+
+	// User calibrates the drive.
+	if err := s.UpdateDriveReadOffset(ctx, d1.ID, +667, "auto"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Daemon restarts; device-scanner re-upserts the same dev_path.
+	d2 := &state.Drive{
+		Model: "Updated firmware", Bus: "USB", DevPath: "/dev/sr0",
+		State: state.DriveStateIdle, LastSeenAt: time.Now(),
+	}
+	if err := s.UpsertDrive(ctx, d2); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := s.GetDrive(ctx, d1.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.ReadOffset != 667 || got.ReadOffsetSource != "auto" {
+		t.Errorf("offset clobbered on re-scan: got offset=%d source=%q (want 667/auto)",
+			got.ReadOffset, got.ReadOffsetSource)
+	}
+	if got.Model != "Updated firmware" {
+		t.Errorf("model not refreshed: %q", got.Model)
+	}
+}
+
 func TestDriveErrorTip(t *testing.T) {
 	tests := []struct{ in, wantContains string }{
 		{"cd-info: exit status 1", "couldn't read this disc"},

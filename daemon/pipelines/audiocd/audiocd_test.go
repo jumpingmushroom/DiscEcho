@@ -57,11 +57,19 @@ type fakeWhipper struct {
 	// `trackNN.flac`. Real whipper writes `NN. Artist - Title.flac`; the
 	// duplicate-track-number test uses that shape to pin the strip.
 	nameFn func(trackInfo) string
+	// arConfidence, if non-nil, returns the per-track AccurateRip
+	// confidence the test wants RunWithResult to report. Track numbers
+	// not in the map are absent from the result (so verified < total).
+	arConfidence map[int]int
+	// observedArgs records the most recent argv passed to Run, so the
+	// offset-arg tests can assert on `-o <N>`.
+	observedArgs []string
 }
 
 func (f *fakeWhipper) Name() string { return "whipper" }
-func (f *fakeWhipper) Run(_ context.Context, _ []string, _ map[string]string,
+func (f *fakeWhipper) Run(_ context.Context, args []string, _ map[string]string,
 	workdir string, sink tools.Sink) error {
+	f.observedArgs = append([]string(nil), args...)
 	dir := workdir
 	if f.subdir != "" {
 		dir = filepath.Join(workdir, f.subdir)
@@ -81,6 +89,20 @@ func (f *fakeWhipper) Run(_ context.Context, _ []string, _ map[string]string,
 	}
 	sink.Log(state.LogLevelInfo, "whipper: all tracks ripped")
 	return nil
+}
+
+// RunWithResult satisfies the optional WhipperResultRunner interface
+// the audiocd handler probes for so it can persist per-track AR data.
+func (f *fakeWhipper) RunWithResult(ctx context.Context, args []string, env map[string]string,
+	workdir string, sink tools.Sink) (tools.WhipperResult, error) {
+	if err := f.Run(ctx, args, env, workdir, sink); err != nil {
+		return tools.WhipperResult{AccurateRip: map[int]int{}}, err
+	}
+	ar := map[int]int{}
+	for k, v := range f.arConfidence {
+		ar[k] = v
+	}
+	return tools.WhipperResult{AccurateRip: ar}, nil
 }
 
 func TestAudioCD_DiscType(t *testing.T) {
@@ -372,6 +394,167 @@ func TestAudioCD_Run_FailsLoudlyWhenWhipperProducesNoFLACs(t *testing.T) {
 	}
 	if !moveFailed {
 		t.Error("expected StepMove failure event")
+	}
+}
+
+// TestAudioCD_Run_PassesDriveReadOffsetToWhipper guards the v0.20.0
+// switch from hardcoded `-o 0` to the persisted per-drive calibration:
+// the rip command must echo whatever drv.ReadOffset is, including
+// negative values (real Pioneer drives sit at -1164).
+func TestAudioCD_Run_PassesDriveReadOffsetToWhipper(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		offset int
+		want   string
+	}{
+		{"zero", 0, "0"},
+		{"positive", 667, "667"},
+		{"negative", -1164, "-1164"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			libRoot := t.TempDir()
+			whip := &fakeWhipper{tracks: []trackInfo{{num: 1, title: "T1"}}}
+			reg := tools.NewRegistry()
+			reg.Register(whip)
+			reg.Register(tools.NewMockTool("apprise", nil))
+			reg.Register(tools.NewMockTool("eject", nil))
+
+			h := audiocd.New(audiocd.Deps{
+				Tools: reg, LibraryRoot: libRoot, WorkRoot: t.TempDir(),
+				LibraryProbe: func(string) error { return nil },
+			})
+
+			drv := &state.Drive{ID: "drv-1", DevPath: "/dev/sr0", ReadOffset: tc.offset}
+			disc := &state.Disc{
+				ID: "d", Type: state.DiscTypeAudioCD, DriveID: "drv-1",
+				Title: "T", MetadataID: "mb-x",
+				Candidates: []state.Candidate{{Source: "MusicBrainz", Title: "T", Artist: "A"}},
+			}
+			prof := &state.Profile{
+				DiscType: state.DiscTypeAudioCD, Engine: "whipper", Format: "FLAC",
+				OutputPathTemplate: `{{.Title}}.flac`,
+			}
+
+			if err := h.Run(context.Background(), drv, disc, prof, testutil.NewRecordingSink()); err != nil {
+				t.Fatalf("Run: %v", err)
+			}
+			var sawOffset bool
+			for i, a := range whip.observedArgs {
+				if a == "-o" && i+1 < len(whip.observedArgs) {
+					if got := whip.observedArgs[i+1]; got != tc.want {
+						t.Errorf("offset arg: want %q, got %q (full args: %v)", tc.want, got, whip.observedArgs)
+					}
+					sawOffset = true
+				}
+			}
+			if !sawOffset {
+				t.Errorf("no `-o` arg passed to whipper: %v", whip.observedArgs)
+			}
+		})
+	}
+}
+
+// TestAudioCD_Run_PersistsAccurateRipSummary covers the three states the
+// UI badge needs to render: verified (all tracks match), unverified
+// (calibrated but mismatches present), and uncalibrated (no offset set —
+// status pinned so we don't surface false "mismatch" warnings).
+func TestAudioCD_Run_PersistsAccurateRipSummary(t *testing.T) {
+	for _, tc := range []struct {
+		name           string
+		offset         int
+		source         string
+		ar             map[int]int
+		wantStatus     string
+		wantVerified  int
+		wantTotal     int
+		wantHaveNotes bool
+	}{
+		{
+			name: "verified-all-tracks", offset: 667, source: "manual",
+			ar:           map[int]int{1: 87, 2: 92, 3: 81},
+			wantStatus:   "verified", wantVerified: 3, wantTotal: 3, wantHaveNotes: true,
+		},
+		{
+			name: "unverified-partial", offset: 667, source: "manual",
+			ar:           map[int]int{1: 87, 2: 0, 3: 5},
+			wantStatus:   "unverified", wantVerified: 2, wantTotal: 3, wantHaveNotes: true,
+		},
+		{
+			name: "uncalibrated-with-data-pins-status", offset: 0, source: "",
+			ar:           map[int]int{1: 1, 2: 1},
+			wantStatus:   "uncalibrated", wantVerified: 2, wantTotal: 2, wantHaveNotes: true,
+		},
+		{
+			name: "uncalibrated-no-data-emits-no-notes", offset: 0, source: "",
+			ar:           nil,
+			wantHaveNotes: false,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			libRoot := t.TempDir()
+			tracks := []trackInfo{}
+			for i := 1; i <= 3; i++ {
+				tracks = append(tracks, trackInfo{num: i, title: fmt.Sprintf("T%d", i)})
+			}
+			whip := &fakeWhipper{tracks: tracks, arConfidence: tc.ar}
+			reg := tools.NewRegistry()
+			reg.Register(whip)
+			reg.Register(tools.NewMockTool("apprise", nil))
+			reg.Register(tools.NewMockTool("eject", nil))
+
+			h := audiocd.New(audiocd.Deps{
+				Tools: reg, LibraryRoot: libRoot, WorkRoot: t.TempDir(),
+				LibraryProbe: func(string) error { return nil },
+			})
+
+			drv := &state.Drive{
+				ID: "drv-1", DevPath: "/dev/sr0",
+				ReadOffset: tc.offset, ReadOffsetSource: tc.source,
+			}
+			disc := &state.Disc{
+				ID: "d", Type: state.DiscTypeAudioCD, DriveID: "drv-1",
+				Title: "T", MetadataID: "mb-x",
+				Candidates: []state.Candidate{{Source: "MusicBrainz", Title: "T", Artist: "A"}},
+			}
+			prof := &state.Profile{
+				DiscType: state.DiscTypeAudioCD, Engine: "whipper", Format: "FLAC",
+				OutputPathTemplate: `{{printf "%02d" .TrackNumber}}.flac`,
+			}
+
+			sink := testutil.NewRecordingSink()
+			if err := h.Run(context.Background(), drv, disc, prof, sink); err != nil {
+				t.Fatalf("Run: %v", err)
+			}
+
+			var ripNotes map[string]any
+			for _, e := range sink.Snapshot() {
+				if e.Kind == testutil.EventDone && e.Step == state.StepRip {
+					ripNotes = e.Notes
+				}
+			}
+			if !tc.wantHaveNotes {
+				if ripNotes != nil {
+					t.Errorf("want empty rip-step notes, got %v", ripNotes)
+				}
+				return
+			}
+			if ripNotes == nil {
+				t.Fatal("expected accuraterip notes on rip-step done event")
+			}
+			ar, _ := ripNotes["accuraterip"].(map[string]any)
+			if ar == nil {
+				t.Fatalf("notes lacks 'accuraterip' map: %v", ripNotes)
+			}
+			if got := ar["status"]; got != tc.wantStatus {
+				t.Errorf("status: want %q, got %v", tc.wantStatus, got)
+			}
+			if got, _ := ar["verified_tracks"].(int); got != tc.wantVerified {
+				t.Errorf("verified_tracks: want %d, got %v", tc.wantVerified, ar["verified_tracks"])
+			}
+			if got, _ := ar["total_tracks"].(int); got != tc.wantTotal {
+				t.Errorf("total_tracks: want %d, got %v", tc.wantTotal, ar["total_tracks"])
+			}
+		})
 	}
 }
 
