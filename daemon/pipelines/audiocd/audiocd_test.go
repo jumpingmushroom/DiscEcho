@@ -460,33 +460,33 @@ func TestAudioCD_Run_PassesDriveReadOffsetToWhipper(t *testing.T) {
 // status pinned so we don't surface false "mismatch" warnings).
 func TestAudioCD_Run_PersistsAccurateRipSummary(t *testing.T) {
 	for _, tc := range []struct {
-		name           string
-		offset         int
-		source         string
-		ar             map[int]int
-		wantStatus     string
+		name          string
+		offset        int
+		source        string
+		ar            map[int]int
+		wantStatus    string
 		wantVerified  int
 		wantTotal     int
 		wantHaveNotes bool
 	}{
 		{
 			name: "verified-all-tracks", offset: 667, source: "manual",
-			ar:           map[int]int{1: 87, 2: 92, 3: 81},
-			wantStatus:   "verified", wantVerified: 3, wantTotal: 3, wantHaveNotes: true,
+			ar:         map[int]int{1: 87, 2: 92, 3: 81},
+			wantStatus: "verified", wantVerified: 3, wantTotal: 3, wantHaveNotes: true,
 		},
 		{
 			name: "unverified-partial", offset: 667, source: "manual",
-			ar:           map[int]int{1: 87, 2: 0, 3: 5},
-			wantStatus:   "unverified", wantVerified: 2, wantTotal: 3, wantHaveNotes: true,
+			ar:         map[int]int{1: 87, 2: 0, 3: 5},
+			wantStatus: "unverified", wantVerified: 2, wantTotal: 3, wantHaveNotes: true,
 		},
 		{
 			name: "uncalibrated-with-data-pins-status", offset: 0, source: "",
-			ar:           map[int]int{1: 1, 2: 1},
-			wantStatus:   "uncalibrated", wantVerified: 2, wantTotal: 2, wantHaveNotes: true,
+			ar:         map[int]int{1: 1, 2: 1},
+			wantStatus: "uncalibrated", wantVerified: 2, wantTotal: 2, wantHaveNotes: true,
 		},
 		{
 			name: "uncalibrated-no-data-emits-no-notes", offset: 0, source: "",
-			ar:           nil,
+			ar:            nil,
 			wantHaveNotes: false,
 		},
 	} {
