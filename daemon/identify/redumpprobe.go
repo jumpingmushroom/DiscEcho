@@ -46,7 +46,9 @@ type isoinfoSystemCNFProber struct{ bin string }
 // perCallSysCNFTimeout caps each `isoinfo -x SYSTEM.CNF;1` invocation so
 // a single hang on a finicky disc can't eat the caller's whole deadline.
 // The retry decorator (retryingSystemCNFProber) moves on after backoff.
-const perCallSysCNFTimeout = 20 * time.Second
+// 45s comfortably covers the ASUS SDRW-08D2S-U's ~23s cold-disc extract
+// plus a small margin for variance.
+const perCallSysCNFTimeout = 45 * time.Second
 
 func (p *isoinfoSystemCNFProber) Probe(ctx context.Context, devPath string) (*SystemCNF, error) {
 	cctx, cancel := context.WithTimeout(ctx, perCallSysCNFTimeout)

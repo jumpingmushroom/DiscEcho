@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.17.5] - 2026-05-17
+
+### Fixed
+- Per-call timeouts in v0.17.4 (20s isoinfo, 25s cd-info) were too aggressive — on the ASUS SDRW-08D2S-U a cold-disc isoinfo legitimately takes ~23s and cd-info ~21s, so the timeout killed every call mid-flight and the retry decorator spun in circles. Bumped to 45s for isoinfo and 40s for cd-info so a successful first pass completes cleanly while a genuinely hung call is still bounded.
+
+
 ## [0.17.4] - 2026-05-17
 
 ### Fixed

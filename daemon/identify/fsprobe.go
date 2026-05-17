@@ -34,8 +34,10 @@ type isoinfoFSProber struct{ bin string }
 // perCallIsoinfoTimeout caps each isoinfo invocation so a single hang
 // on a finicky disc can't eat the caller's whole deadline. The retry
 // decorator (retryingFSProber) then moves on to the next attempt after
-// its own backoff, instead of being stuck on one slow call.
-const perCallIsoinfoTimeout = 20 * time.Second
+// its own backoff, instead of being stuck on one slow call. 45s
+// comfortably covers the ASUS SDRW-08D2S-U's ~23s cold-disc listing
+// plus a small margin for variance.
+const perCallIsoinfoTimeout = 45 * time.Second
 
 func (p *isoinfoFSProber) List(ctx context.Context, devPath string) ([]string, error) {
 	cctx, cancel := context.WithTimeout(ctx, perCallIsoinfoTimeout)

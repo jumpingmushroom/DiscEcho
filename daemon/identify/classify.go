@@ -56,8 +56,11 @@ var cdInfoErrorMarkers = []string{
 // for the rest of the run.
 // perCallCDInfoTimeout caps each cd-info invocation so a single
 // drive-hang doesn't eat the caller's whole deadline. The retry loop
-// in runCDInfo moves on after backoff when this fires.
-const perCallCDInfoTimeout = 25 * time.Second
+// in runCDInfo moves on after backoff when this fires. 40s covers the
+// ASUS SDRW-08D2S-U's ~21s cold-disc cd-info plus a margin; the
+// watcher kills cd-info early in normal cases when the disc-mode line
+// lands so this only matters when the disc actively hangs the drive.
+const perCallCDInfoTimeout = 40 * time.Second
 
 func defaultCDInfoRunner(ctx context.Context, bin, devPath string) ([]byte, error) {
 	cctx, cancel := context.WithTimeout(ctx, perCallCDInfoTimeout)
