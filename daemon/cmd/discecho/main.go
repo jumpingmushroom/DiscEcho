@@ -375,11 +375,12 @@ func main() {
 		bc:         bc,
 		classifier: classifier,
 		pipelines:  pipeReg,
-		// 60s is long enough to absorb a worst-case cd-info retry burst
-		// (~12s) PLUS a slow isoinfo listing + extract pass on a dirty
-		// disc or slow drive. 30s was too tight for the ASUS SDRW-08D2S-U
-		// on some PSX discs.
-		identifyDur: 60 * time.Second,
+		// 120s is enough for cd-info + fs.List + sysCNF.Probe on a slow
+		// drive where each probe individually takes 20-25s (observed on
+		// the ASUS SDRW-08D2S-U with a chilled PSX disc). 30s was too
+		// tight, 60s also clipped some PSX discs that needed the cd-info
+		// retry budget plus a full fs+sysCNF probe pass.
+		identifyDur: 120 * time.Second,
 	}
 	go func() {
 		if err := drive.Watch(ctx, df.handle); err != nil {

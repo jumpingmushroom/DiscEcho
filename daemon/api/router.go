@@ -26,11 +26,12 @@ func NewRouter(h *Handlers, static http.Handler) http.Handler {
 
 	// Long timeout for endpoints that shell out to the optical drive.
 	// IdentifyDisc with force=true runs the full classify + Identify
-	// pipeline against the inserted disc; on a slow drive cd-info's
-	// retry budget alone consumes ~12s, leaving isoinfo's listing pass
-	// short of the 30s ceiling. 90s lines up with discFlow.identifyDur
-	// (60s) plus a small buffer for IGDB/TMDB/cover fetches.
-	withLongTimeout := middleware.Timeout(90 * time.Second)
+	// pipeline against the inserted disc; on a really slow drive each
+	// probe (cd-info, isoinfo listing, isoinfo extract) can take 20-25s
+	// per attempt, so the full chain (cd-info + fs.List + sysCNF.Probe)
+	// can land around 90-150s. 180s lines up with discFlow.identifyDur
+	// (120s) plus a buffer for IGDB/TMDB/cover fetches on candidate pick.
+	withLongTimeout := middleware.Timeout(180 * time.Second)
 
 	r.Route("/api", func(api chi.Router) {
 		// Unauthenticated

@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.17.3] - 2026-05-17
+
+### Fixed
+- Bumped the long-route HTTP request timeout (90s → 180s) and discFlow.identifyDur (60s → 120s). On the slow ASUS SDRW-08D2S-U with chilled PSX discs, each probe (cd-info, isoinfo -R -l, isoinfo -x SYSTEM.CNF;1) takes 20-25s — the previous budgets killed classify mid-chain. The new ceilings comfortably cover cd-info + fs listing + sysCNF extraction plus a candidate-pick metadata fetch.
+
+
 ## [0.17.2] - 2026-05-17
 
 ### Fixed
