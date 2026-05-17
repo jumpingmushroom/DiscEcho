@@ -6,6 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.20.1] - 2026-05-17
+
+### Fixed
+- Drive status pill flipped to the literal text "undefined" after saving a read-offset under Settings → System → Drives, until the page was reloaded. The `drive.changed` SSE handler on the client always reads `payload.state` and writes it into the local drive record; the offset PATCH endpoint added in v0.20.0 published a payload without `state`, so the dashboard wrote `undefined` over the live value. The endpoint now includes the drive's current state in the broadcast, and the SSE handler defensively overlays only the keys actually present in the payload so a future field-omission can't repeat the regression.
+
 ## [0.20.0] - 2026-05-17
 
 ### Added

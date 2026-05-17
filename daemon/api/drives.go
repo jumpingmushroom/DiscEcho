@@ -191,21 +191,28 @@ func (h *Handlers) PatchDriveOffset(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if h.Broadcaster != nil {
-		h.Broadcaster.Publish(state.Event{
-			Name: "drive.changed",
-			Payload: map[string]any{
-				"drive_id":           drv.ID,
-				"read_offset":        offset,
-				"read_offset_source": "manual",
-			},
-		})
-	}
-
 	out, err := h.Store.GetDrive(r.Context(), drv.ID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
+	}
+
+	if h.Broadcaster != nil {
+		// The webui SSE handler treats every drive.changed payload as
+		// `{drive_id, state, ...}` and writes payload.state straight into
+		// the local drive's state field. Omitting state here turned the
+		// drive's status pill into the literal string "undefined" until
+		// the next snapshot fetch. Always include state so the SSE
+		// patch is a no-op for fields the broadcast didn't change.
+		h.Broadcaster.Publish(state.Event{
+			Name: "drive.changed",
+			Payload: map[string]any{
+				"drive_id":           drv.ID,
+				"state":              string(out.State),
+				"read_offset":        out.ReadOffset,
+				"read_offset_source": out.ReadOffsetSource,
+			},
+		})
 	}
 	writeJSON(w, http.StatusOK, out)
 }
