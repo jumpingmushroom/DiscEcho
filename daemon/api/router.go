@@ -24,6 +24,14 @@ func NewRouter(h *Handlers, static http.Handler) http.Handler {
 	// http.TimeoutHandler which closes the connection at the deadline.
 	withTimeout := middleware.Timeout(30 * time.Second)
 
+	// Long timeout for endpoints that shell out to the optical drive.
+	// IdentifyDisc with force=true runs the full classify + Identify
+	// pipeline against the inserted disc; on a slow drive cd-info's
+	// retry budget alone consumes ~12s, leaving isoinfo's listing pass
+	// short of the 30s ceiling. 90s lines up with discFlow.identifyDur
+	// (60s) plus a small buffer for IGDB/TMDB/cover fetches.
+	withLongTimeout := middleware.Timeout(90 * time.Second)
+
 	r.Route("/api", func(api chi.Router) {
 		// Unauthenticated
 		api.With(withTimeout).Get("/health", HealthHandler)
@@ -50,8 +58,9 @@ func NewRouter(h *Handlers, static http.Handler) http.Handler {
 			authed.Get("/jobs/{id}/logs", h.ListJobLogs)
 			authed.Post("/jobs/{id}/cancel", h.CancelJob)
 
-			authed.Post("/discs/{id}/identify", h.IdentifyDisc)
-			authed.Post("/discs/{id}/start", h.StartDisc)
+			// /discs/{id}/identify with force=true and /start are moved
+			// out of this group below — they need withLongTimeout instead
+			// of the default 30s.
 			authed.Delete("/discs/{id}", h.DeleteDisc)
 
 			authed.Get("/profiles", h.ListProfiles)
@@ -75,6 +84,18 @@ func NewRouter(h *Handlers, static http.Handler) http.Handler {
 
 			authed.Get("/system/host", h.GetSystemHost)
 			authed.Get("/system/integrations", h.GetSystemIntegrations)
+		})
+
+		// Long-timeout authenticated subset. Identify (force=true) and
+		// StartDisc can both shell out to the optical drive and external
+		// metadata services; the default 30s middleware kills them under
+		// a slow drive's spin-up window before classify can finish.
+		api.Group(func(longAuthed chi.Router) {
+			longAuthed.Use(h.Authenticate)
+			longAuthed.Use(withLongTimeout)
+
+			longAuthed.Post("/discs/{id}/identify", h.IdentifyDisc)
+			longAuthed.Post("/discs/{id}/start", h.StartDisc)
 		})
 	})
 

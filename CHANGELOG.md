@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.17.2] - 2026-05-17
+
+### Fixed
+- Manual re-identify and StartDisc no longer hit chi middleware's 30s request timeout. The router now wraps /api/discs/{id}/identify and /api/discs/{id}/start with a separate 90s timeout group — long enough to absorb a slow-drive cd-info + isoinfo cycle (~60s identify ceiling) plus an external metadata fetch on candidate pick. Without this, force-reidentify on the ASUS SDRW-08D2S-U with finicky discs returned HTTP 500 "context deadline exceeded" exactly 30s in.
+
+
 ## [0.17.1] - 2026-05-17
 
 ### Fixed
