@@ -6,6 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.16.6] - 2026-05-17
+
+### Added
+- History tab filter chips now include BDMV / 4K UHD / PSX / PS2 / Saturn / Dreamcast / Xbox / Data alongside the existing Audio CD + DVD chips. Labels are pulled from `DISC_TYPE_META` so they stay in sync with `DiscTypeBadge`.
+
 ## [0.16.5] - 2026-05-17
 
 ### Fixed
