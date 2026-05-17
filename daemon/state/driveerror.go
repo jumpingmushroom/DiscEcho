@@ -13,13 +13,14 @@ func DriveErrorTip(errMsg string) string {
 	switch {
 	case strings.Contains(lower, "cd-info") && strings.Contains(lower, "exit status"):
 		// cd-info's exit-1 can come from a dirty/scratched surface, a
-		// disc the drive can't physically read (XGD originals need
-		// Kreon firmware), or a transient spin-up race that exhausted
-		// the classifier's retry budget. The tip lists the common
-		// causes in rough likelihood order rather than naming Xbox
-		// outright — most "cd-info exit 1" failures we see are dirty
-		// discs, not XGDs.
-		return "The drive couldn't read this disc. Common causes: dirty or scratched surface (clean and re-insert), the drive is spinning the disc down before cd-info finishes (eject and re-insert), or this is an original Xbox game disc that requires Kreon firmware (https://kreon.dev)."
+		// transient spin-up race that exhausted the classifier's retry
+		// budget, or a disc the drive can't physically read (XGD
+		// originals need Kreon firmware). The tip leads with the
+		// recoverable causes since most failures we see are dirty discs
+		// or chilled / slow drives — XGD is rare and gets a "less
+		// commonly" framing so users don't run off to flash firmware
+		// for a dirty pressed CD.
+		return "The drive couldn't read this disc. Most often: dirty or scratched surface (clean the disc and try again), or the drive is spinning the disc down before cd-info finishes (eject and re-insert — the second spin-up is usually faster). Less commonly: an original Xbox game disc requires Kreon-firmware drives (https://kreon.dev) since XGD media is unreadable on stock optical drives."
 	case strings.Contains(lower, "deadline exceeded"):
 		return "The drive is reading this disc very slowly — the identify step timed out before cd-info or isoinfo could finish. Try ejecting and re-inserting (often the second spin-up is faster), clean the disc surface, or try a different drive."
 	}
