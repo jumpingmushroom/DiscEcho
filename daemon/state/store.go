@@ -379,6 +379,45 @@ func (s *Store) ListRecentDiscs(ctx context.Context, limit int) ([]Disc, error) 
 	return out, rows.Err()
 }
 
+// CurrentDiscByDrive returns the most-recent disc per drive that has no
+// terminal job yet (i.e. the user has not resolved it via rip / skip /
+// retry-failure). A disc with a `done` / `failed` / `cancelled` /
+// `interrupted` job is treated as resolved and excluded — re-rip flows
+// happen against the existing row, and the active-job branch on the
+// drive card already covers that case.
+//
+// Returned map is drive_id → disc_id. Drives with no unresolved disc
+// are omitted. Used by buildSnapshot to populate Drive.CurrentDiscID so
+// the dashboard drive card can render "disc present" for an
+// awaiting-decision disc, not just for an actively-ripping job.
+func (s *Store) CurrentDiscByDrive(ctx context.Context) (map[string]string, error) {
+	rows, err := s.db.Conn().QueryContext(ctx, `
+		SELECT drive_id, id FROM discs
+		WHERE drive_id IS NOT NULL AND drive_id != ''
+		  AND NOT EXISTS (
+		    SELECT 1 FROM jobs j
+		    WHERE j.disc_id = discs.id
+		      AND j.state IN ('done','failed','cancelled','interrupted')
+		  )
+		ORDER BY drive_id, created_at DESC`)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	out := map[string]string{}
+	for rows.Next() {
+		var driveID, discID string
+		if err := rows.Scan(&driveID, &discID); err != nil {
+			return nil, err
+		}
+		// Keep only the first (most recent) per drive.
+		if _, ok := out[driveID]; !ok {
+			out[driveID] = discID
+		}
+	}
+	return out, rows.Err()
+}
+
 // ListDiscsForDrive returns discs that were inserted in the given drive,
 // most recent first.
 func (s *Store) ListDiscsForDrive(ctx context.Context, driveID string) ([]Disc, error) {

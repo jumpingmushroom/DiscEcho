@@ -43,6 +43,15 @@ func (h *Handlers) buildSnapshot(ctx context.Context) (map[string]any, error) {
 	if err != nil {
 		return nil, err
 	}
+	currentByDrive, err := h.Store.CurrentDiscByDrive(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for i := range drives {
+		if id, ok := currentByDrive[drives[i].ID]; ok {
+			drives[i].CurrentDiscID = id
+		}
+	}
 	return map[string]any{
 		"drives":   drives,
 		"jobs":     jobs,
