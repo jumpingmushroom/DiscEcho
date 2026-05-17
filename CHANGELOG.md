@@ -9,7 +9,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ## [0.17.1] - 2026-05-17
 
 ### Fixed
-- Identify timeout bumped from 30s to 60s. The previous budget was too tight when the ASUS SDRW-08D2S-U (and similar slow consumer drives) hit a dirty or finicky disc — cd-info's retry burst alone could consume 12s, leaving isoinfo no time to finish the listing pass, surfacing as .
+- Identify timeout bumped from 30s to 60s. The previous budget was too tight when the ASUS SDRW-08D2S-U (and similar slow consumer drives) hit a dirty or finicky disc — cd-info's retry burst alone could consume 12s, leaving isoinfo no time to finish the listing pass, surfacing as `classify: fs probe failed err=context deadline exceeded`.
 - `DriveErrorTip` now recognises `context deadline exceeded` failures and suggests ejecting + re-inserting (the drive's second spin-up is usually faster), cleaning the disc, or trying a different drive.
 
 
