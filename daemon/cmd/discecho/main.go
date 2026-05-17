@@ -382,6 +382,7 @@ func main() {
 		// retry budget plus a full fs+sysCNF probe pass.
 		identifyDur: 120 * time.Second,
 	}
+	apiH.Reclassify = df.HandleManual
 	go func() {
 		if err := drive.Watch(ctx, df.handle); err != nil {
 			slog.Error("udev watcher exited", "err", err)

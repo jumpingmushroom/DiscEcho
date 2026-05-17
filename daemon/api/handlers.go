@@ -37,6 +37,13 @@ type Handlers struct {
 	// manual eject endpoint (it 503s). Production binds via tools.Eject.
 	Ejector Ejector
 
+	// Reclassify reruns the disc-flow handler against the drive whose
+	// bus matches the argument. Wired in main.go to discFlow.HandleManual
+	// so the reclassify endpoint can recover a drive that flipped to
+	// `error` mid-classify without forcing the user to eject the disc.
+	// Nil disables the endpoint (returns 503).
+	Reclassify func(bus string)
+
 	// NVENCAvailable is set at boot by tools.ProbeNVENC. It controls
 	// the "GPU transcoding" Settings row and is threaded into the
 	// DVD-Video / BDMV pipeline Deps (in main.go).

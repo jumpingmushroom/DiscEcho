@@ -6,6 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.18.3] - 2026-05-17
+
+### Added
+- `POST /api/drives/{id}/reclassify` reruns the disc-flow handler against the disc that is already sitting in the drive. Used to recover a drive stuck in `error` after the cold-disc spin-up race exhausted the classifier retry budget — without this the only recovery path was eject + re-insert because the kernel only emits `DISK_MEDIA_CHANGE` on actual media-swap events. Refuses with 409 when a job is already running on the drive (the running pipeline holds the SCSI handle).
+
 ## [0.18.2] - 2026-05-17
 
 ### Fixed

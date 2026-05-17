@@ -89,3 +89,42 @@ func (h *Handlers) EjectDrive(w http.ResponseWriter, r *http.Request) {
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
+
+// ReclassifyDrive reruns the disc-flow handler against the disc that
+// is already sitting in the drive. Used to recover a drive stuck in
+// `error` after the cold-disc spin-up race exhausted the classifier
+// retry budget — without this the user has to eject and re-insert
+// to get the kernel to fire DISK_MEDIA_CHANGE again. 503 when no
+// Reclassify hook is wired (tests), 409 when a job is already
+// running on the drive (the running pipeline holds the SCSI handle).
+func (h *Handlers) ReclassifyDrive(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	drv, err := h.Store.GetDrive(r.Context(), id)
+	if err != nil {
+		if errors.Is(err, state.ErrNotFound) {
+			writeError(w, http.StatusNotFound, "drive not found")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if h.Reclassify == nil {
+		writeError(w, http.StatusServiceUnavailable, "reclassify not configured")
+		return
+	}
+	if drv.Bus == "" {
+		writeError(w, http.StatusUnprocessableEntity, "drive has no bus identifier")
+		return
+	}
+	busy, err := h.Store.HasActiveJobOnDrive(r.Context(), drv.ID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if busy {
+		writeError(w, http.StatusConflict, "drive has an active job")
+		return
+	}
+	h.Reclassify(drv.Bus)
+	w.WriteHeader(http.StatusAccepted)
+}

@@ -40,6 +40,29 @@ type discFlow struct {
 	identifyDur time.Duration
 }
 
+// HandleManual fires the same disc-flow as a real udev uevent for the
+// given drive bus identifier (e.g. "sr0"). The kernel only emits
+// DISK_MEDIA_CHANGE on actual media-swap events, so a drive that
+// flipped to `error` mid-classify (cold-disc spin-up race, transient
+// SCSI error) has no way to recover until the user ejects and
+// re-inserts. The reclassify HTTP endpoint wires this method so the
+// dashboard can re-run identify against the disc that's already
+// sitting in the drive.
+func (df *discFlow) HandleManual(bus string) {
+	df.handle(drive.Uevent{
+		Action:    "change",
+		Subsystem: "block",
+		DevName:   bus,
+		Properties: map[string]string{
+			"SUBSYSTEM":         "block",
+			"ID_CDROM":          "1",
+			"DISK_MEDIA_CHANGE": "1",
+			"ACTION":            "change",
+			"DEVNAME":           bus,
+		},
+	})
+}
+
 func (df *discFlow) handle(ev drive.Uevent) {
 	if !ev.IsOpticalMediaChange() {
 		return
