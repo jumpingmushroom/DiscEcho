@@ -90,6 +90,10 @@ type Deps struct {
 	ShouldEject func(ctx context.Context) bool
 	// Now is called to produce the fallback timestamp title. Defaults to time.Now.
 	Now func() time.Time
+	// Sizer returns the total block-device size in bytes. Defaults to
+	// shelling out to `blockdev --getsize64`. Tests inject a fake so they
+	// don't need a real /dev/sr0.
+	Sizer func(ctx context.Context, devPath string) int64
 }
 
 // Handler implements pipelines.Handler for raw data discs.
@@ -103,6 +107,9 @@ func New(d Deps) *Handler {
 	if d.Now == nil {
 		d.Now = time.Now
 	}
+	if d.Sizer == nil {
+		d.Sizer = blockSize
+	}
 	return &Handler{deps: d}
 }
 
@@ -111,6 +118,13 @@ func (h *Handler) DiscType() state.DiscType { return state.DiscTypeData }
 // Identify reads the volume label and uses it as disc.Title.
 // If the label is empty, Title falls back to "data-disc-YYYYMMDD-HHMMSS".
 // Always returns ErrNoCandidates because data discs have no metadata source.
+//
+// Computes a pre-rip identity hash from (volume_label, blockdev_size) and
+// stores it on disc.TOCHash so the persistDisc dedup tier (drive_id,
+// toc_hash) collapses uevent-burst duplicates. The unlabelled-disc case
+// degrades gracefully — the hash is still stable for the same blank
+// disc, with a tiny chance of cross-disc collision that the
+// discDedupWindow time bound makes harmless in practice.
 func (h *Handler) Identify(ctx context.Context, drv *state.Drive) (*state.Disc, []state.Candidate, error) {
 	disc := &state.Disc{Type: state.DiscTypeData, DriveID: drv.ID}
 
@@ -122,14 +136,30 @@ func (h *Handler) Identify(ctx context.Context, drv *state.Drive) (*state.Disc, 
 			slog.Warn("data: volume label probe failed; using timestamp fallback", "dev", drv.DevPath, "err", err)
 		}
 	}
+	trimmedLabel := strings.TrimSpace(label)
 
-	if strings.TrimSpace(label) == "" {
+	if trimmedLabel == "" {
 		disc.Title = "data-disc-" + h.deps.Now().UTC().Format("20060102-150405")
 	} else {
-		disc.Title = label
+		disc.Title = trimmedLabel
 	}
 
+	size := h.deps.Sizer(ctx, drv.DevPath)
+	disc.SizeBytesRaw = size
+	disc.TOCHash = preRipIdentityHash(trimmedLabel, size)
+
 	return disc, nil, pipelines.ErrNoCandidates
+}
+
+// preRipIdentityHash returns a stable identifier for a DATA disc derived
+// from inputs that are cheap to read before the rip starts. Used by
+// persistDisc dedup so uevent bursts collapse to a single row. The
+// "data:v1:" prefix namespaces this from the post-rip content hash and
+// from future format revisions.
+func preRipIdentityHash(label string, size int64) string {
+	h := sha256.New()
+	_, _ = fmt.Fprintf(h, "data:v1:%s:%d", label, size)
+	return hex.EncodeToString(h.Sum(nil))
 }
 
 // Plan returns the 8-entry canonical plan; transcode and compress are skipped.

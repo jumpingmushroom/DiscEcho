@@ -97,6 +97,46 @@ func TestIdentify_LabelEmpty_FallbackToTimestamp(t *testing.T) {
 	}
 }
 
+func TestIdentify_SetsPreRipIdentityHash(t *testing.T) {
+	fakeSize := func(_ context.Context, _ string) int64 { return 734_003_200 }
+	h := data.New(data.Deps{
+		LabelProber: &fakeLabelProber{label: "MORROWIND"},
+		Sizer:       fakeSize,
+	})
+	d1, _, _ := h.Identify(context.Background(), &state.Drive{ID: "d1", DevPath: "/dev/sr0"})
+	d2, _, _ := h.Identify(context.Background(), &state.Drive{ID: "d1", DevPath: "/dev/sr0"})
+
+	if d1.TOCHash == "" {
+		t.Fatal("Identify did not set TOCHash")
+	}
+	if d1.TOCHash != d2.TOCHash {
+		t.Errorf("TOCHash changed between identical probes: %q vs %q", d1.TOCHash, d2.TOCHash)
+	}
+	if d1.SizeBytesRaw != 734_003_200 {
+		t.Errorf("SizeBytesRaw = %d, want 734003200", d1.SizeBytesRaw)
+	}
+
+	// Different label or different size must produce a different hash —
+	// otherwise dedup would collapse genuinely different discs.
+	h2 := data.New(data.Deps{
+		LabelProber: &fakeLabelProber{label: "WIN98"},
+		Sizer:       fakeSize,
+	})
+	d3, _, _ := h2.Identify(context.Background(), &state.Drive{ID: "d1", DevPath: "/dev/sr0"})
+	if d3.TOCHash == d1.TOCHash {
+		t.Errorf("different label produced identical hash")
+	}
+
+	h3 := data.New(data.Deps{
+		LabelProber: &fakeLabelProber{label: "MORROWIND"},
+		Sizer:       func(_ context.Context, _ string) int64 { return 700_000_000 },
+	})
+	d4, _, _ := h3.Identify(context.Background(), &state.Drive{ID: "d1", DevPath: "/dev/sr0"})
+	if d4.TOCHash == d1.TOCHash {
+		t.Errorf("different size produced identical hash")
+	}
+}
+
 func TestPlan_StepShape(t *testing.T) {
 	plan := data.New(data.Deps{}).Plan(&state.Disc{}, &state.Profile{})
 	if len(plan) != 8 {

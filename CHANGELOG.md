@@ -7,6 +7,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ## [Unreleased]
 
 ### Fixed
+- DATA discs (PC CD-ROM, generic ISO) no longer create a fresh disc row per uevent burst on slow drives. The ASUS SDRW-08D2S-U fires 2-3 `DISK_MEDIA_CHANGE` events per physical insertion; until now only audio CDs (TOC hash) and game discs (boot-code dedup window) were protected. DATA discs computed their content hash only after the rip finished, so persistDisc dedup had nothing to match on at classify time and the dashboard ended up with two "MORROWIND awaiting decision" cards for one disc. The data handler now computes a pre-rip identity hash from `(volume_label, blockdev_size)` and stores it on `disc.TOCHash` so the existing Tier 1 dedup picks it up.
 - Crash-recovery (`MarkInterruptedJobs`) now also flips orphan `job_steps` rows from `running` to `failed` with `finished_at` stamped. Previously the parent job correctly transitioned to `interrupted` at startup but its active step row stayed `running` forever, so the job-detail Pipeline view showed a stale spinning indicator on a step the daemon had already abandoned. The whole flip is in a transaction so partial recovery is impossible.
 
 ## [0.18.6] - 2026-05-17
