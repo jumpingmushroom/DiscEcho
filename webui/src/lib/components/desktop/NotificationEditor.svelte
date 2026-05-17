@@ -30,6 +30,11 @@
   // creating mode. Keyed on id + creating so mid-edit re-renders of the same
   // row don't blow away in-progress edits.
   let lastKey = '';
+  // URL is masked by default for saved notifications so the secret
+  // (Discord webhook token, ntfy bearer, etc.) isn't visible to anyone
+  // glancing at the screen. Toggled to true when the user clicks Edit
+  // or always-true while creating a new notification.
+  let urlRevealed = false;
   $: {
     const key = (notification?.id ?? '') + ':' + (creating ? '1' : '0');
     if (key !== lastKey) {
@@ -39,7 +44,14 @@
       fieldErrors = {};
       saveError = null;
       confirmingDelete = false;
+      urlRevealed = creating || !working.url;
     }
+  }
+
+  function maskURL(u: string): string {
+    const sep = u.indexOf('://');
+    const scheme = sep > 0 ? u.slice(0, sep + 3) : '';
+    return scheme + '••• (hidden — click Edit to replace)';
   }
 
   $: dirty = JSON.stringify(working) !== JSON.stringify(original);
@@ -169,11 +181,28 @@
     </Field>
 
     <Field label="URL" error={fieldErrors.url}>
-      <textarea
-        bind:value={working.url}
-        rows="2"
-        class="w-full rounded-md border border-border bg-surface-2 px-2 py-1.5 font-mono text-[12px] text-text"
-      ></textarea>
+      {#if urlRevealed}
+        <textarea
+          bind:value={working.url}
+          rows="2"
+          class="w-full rounded-md border border-border bg-surface-2 px-2 py-1.5 font-mono text-[12px] text-text"
+        ></textarea>
+      {:else}
+        <div class="flex items-center gap-2">
+          <span
+            class="flex-1 truncate rounded-md border border-border bg-surface-2 px-2 py-1.5 font-mono text-[12px] text-text-3"
+          >
+            {maskURL(working.url)}
+          </span>
+          <button
+            type="button"
+            class="rounded-md border border-border bg-surface-2 px-3 py-1.5 text-[12px] text-text-2"
+            on:click={() => (urlRevealed = true)}
+          >
+            Edit
+          </button>
+        </div>
+      {/if}
     </Field>
 
     <div>

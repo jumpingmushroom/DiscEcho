@@ -40,12 +40,16 @@ describe('NotificationEditor', () => {
   });
 
   it('renders fields populated from a loaded notification', () => {
-    const { getByDisplayValue } = render(NotificationEditor, {
+    const { getByDisplayValue, getByText } = render(NotificationEditor, {
       notification: seed,
       creating: false,
     });
     expect(getByDisplayValue('ntfy-1')).toBeInTheDocument();
-    expect(getByDisplayValue('ntfy://example/topic')).toBeInTheDocument();
+    // URL is masked behind an Edit affordance for saved rows; the
+    // scheme prefix is preserved so the user can confirm the kind of
+    // backend without seeing the secret token.
+    expect(getByText(/ntfy:\/\/•••/)).toBeInTheDocument();
+    expect(getByText(/^Edit$/)).toBeInTheDocument();
   });
 
   it('Save calls update for an existing row', async () => {
