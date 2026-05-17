@@ -6,6 +6,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Changed
+- Data-profile engine label is now `ddrescue` (was `dd`) and reports the correct visible `step_count` of 6 (was 5). The v0.18.4 implementation switch left the schema, seeder, and existing profile rows stale, so the profile editor's "Reader" field still read `dd` and the footer reported "Step count: 5" even though six steps run end-to-end. Migration 012 rewrites existing `engine='dd'` rows to `engine='ddrescue', step_count=6`.
+
 ### Fixed
 - Failed DATA rip error message no longer reads `dd: ddrescue: signal: killed`. The handler still wraps the rip error with a leftover `dd:` prefix from before the v0.18.4 ddrescue switch; the inner `ddrescue:` prefix from the tool itself already gives the right context.
 - History tab now surfaces `interrupted` jobs alongside `done`/`failed`/`cancelled`. Crash-recovered jobs were silently hidden — a job that ran 12 minutes and was killed by a daemon restart simply vanished from the user's view. Same widening applied to the history-clear and history-prune queries so the cleanup tools still cover those rows. The history row renders an `INTERRUPTED` badge with a neutral grey style (vs. the red `FAILED` / `CANCELLED` badges) since the disc itself didn't fail.

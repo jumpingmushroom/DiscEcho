@@ -677,7 +677,7 @@ func seedDataProfile(ctx context.Context, store *state.Store) error {
 	return store.CreateProfile(ctx, &state.Profile{
 		DiscType:           state.DiscTypeData,
 		Name:               dataProfileName,
-		Engine:             "dd",
+		Engine:             "ddrescue",
 		Format:             "ISO",
 		Preset:             "default",
 		Container:          "ISO",
@@ -686,7 +686,7 @@ func seedDataProfile(ctx context.Context, store *state.Store) error {
 		Options:            map[string]any{},
 		OutputPathTemplate: `{{.Title}}/{{.Title}}.iso`,
 		Enabled:            true,
-		StepCount:          5,
+		StepCount:          6,
 		CreatedAt:          now,
 		UpdatedAt:          now,
 	})

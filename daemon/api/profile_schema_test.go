@@ -152,15 +152,15 @@ func TestValidateProfile_RedumperRejectsBadFormat(t *testing.T) {
 	}
 }
 
-func TestValidateProfile_DDEngine(t *testing.T) {
+func TestValidateProfile_DDRescueEngine(t *testing.T) {
 	p := &state.Profile{
 		DiscType:           state.DiscTypeData,
 		Name:               "D",
-		Engine:             "dd",
+		Engine:             "ddrescue",
 		Format:             "ISO",
 		Options:            map[string]any{},
 		OutputPathTemplate: "{{.Title}}.iso",
-		StepCount:          5,
+		StepCount:          6,
 	}
 	if errs := api.ValidateProfile(p); len(errs) != 0 {
 		t.Fatalf("expected valid; got %v", errs)
@@ -296,15 +296,15 @@ func TestValidateProfile_SeededDVDProfileOptions(t *testing.T) {
 	}
 }
 
-func TestValidateProfile_DDRejectsOptions(t *testing.T) {
+func TestValidateProfile_DDRescueRejectsOptions(t *testing.T) {
 	p := &state.Profile{
 		DiscType:           state.DiscTypeData,
 		Name:               "D",
-		Engine:             "dd",
+		Engine:             "ddrescue",
 		Format:             "ISO",
 		Options:            map[string]any{"foo": "bar"},
 		OutputPathTemplate: "{{.Title}}.iso",
-		StepCount:          5,
+		StepCount:          6,
 	}
 	if errs := api.ValidateProfile(p); len(errs) == 0 {
 		t.Fatal("expected validation errors for unknown option")

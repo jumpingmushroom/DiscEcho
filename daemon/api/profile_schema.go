@@ -95,12 +95,12 @@ var engineSchemas = map[string]EngineSchema{
 		Options:     map[string]OptionSchema{},
 		StepCount:   5,
 	},
-	"dd": {
+	"ddrescue": {
 		Formats:     []string{"ISO"},
 		Containers:  []string{"ISO"},
 		VideoCodecs: []string{},
 		Options:     map[string]OptionSchema{},
-		StepCount:   5,
+		StepCount:   6,
 	},
 }
 
