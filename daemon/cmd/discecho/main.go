@@ -311,7 +311,7 @@ func main() {
 		ShouldEject:    shouldEjectOnFinish,
 	}))
 	pipeReg.Register(data.New(data.Deps{
-		DD:             &tools.DD{Bin: cfg.DDBin},
+		DD:             &tools.DDRescue{Bin: cfg.DDRescueBin},
 		LabelProber:    &data.IsoinfoLabelProber{Bin: cfg.IsoInfoBin},
 		Tools:          toolReg,
 		LibraryRoot:    cfg.LibraryData,

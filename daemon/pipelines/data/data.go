@@ -2,16 +2,19 @@
 //
 // Pipeline shape (6 active steps; transcode AND compress skipped):
 //
-//	detect → identify → rip (dd) → move → notify → eject
+//	detect → identify → rip (ddrescue) → move → notify → eject
 //
 // Identify reads the ISO9660 volume label via `isoinfo -d` and uses it as
 // disc.Title. If the label is empty or whitespace, the title falls back to
 // "data-disc-YYYYMMDD-HHMMSS". No external metadata lookup is performed;
 // Identify always returns ErrNoCandidates.
 //
-// Run copies the raw disc to an ISO via dd, sha256-hashes the output, and
-// writes "sha256=<hex>; size=<bytes>" to disc.Notes before atomic-moving
-// the file to the library.
+// Run copies the raw disc to an ISO via ddrescue (preferred over dd
+// because data CDs of any age commonly have a handful of unrecovered
+// read errors and dd's per-sector retry strategy stalls on them for
+// 25 s+ each, where ddrescue skips past and revisits in a second pass).
+// The output is sha256-hashed and the file is atomic-moved to the
+// library.
 package data
 
 import (
@@ -33,7 +36,8 @@ import (
 	"github.com/jumpingmushroom/DiscEcho/daemon/tools"
 )
 
-// DDCopier is the subset of *tools.DD used at rip-time.
+// DDCopier is the subset of *tools.DDRescue used at rip-time. The name
+// is historical; the implementation is ddrescue, not dd.
 type DDCopier interface {
 	Copy(ctx context.Context, devPath, outPath string, totalBytes int64, sink tools.Sink) error
 }

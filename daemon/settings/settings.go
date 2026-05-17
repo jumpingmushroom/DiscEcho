@@ -51,7 +51,7 @@ type Settings struct {
 	RedumperBin          string
 	CHDManBin            string
 	RedumpDataDir        string
-	DDBin                string
+	DDRescueBin          string
 	IGDBClientID         string
 	IGDBClientSecret     string
 }
@@ -85,7 +85,7 @@ func Load(getenv func(string) string, store *state.Store, version string) (*Sett
 		RedumperBin:          firstNonEmpty(getenv("DISCECHO_REDUMPER_BIN"), "redumper"),
 		CHDManBin:            firstNonEmpty(getenv("DISCECHO_CHDMAN_BIN"), "chdman"),
 		RedumpDataDir:        firstNonEmpty(getenv("DISCECHO_REDUMP_DIR"), filepath.Join(firstNonEmpty(getenv("DISCECHO_DATA"), "/var/lib/discecho"), "redump")),
-		DDBin:                firstNonEmpty(getenv("DISCECHO_DD_BIN"), "dd"),
+		DDRescueBin:          firstNonEmpty(getenv("DISCECHO_DDRESCUE_BIN"), "ddrescue"),
 		IGDBClientID:         getenv("DISCECHO_IGDB_CLIENT_ID"),
 		IGDBClientSecret:     getenv("DISCECHO_IGDB_CLIENT_SECRET"),
 	}

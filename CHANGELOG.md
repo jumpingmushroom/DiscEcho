@@ -6,6 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.18.4] - 2026-05-17
+
+### Changed
+- Data-disc (PC CD-ROM, generic ISO) pipeline now rips with GNU ddrescue instead of dd. Data CDs of any age commonly have a handful of unrecovered read errors and dd's `conv=noerror,sync` retries each bad sector synchronously — the drive's per-sector retry takes ~25 s on the ASUS SDRW-08D2S-U, so a disc with a few hundred bad sectors stalls dd for hours and the progress bar never advances. ddrescue does a fast forward pass that skips bad areas, then revisits them in trim/scrape phases, and surfaces actual percentage / speed / ETA the whole time. Container image adds the `gddrescue` Debian package; the unused `DISCECHO_DD_BIN` env var is removed.
+
 ## [0.18.3] - 2026-05-17
 
 ### Added

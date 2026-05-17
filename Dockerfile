@@ -146,6 +146,7 @@ RUN echo "deb http://deb.debian.org/debian bookworm main contrib" \
         ca-certificates eject cdparanoia libcdio-utils whipper \
         python3-cdio \
         libdvd-pkg dvdbackup genisoimage \
+        gddrescue \
         libbluray-bdj libbluray2 libbluray-bin \
         libssl3 libexpat1 libavcodec59 \
         libass9 libturbojpeg0 \
