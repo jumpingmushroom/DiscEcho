@@ -114,7 +114,7 @@ func unmarshalOptions(s string) (map[string]any, error) {
 // GetDrive fetches a drive by ID.
 func (s *Store) GetDrive(ctx context.Context, id string) (*Drive, error) {
 	row := s.db.Conn().QueryRowContext(ctx, `
-		SELECT id, model, bus, dev_path, state, last_seen_at, notes
+		SELECT id, model, bus, dev_path, state, last_seen_at, notes, last_error
 		FROM drives WHERE id = ?`, id)
 	return scanDrive(row)
 }
@@ -122,7 +122,7 @@ func (s *Store) GetDrive(ctx context.Context, id string) (*Drive, error) {
 // ListDrives returns all drives ordered by dev_path.
 func (s *Store) ListDrives(ctx context.Context) ([]Drive, error) {
 	rows, err := s.db.Conn().QueryContext(ctx, `
-		SELECT id, model, bus, dev_path, state, last_seen_at, notes
+		SELECT id, model, bus, dev_path, state, last_seen_at, notes, last_error
 		FROM drives ORDER BY dev_path`)
 	if err != nil {
 		return nil, err
@@ -182,10 +182,38 @@ func (s *Store) ResetIdentifyingDrives(ctx context.Context) (int, error) {
 }
 
 // UpdateDriveState sets the drive's state and refreshes last_seen_at.
+// When transitioning to idle the per-drive error context is no longer
+// relevant — clear last_error so the dashboard does not keep showing a
+// stale error banner.
 func (s *Store) UpdateDriveState(ctx context.Context, id string, state DriveState) error {
+	var res sql.Result
+	var err error
+	if state == DriveStateIdle {
+		res, err = s.db.Conn().ExecContext(ctx,
+			`UPDATE drives SET state = ?, last_seen_at = ?, last_error = '' WHERE id = ?`,
+			string(state), timestamp(time.Now()), id)
+	} else {
+		res, err = s.db.Conn().ExecContext(ctx,
+			`UPDATE drives SET state = ?, last_seen_at = ? WHERE id = ?`,
+			string(state), timestamp(time.Now()), id)
+	}
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// UpdateDriveLastError stores the raw error message from the most recent
+// classify failure. Call this before UpdateDriveState(…, DriveStateError)
+// so the dashboard can surface the reason. The error is cleared
+// automatically when the drive returns to idle via UpdateDriveState.
+func (s *Store) UpdateDriveLastError(ctx context.Context, id, errMsg string) error {
 	res, err := s.db.Conn().ExecContext(ctx,
-		`UPDATE drives SET state = ?, last_seen_at = ? WHERE id = ?`,
-		string(state), timestamp(time.Now()), id)
+		`UPDATE drives SET last_error = ? WHERE id = ?`, errMsg, id)
 	if err != nil {
 		return err
 	}
@@ -225,7 +253,7 @@ func (s *Store) ClaimDriveForIdentify(ctx context.Context, id string) (bool, err
 func scanDrive(r rowScanner) (*Drive, error) {
 	var d Drive
 	var state, lastSeenStr string
-	if err := r.Scan(&d.ID, &d.Model, &d.Bus, &d.DevPath, &state, &lastSeenStr, &d.Notes); err != nil {
+	if err := r.Scan(&d.ID, &d.Model, &d.Bus, &d.DevPath, &state, &lastSeenStr, &d.Notes, &d.LastError); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrNotFound
 		}
@@ -237,6 +265,7 @@ func scanDrive(r rowScanner) (*Drive, error) {
 		return nil, fmt.Errorf("parse last_seen_at: %w", err)
 	}
 	d.LastSeenAt = t
+	d.LastErrorTip = DriveErrorTip(d.LastError)
 	return &d, nil
 }
 

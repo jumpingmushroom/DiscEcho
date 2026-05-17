@@ -1,0 +1,1 @@
+ALTER TABLE drives ADD COLUMN last_error TEXT NOT NULL DEFAULT '';

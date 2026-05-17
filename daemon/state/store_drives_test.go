@@ -3,6 +3,7 @@ package state_test
 import (
 	"context"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -247,6 +248,77 @@ func TestStore_ResetIdentifyingDrives(t *testing.T) {
 		}
 		if got.State != c.want {
 			t.Errorf("%s: state want %s, got %s", c.d.DevPath, c.want, got.State)
+		}
+	}
+}
+
+func mustStore(t *testing.T, err error) {
+	t.Helper()
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestStore_UpdateDriveLastError_RoundTrip(t *testing.T) {
+	s := openStore(t)
+	drv := newDrive(t, s, "/dev/sr0")
+	if err := s.UpdateDriveLastError(context.Background(), drv.ID, "cd-info: exit status 1"); err != nil {
+		t.Fatalf("UpdateDriveLastError: %v", err)
+	}
+	got, err := s.GetDrive(context.Background(), drv.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.LastError != "cd-info: exit status 1" {
+		t.Errorf("LastError = %q", got.LastError)
+	}
+	if got.LastErrorTip == "" {
+		t.Errorf("LastErrorTip empty; expected Kreon tip for cd-info error")
+	}
+}
+
+func TestStore_UpdateDriveState_ClearsLastErrorOnIdle(t *testing.T) {
+	s := openStore(t)
+	drv := newDrive(t, s, "/dev/sr0")
+	mustStore(t, s.UpdateDriveLastError(context.Background(), drv.ID, "some error"))
+	mustStore(t, s.UpdateDriveState(context.Background(), drv.ID, state.DriveStateIdle))
+	got, err := s.GetDrive(context.Background(), drv.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.LastError != "" {
+		t.Errorf("LastError = %q; want empty after state->idle", got.LastError)
+	}
+}
+
+func TestStore_UpdateDriveState_PreservesLastErrorOnError(t *testing.T) {
+	s := openStore(t)
+	drv := newDrive(t, s, "/dev/sr0")
+	mustStore(t, s.UpdateDriveLastError(context.Background(), drv.ID, "some error"))
+	mustStore(t, s.UpdateDriveState(context.Background(), drv.ID, state.DriveStateError))
+	got, err := s.GetDrive(context.Background(), drv.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.LastError != "some error" {
+		t.Errorf("LastError = %q; want preserved when state->error", got.LastError)
+	}
+}
+
+func TestDriveErrorTip(t *testing.T) {
+	tests := []struct{ in, wantContains string }{
+		{"cd-info: exit status 1", "Kreon"},
+		{"isoinfo: timed out", ""},
+		{"", ""},
+	}
+	for _, tt := range tests {
+		got := state.DriveErrorTip(tt.in)
+		if tt.wantContains == "" {
+			if got != "" {
+				t.Errorf("DriveErrorTip(%q) = %q, want empty", tt.in, got)
+			}
+		} else if !strings.Contains(got, tt.wantContains) {
+			t.Errorf("DriveErrorTip(%q) = %q, want substring %q", tt.in, got, tt.wantContains)
 		}
 	}
 }

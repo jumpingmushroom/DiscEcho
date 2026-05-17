@@ -111,6 +111,8 @@ type Drive struct {
 	LastSeenAt    time.Time  `json:"last_seen_at"`
 	Notes         string     `json:"notes,omitempty"`
 	CurrentDiscID string     `json:"current_disc_id,omitempty"` // computed, not stored
+	LastError     string     `json:"last_error,omitempty"`
+	LastErrorTip  string     `json:"last_error_tip,omitempty"` // derived from LastError via DriveErrorTip; not stored
 }
 
 // Candidate is a single MB (or other source) match for a disc.
