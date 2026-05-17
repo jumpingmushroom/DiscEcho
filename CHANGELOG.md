@@ -6,6 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.18.2] - 2026-05-17
+
+### Fixed
+- Extended the cd-info classify retry budget from ~11.5 s to ~30.5 s (10 attempts on a 0.5 s → 5 s ramp). The ASUS SDRW-08D2S-U slot-load takes ~21 s on a chilled disc before cd-info stops returning exit 1; the old schedule gave up roughly halfway through that window and the drive flipped to `error` for the rest of the session unless the user ejected and re-inserted. The longer tail steps cost nothing on a fast drive — the first cd-info succeeds and the retry loop exits before consuming any of the extra delay.
+
 ## [0.18.1] - 2026-05-17
 
 ### Fixed

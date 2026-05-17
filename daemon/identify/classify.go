@@ -180,15 +180,26 @@ func (w *cdInfoWatcher) Found() <-chan struct{} { return w.found }
 
 // cdInfoBackoff is the wait between cd-info retries. Exposed for tests
 // so the table-driven retry test can shrink it to a few microseconds
-// without coupling to the production schedule.
+// without coupling to the production schedule. Total wall time across
+// the schedule must outlast the cold-disc spin-up window of the
+// slowest drive in the test fleet — the ASUS SDRW-08D2S-U slot-load
+// takes ~21 s on a chilled disc before cd-info stops returning exit 1,
+// and the older [500ms, 1s, 2s×5] schedule (11.5 s total) gave up
+// roughly halfway through that window. The longer tail steps cost
+// nothing on a fast drive (first cd-info succeeds and the retry loop
+// exits) but rescue slow-spin-up discs that would otherwise flip the
+// drive to `error` and require a manual eject + re-insert.
 var cdInfoBackoff = []time.Duration{
 	500 * time.Millisecond,
 	1 * time.Second,
 	2 * time.Second,
 	2 * time.Second,
-	2 * time.Second,
-	2 * time.Second,
-	2 * time.Second,
+	3 * time.Second,
+	3 * time.Second,
+	4 * time.Second,
+	5 * time.Second,
+	5 * time.Second,
+	5 * time.Second,
 }
 
 // ErrUnknownDiscType is returned when none of the probes recognise the
