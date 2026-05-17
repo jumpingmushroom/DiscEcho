@@ -6,6 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.18.5] - 2026-05-17
+
+### Fixed
+- Data-disc rip progress now actually updates the dashboard. v0.18.4 read ddrescue's output from stderr, but ddrescue prints its live status display (banner, status block, phase-transition lines) to STDOUT — stderr is reserved for genuine errors. The dashboard progress bar therefore stayed at 0% for the entire rip even though the ISO was growing on disk. Now reads stdout for progress and drains stderr in parallel for warnings.
+
 ## [0.18.4] - 2026-05-17
 
 ### Changed

@@ -60,6 +60,17 @@ func (d *DDRescue) Copy(ctx context.Context, devPath, outPath string, totalBytes
 		mapPath,
 	}
 	cmd := exec.CommandContext(ctx, bin, args...)
+	// ddrescue prints its live status display to STDOUT (banner, status
+	// block, phase-transition lines), not stderr — stderr is reserved
+	// for genuine errors. Reading from stderr would mean the dashboard
+	// progress bar stays at 0 the entire rip.
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return fmt.Errorf("stdout pipe: %w", err)
+	}
+	// Drain stderr too. ddrescue writes very little there but the kernel
+	// pipe buffer is only 64 KB; if we left it unread a long enough rip
+	// could eventually block on a pipe_write.
 	stderr, err := cmd.StderrPipe()
 	if err != nil {
 		return fmt.Errorf("stderr pipe: %w", err)
@@ -67,7 +78,18 @@ func (d *DDRescue) Copy(ctx context.Context, devPath, outPath string, totalBytes
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("start ddrescue: %w", err)
 	}
-	drainAfterScan(stderr, func(scan *bufio.Scanner) {
+	go func() {
+		drainAfterScan(stderr, func(scan *bufio.Scanner) {
+			for scan.Scan() {
+				line := scan.Text()
+				lt := strings.TrimSpace(line)
+				if lt != "" {
+					sink.Log(state.LogLevelWarn, "ddrescue: %s", lt)
+				}
+			}
+		})
+	}()
+	drainAfterScan(stdout, func(scan *bufio.Scanner) {
 		// ddrescue overstrikes its status block with \r between updates;
 		// splitCROrLF makes each line within a block (and each block)
 		// its own token.
