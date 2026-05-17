@@ -5,6 +5,7 @@
   import ProgressBar from '$lib/components/ProgressBar.svelte';
   import SpeedEtaChip from '$lib/components/SpeedEtaChip.svelte';
   import { ripSubStepLabel } from '$lib/ripSubStepLabel';
+  import { formatProgress } from '$lib/formatProgress';
   import { onMount, onDestroy } from 'svelte';
   import {
     logs,
@@ -255,7 +256,7 @@
         <div class="flex items-center justify-between">
           <SpeedEtaChip speed={job.speed} etaSeconds={job.eta_seconds} />
           <span class="font-mono font-semibold text-accent" style="font-size: var(--ts-meta)">
-            {Math.round(job.progress)}%
+            {formatProgress(job.progress)}
           </span>
         </div>
       </div>

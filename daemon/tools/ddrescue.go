@@ -110,12 +110,25 @@ func scanDDRescueOutput(scan *bufio.Scanner, totalBytes int64, sink Sink) {
 	var speed string
 	var eta int
 	var haveRescued bool
+	var lastPhase string
 	for scan.Scan() {
 		line := scan.Text()
+		// Strip ANSI cursor-up escape codes (\x1b[A) that ddrescue
+		// prepends to each status block. splitCROrLF only splits on
+		// \r and \n, so the escapes ride along on the first token of
+		// the next block; trimming them keeps the "Copying ..." phase
+		// banner clean in the log and lets the regexes match without
+		// having to anchor around the noise.
+		line = stripANSICursor(line)
 		ev, ok := ParseDDRescueLine(line, totalBytes)
 		if !ok {
-			// Surface ddrescue's terminal-line messages so the user can see
-			// what phase it's in ("Copying non-tried blocks...", etc.).
+			// Surface ddrescue's phase-banner lines so the user can see
+			// what stage it's in ("Copying non-tried blocks...",
+			// "Trimming failed blocks...", etc.). Dedupe consecutive
+			// identical banners — ddrescue re-prints the current phase
+			// at every status refresh (every ~26 s on this drive), and
+			// without dedup the log fills with 30 copies of the same
+			// "Copying non-tried blocks... Pass 1 (forwards)" line.
 			lt := strings.TrimSpace(line)
 			if strings.HasPrefix(lt, "GNU ddrescue") ||
 				strings.HasPrefix(lt, "Copying ") ||
@@ -123,7 +136,10 @@ func scanDDRescueOutput(scan *bufio.Scanner, totalBytes int64, sink Sink) {
 				strings.HasPrefix(lt, "Scraping ") ||
 				strings.HasPrefix(lt, "Retrying ") ||
 				strings.HasPrefix(lt, "Finished") {
-				sink.Log(state.LogLevelInfo, "ddrescue: %s", lt)
+				if lt != lastPhase {
+					sink.Log(state.LogLevelInfo, "ddrescue: %s", lt)
+					lastPhase = lt
+				}
 			}
 			continue
 		}
@@ -209,6 +225,16 @@ func ParseDDRescueLine(line string, totalBytes int64) (ddRescueEvent, bool) {
 		}
 	}
 	return ev, matched
+}
+
+// ansiCursorRE matches the cursor-up escape sequence (ESC `[` `A`)
+// that ddrescue uses to rewind to the top of its status block. The
+// escapes ride along on the first scanner token of every block
+// because splitCROrLF only splits on \r and \n.
+var ansiCursorRE = regexp.MustCompile(`\x1b\[[0-9]*[A-D]`)
+
+func stripANSICursor(s string) string {
+	return ansiCursorRE.ReplaceAllString(s, "")
 }
 
 // parseDDRescueDuration converts ddrescue's "2m 30s" / "1h 5m" / "15s"

@@ -4,6 +4,7 @@
   import { logs, ensureLogBackfill } from '$lib/store';
   import { formatDuration } from '$lib/time';
   import { trackSummary } from '$lib/format';
+  import { formatProgress } from '$lib/formatProgress';
   import DiscArt from './DiscArt.svelte';
   import DiscTypeBadge from './DiscTypeBadge.svelte';
   import PipelineStepperHorizontal from './PipelineStepperHorizontal.svelte';
@@ -156,7 +157,7 @@
     <div class="flex items-center justify-between">
       <SpeedEtaChip speed={job.speed} etaSeconds={job.eta_seconds} />
       <span class="font-mono text-[14px] font-semibold text-accent">
-        {Math.round(job.progress)}%
+        {formatProgress(job.progress)}
       </span>
     </div>
   </div>

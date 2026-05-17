@@ -5,6 +5,7 @@
   import { createEventDispatcher } from 'svelte';
   import { discs } from '$lib/store';
   import { formatDuration } from '$lib/time';
+  import { formatProgress } from '$lib/formatProgress';
 
   export let job: Job;
 
@@ -44,7 +45,7 @@
   {:else}
     <div class="text-right">
       <div class="font-mono text-[13px] font-semibold text-accent">
-        {Math.round(job.progress)}%
+        {formatProgress(job.progress)}
       </div>
       {#if job.eta_seconds}
         <div class="font-mono text-[10px] text-text-3">{formatDuration(job.eta_seconds)}</div>

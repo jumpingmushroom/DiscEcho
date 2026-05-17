@@ -3,6 +3,7 @@
   import ProgressBar from './ProgressBar.svelte';
   import SpeedEtaChip from './SpeedEtaChip.svelte';
   import LiveDot from './LiveDot.svelte';
+  import { formatProgress } from '$lib/formatProgress';
 
   export let job: Job;
 
@@ -106,7 +107,7 @@
               <div class="mt-0.5 text-[12px] text-text-2">{s.desc}</div>
             </div>
             <span class="font-mono text-[13px] font-semibold text-accent">
-              {Math.round(job.progress)}%
+              {formatProgress(job.progress)}
             </span>
           </div>
           <div class="mt-3">

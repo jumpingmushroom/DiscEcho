@@ -3,6 +3,7 @@
   import DiscTypeBadge from './DiscTypeBadge.svelte';
   import ProgressBar from './ProgressBar.svelte';
   import SpeedEtaChip from './SpeedEtaChip.svelte';
+  import { formatProgress } from '$lib/formatProgress';
   import { createEventDispatcher } from 'svelte';
   import { cancelJob, ejectDrive, reidentify } from '$lib/store';
 
@@ -105,7 +106,7 @@
         <div class="flex items-center justify-between">
           <SpeedEtaChip speed={job.speed} etaSeconds={job.eta_seconds} />
           <span class="font-mono text-[12px] font-semibold text-accent">
-            {Math.round(job.progress)}%
+            {formatProgress(job.progress)}
           </span>
         </div>
       </div>

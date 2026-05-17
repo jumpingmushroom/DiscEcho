@@ -5,6 +5,7 @@
   import PipelineStepperMini from '$lib/components/PipelineStepperMini.svelte';
   import { createEventDispatcher } from 'svelte';
   import { formatDuration } from '$lib/time';
+  import { formatProgress } from '$lib/formatProgress';
 
   export let jobs: Job[];
   export let selectedJobID: string | null = null;
@@ -75,7 +76,7 @@
                 </span>
               {:else}
                 <span class="font-mono text-[13px] font-semibold text-accent">
-                  {Math.round(j.progress)}%
+                  {formatProgress(j.progress)}
                 </span>
               {/if}
             </td>

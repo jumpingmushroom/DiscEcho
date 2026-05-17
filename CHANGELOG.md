@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.18.6] - 2026-05-17
+
+### Fixed
+- Dashboard progress percentage now shows one decimal place when below 1% (`0.2%` instead of the previous `0%`). On a damaged data disc ddrescue can sit at 0.2-0.4% for several minutes on the initial bad spot; rounding to integer made the bar look frozen. Introduced via the new `formatProgress` helper, applied to all six job-percentage call sites (job row, pipeline stepper, drive cards mobile/desktop, rip card, queue table).
+- ddrescue log no longer spams the same phase banner every refresh. The status block re-prints the current phase line (`Copying non-tried blocks... Pass 1 (forwards)`) on every ~26 s refresh; the daemon now dedupes consecutive identical banners so the log shows one entry per actual phase transition. The cursor-up ANSI escapes that ddrescue prepends to status blocks are also stripped from the log before display.
+
 ## [0.18.5] - 2026-05-17
 
 ### Fixed
