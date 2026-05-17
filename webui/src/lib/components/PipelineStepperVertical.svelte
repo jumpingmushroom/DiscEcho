@@ -18,11 +18,17 @@
     { id: 'eject', label: 'Eject', desc: 'Tray release' },
   ];
 
+  const TERMINAL_STATES = new Set(['done', 'failed', 'cancelled', 'interrupted']);
+
   function status(step: StepID): 'done' | 'active' | 'pending' | 'skipped' | 'failed' {
     const stp = job.steps?.find((s) => s.step === step);
     if (stp?.state === 'skipped') return 'skipped';
     if (stp?.state === 'done') return 'done';
     if (stp?.state === 'failed') return 'failed';
+    // Belt-and-braces: a 'running' step on a terminal job means the
+    // daemon was killed mid-step before it could flip the row. Render
+    // as failed so the user doesn't see a stale spinner.
+    if (stp?.state === 'running' && TERMINAL_STATES.has(job.state)) return 'failed';
     if (job.active_step === step) return 'active';
     return 'pending';
   }

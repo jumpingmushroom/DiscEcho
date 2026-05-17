@@ -13,10 +13,16 @@
     'eject',
   ];
 
+  const TERMINAL_STATES = new Set(['done', 'failed', 'cancelled', 'interrupted']);
+
   function statusFor(step: StepID): 'done' | 'active' | 'pending' | 'skipped' {
     const stp = job.steps?.find((s) => s.step === step);
     if (stp?.state === 'skipped') return 'skipped';
     if (stp?.state === 'done') return 'done';
+    // Stale 'running' on a terminal job means the daemon was killed
+    // mid-step. Render as done so the mini dot row doesn't keep
+    // showing an animated active indicator forever.
+    if (stp?.state === 'running' && TERMINAL_STATES.has(job.state)) return 'done';
     if (job.active_step === step) return 'active';
     if (stp?.state === 'failed') return 'done';
     return 'pending';

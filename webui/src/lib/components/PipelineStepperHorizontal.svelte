@@ -17,11 +17,14 @@
 
   type Status = 'done' | 'active' | 'pending' | 'skipped' | 'failed';
 
+  const TERMINAL_STATES = new Set(['done', 'failed', 'cancelled', 'interrupted']);
+
   function statusFor(step: StepID): Status {
     const stp = job.steps?.find((s) => s.step === step);
     if (stp?.state === 'skipped') return 'skipped';
     if (stp?.state === 'done') return 'done';
     if (stp?.state === 'failed') return 'failed';
+    if (stp?.state === 'running' && TERMINAL_STATES.has(job.state)) return 'failed';
     if (job.active_step === step) return 'active';
     return 'pending';
   }

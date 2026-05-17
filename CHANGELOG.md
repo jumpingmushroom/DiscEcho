@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+- Pipeline steppers (vertical / horizontal / mini) defensively render a stale `running` step on a terminal job as `failed` (or `done` for the mini variant). The daemon fix above prevents this state from being written in the first place, but legacy interrupted rows from before the upgrade still expose the inconsistency until `MarkInterruptedJobs` runs at next startup; this guard means the UI doesn't show a spinning Rip indicator on a job that the daemon abandoned hours ago.
+
 ### Changed
 - Data-profile engine label is now `ddrescue` (was `dd`) and reports the correct visible `step_count` of 6 (was 5). The v0.18.4 implementation switch left the schema, seeder, and existing profile rows stale, so the profile editor's "Reader" field still read `dd` and the footer reported "Step count: 5" even though six steps run end-to-end. Migration 012 rewrites existing `engine='dd'` rows to `engine='ddrescue', step_count=6`.
 
