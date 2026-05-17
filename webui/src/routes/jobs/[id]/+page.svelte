@@ -2,7 +2,7 @@
   import { onMount } from 'svelte';
   import { page } from '$app/stores';
   import { goto } from '$app/navigation';
-  import { jobs, discs, profiles, cancelJob, deleteJob, fetchJob } from '$lib/store';
+  import { drives, jobs, discs, profiles, cancelJob, deleteJob, fetchJob } from '$lib/store';
   import LiveDot from '$lib/components/LiveDot.svelte';
   import DiscArt from '$lib/components/DiscArt.svelte';
   import DiscTypeBadge from '$lib/components/DiscTypeBadge.svelte';
@@ -33,6 +33,33 @@
     (['done', 'failed', 'cancelled', 'interrupted'] as const).includes(job.state as never);
   $: profileName =
     job !== undefined ? ($profiles.find((p) => p.id === job.profile_id)?.name ?? '') : '';
+  $: driveLabel =
+    job?.drive_id !== undefined
+      ? ($drives.find((d) => d.id === job!.drive_id)?.dev_path ??
+        $drives.find((d) => d.id === job!.drive_id)?.bus ??
+        job!.drive_id.slice(0, 8))
+      : '';
+  // Move step's notes carries the final library path(s). Audio CDs use
+  // "paths" (a list of track files); video / data / game discs use "path"
+  // (single output file). Render whichever is present.
+  $: outputPath = (() => {
+    const move = job?.steps?.find((s) => s.step === 'move');
+    if (!move?.notes) return '';
+    const p = (move.notes as Record<string, unknown>).path;
+    if (typeof p === 'string' && p) return p;
+    const arr = (move.notes as Record<string, unknown>).paths;
+    if (Array.isArray(arr) && arr.length > 0) {
+      return arr.length === 1
+        ? String(arr[0])
+        : `${arr.length} files in ${pathDir(String(arr[0]))}`;
+    }
+    return '';
+  })();
+
+  function pathDir(p: string): string {
+    const i = p.lastIndexOf('/');
+    return i > 0 ? p.slice(0, i) : p;
+  }
   $: outcomeLabel =
     job?.state === 'done'
       ? 'DONE'
@@ -210,6 +237,12 @@
       <div class="space-y-4 px-5 pt-3">
         {#if isTerminal}
           <div class="divide-y divide-border rounded-2xl border border-border bg-surface-1">
+            {#if disc?.title}
+              <KVRow label="Disc">{disc.title}</KVRow>
+            {/if}
+            {#if job.started_at}
+              <KVRow label="Started">{new Date(job.started_at).toLocaleString()}</KVRow>
+            {/if}
             {#if job.finished_at}
               <KVRow label="Finished">{new Date(job.finished_at).toLocaleString()}</KVRow>
             {/if}
@@ -218,6 +251,14 @@
             {/if}
             {#if job.output_bytes}
               <KVRow label="Output size">{formatBytes(job.output_bytes)}</KVRow>
+            {/if}
+            {#if outputPath}
+              <KVRow label="Output">
+                <span class="break-all font-mono text-[12px]">{outputPath}</span>
+              </KVRow>
+            {/if}
+            {#if driveLabel}
+              <KVRow label="Drive">{driveLabel}</KVRow>
             {/if}
             {#if profileName}
               <KVRow label="Profile">{profileName}</KVRow>
@@ -242,10 +283,19 @@
           {/if}
         {:else}
           <div class="divide-y divide-border rounded-2xl border border-border bg-surface-1">
+            {#if disc?.title}
+              <KVRow label="Disc">{disc.title}</KVRow>
+            {/if}
             <KVRow label="State">{job.state}</KVRow>
             <KVRow label="Progress">{Math.round(job.progress)}%</KVRow>
             {#if job.active_step}
               <KVRow label="Active step">{job.active_step}</KVRow>
+            {/if}
+            {#if job.started_at}
+              <KVRow label="Started">{new Date(job.started_at).toLocaleString()}</KVRow>
+            {/if}
+            {#if driveLabel}
+              <KVRow label="Drive">{driveLabel}</KVRow>
             {/if}
             {#if profileName}
               <KVRow label="Profile">{profileName}</KVRow>
