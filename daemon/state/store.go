@@ -931,7 +931,7 @@ func (s *Store) ListActiveAndRecentJobs(ctx context.Context, recentLimit int) ([
 			       progress, speed, eta_seconds, elapsed_seconds, output_bytes,
 			       started_at, finished_at, error_message, created_at, active_substep
 			FROM jobs
-			WHERE state IN ('done','failed','cancelled')
+			WHERE state IN ('done','failed','cancelled','interrupted')
 			ORDER BY COALESCE(NULLIF(finished_at,''), created_at) DESC
 			LIMIT ?`, recentLimit)
 		if err != nil {
@@ -1722,7 +1722,7 @@ func (s *Store) ListHistory(ctx context.Context, f HistoryFilter) ([]HistoryRow,
 		  d.candidates_json, d.metadata_json, d.created_at
 		FROM jobs j
 		JOIN discs d ON j.disc_id = d.id
-		WHERE j.state IN ('done','failed','cancelled')
+		WHERE j.state IN ('done','failed','cancelled','interrupted')
 	`
 	args := []any{}
 	if f.Type != "" {
@@ -1791,11 +1791,11 @@ func (s *Store) ListHistory(ctx context.Context, f HistoryFilter) ([]HistoryRow,
 
 // CountHistory returns the count of rows matching the filter.
 func (s *Store) CountHistory(ctx context.Context, f HistoryFilter) (int, error) {
-	q := `SELECT COUNT(*) FROM jobs j WHERE j.state IN ('done','failed','cancelled')`
+	q := `SELECT COUNT(*) FROM jobs j WHERE j.state IN ('done','failed','cancelled','interrupted')`
 	args := []any{}
 	if f.Type != "" {
 		q = `SELECT COUNT(*) FROM jobs j JOIN discs d ON j.disc_id = d.id
-		     WHERE j.state IN ('done','failed','cancelled') AND d.type = ?`
+		     WHERE j.state IN ('done','failed','cancelled','interrupted') AND d.type = ?`
 		args = append(args, string(f.Type))
 	}
 	if !f.From.IsZero() {
@@ -1827,7 +1827,7 @@ func (s *Store) PruneHistoryBefore(ctx context.Context, cutoff time.Time) (int, 
 
 	res, err := tx.ExecContext(ctx, `
 		DELETE FROM jobs
-		WHERE state IN ('done','failed','cancelled')
+		WHERE state IN ('done','failed','cancelled','interrupted')
 		  AND finished_at IS NOT NULL
 		  AND finished_at < ?`, cutoff.UTC().Format(time.RFC3339Nano))
 	if err != nil {
@@ -1904,7 +1904,7 @@ func (s *Store) ClearHistory(ctx context.Context) (int, error) {
 	var deleted int
 	if err := tx.QueryRowContext(ctx, `
 		SELECT COUNT(*) FROM jobs
-		WHERE state IN ('done','failed','cancelled')`).Scan(&deleted); err != nil {
+		WHERE state IN ('done','failed','cancelled','interrupted')`).Scan(&deleted); err != nil {
 		return 0, fmt.Errorf("count finished jobs: %w", err)
 	}
 
@@ -1925,7 +1925,7 @@ func (s *Store) ClearHistory(ctx context.Context) (int, error) {
 	// finished job and an active re-rip).
 	if _, err := tx.ExecContext(ctx, `
 		DELETE FROM jobs
-		WHERE state IN ('done','failed','cancelled')`); err != nil {
+		WHERE state IN ('done','failed','cancelled','interrupted')`); err != nil {
 		return 0, fmt.Errorf("delete finished jobs: %w", err)
 	}
 

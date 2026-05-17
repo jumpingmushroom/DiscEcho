@@ -11,7 +11,15 @@
   $: title = row.disc.title || 'Unknown';
   $: completedAt = row.job.finished_at ?? '';
   $: state = row.job.state;
-  $: stateBadge = state === 'failed' ? 'FAILED' : state === 'cancelled' ? 'CANCELLED' : null;
+  $: stateBadge =
+    state === 'failed'
+      ? 'FAILED'
+      : state === 'cancelled'
+        ? 'CANCELLED'
+        : state === 'interrupted'
+          ? 'INTERRUPTED'
+          : null;
+  $: stateBadgeClass = state === 'interrupted' ? 'neutral-badge' : 'failure-badge';
   $: artLabel = row.disc.type === 'AUDIO_CD' ? 'cd' : 'cover';
   $: artRatio = (row.disc.type === 'AUDIO_CD' ? 'square' : 'portrait') as 'square' | 'portrait';
 
@@ -45,7 +53,7 @@
         <DiscTypeBadge type={row.disc.type} />
         {#if stateBadge}
           <span
-            class="failure-badge rounded px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-[0.14em]"
+            class="{stateBadgeClass} rounded px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-[0.14em]"
           >
             {stateBadge}
           </span>
@@ -75,5 +83,9 @@
   .failure-badge {
     background: rgba(255, 91, 91, 0.15);
     color: var(--error);
+  }
+  .neutral-badge {
+    background: var(--surface-2);
+    color: var(--text-3);
   }
 </style>
