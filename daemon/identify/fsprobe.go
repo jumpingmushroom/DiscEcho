@@ -3,6 +3,7 @@ package identify
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"os/exec"
 	"strings"
@@ -44,6 +45,19 @@ func (p *isoinfoFSProber) List(ctx context.Context, devPath string) ([]string, e
 	defer cancel()
 	cmd := exec.CommandContext(cctx, p.bin, "-R", "-l", "-i", devPath)
 	out, err := cmd.Output()
+	// isoinfo exits with code 5 ("Input/output error. Read error on
+	// old image") on scratched or finicky discs but STILL writes a
+	// usable directory listing to stdout. The daemon's classifier only
+	// needs the file names to discriminate disc types, so a partial
+	// listing is preferable to giving up + retrying (the retry loop
+	// just hits the same I/O error each time and never makes progress).
+	if err != nil && len(out) > 0 {
+		var ee *exec.ExitError
+		if errors.As(err, &ee) {
+			// keep the partial output, drop the error
+			err = nil
+		}
+	}
 	if err != nil {
 		return nil, fmt.Errorf("isoinfo -R -l: %w", err)
 	}

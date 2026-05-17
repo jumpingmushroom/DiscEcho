@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.17.6] - 2026-05-17
+
+### Fixed
+- isoinfo exit code 5 ("Input/output error. Read error on old image") no longer triggers an infinite retry storm. On scratched / dirty / chilled discs isoinfo still writes a usable directory listing or SYSTEM.CNF extract to stdout even when it exits non-zero; the daemon was discarding stdout and looping on the error. Accept the partial output when it's non-empty so classify can identify the disc on the first attempt. Same fix applied to the SYSTEM.CNF probe.
+
+
 ## [0.17.5] - 2026-05-17
 
 ### Fixed

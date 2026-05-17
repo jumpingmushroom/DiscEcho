@@ -3,6 +3,7 @@ package identify
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"os/exec"
 	"regexp"
@@ -55,6 +56,16 @@ func (p *isoinfoSystemCNFProber) Probe(ctx context.Context, devPath string) (*Sy
 	defer cancel()
 	cmd := exec.CommandContext(cctx, p.bin, "-i", devPath, "-x", "/SYSTEM.CNF;1")
 	out, err := cmd.Output()
+	// isoinfo returns exit 5 on I/O errors but writes the extracted
+	// SYSTEM.CNF bytes to stdout regardless. Accept partial output so
+	// the boot-line parser can still recognise PSX/PS2 discs on dirty
+	// surfaces — without this the daemon's retry loop spins.
+	if err != nil && len(out) > 0 {
+		var ee *exec.ExitError
+		if errors.As(err, &ee) {
+			err = nil
+		}
+	}
 	if err != nil {
 		return nil, fmt.Errorf("isoinfo -x SYSTEM.CNF: %w", err)
 	}
