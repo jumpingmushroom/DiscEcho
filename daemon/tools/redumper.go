@@ -132,6 +132,13 @@ var (
 	redumperPercentRE = regexp.MustCompile(`\[\s*(\d+)%\]`)
 	redumperLBARE     = regexp.MustCompile(`LBA:\s*(\d+)/(\d+)`)
 	redumperSpeedRE   = regexp.MustCompile(`Speed:\s*([0-9.]+)x`)
+
+	// redumperPhaseRE matches redumper's phase-marker lines:
+	//   *** DUMP (time check: 0s)
+	//   *** DUMP::EXTRA (time check: 2613s)
+	//   *** REFINE (time check: 10s)
+	// Capturing group 1 is the phase name (uppercase letters and colons).
+	redumperPhaseRE = regexp.MustCompile(`^\*\*\*\s+([A-Z:]+)\s+\(time check:`)
 )
 
 // ParseRedumperProgress reads a redumper output stream and emits sink
@@ -165,6 +172,18 @@ func ParseRedumperProgress(r io.Reader, sink Sink) {
 			if line == "" {
 				continue
 			}
+			// Phase-marker lines (*** DUMP, *** REFINE, *** SPLIT, …)
+			// signal a long-running sub-phase. Emit SubStep first so the UI
+			// updates immediately, then forward the line to the log tail.
+			if m := redumperPhaseRE.FindStringSubmatch(line); m != nil {
+				sink.SubStep(m[1])
+				if len(line) > 400 {
+					line = line[:400]
+				}
+				sink.Log(stateLogLevelInfoConst, "redumper: %s", line)
+				continue
+			}
+
 			if m := redumperSpeedRE.FindStringSubmatch(line); m != nil {
 				legacySpeed = m[1] + "x"
 				// don't continue — single line may carry Speed AND progress.

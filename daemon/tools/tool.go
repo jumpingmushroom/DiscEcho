@@ -26,6 +26,9 @@ type Tool interface {
 type Sink interface {
 	Progress(pct float64, speed string, etaSeconds int)
 	Log(level state.LogLevel, format string, args ...any)
+	// SubStep records a long-running sub-phase such as redumper's REFINE
+	// or SPLIT phase. Empty name clears the current sub-step.
+	SubStep(name string)
 }
 
 // NopSink discards everything.
@@ -33,6 +36,7 @@ type NopSink struct{}
 
 func (NopSink) Progress(float64, string, int)      {}
 func (NopSink) Log(state.LogLevel, string, ...any) {}
+func (NopSink) SubStep(string)                     {}
 
 // Registry maps tool names to implementations. Goroutine-safe.
 type Registry struct {

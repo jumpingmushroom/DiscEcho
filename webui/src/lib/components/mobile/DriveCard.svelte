@@ -4,6 +4,7 @@
   import DiscTypeBadge from '$lib/components/DiscTypeBadge.svelte';
   import ProgressBar from '$lib/components/ProgressBar.svelte';
   import SpeedEtaChip from '$lib/components/SpeedEtaChip.svelte';
+  import { ripSubStepLabel } from '$lib/ripSubStepLabel';
   import { onMount, onDestroy } from 'svelte';
   import {
     logs,
@@ -170,7 +171,7 @@
       case 'identify':
         return 'Identify — Match metadata';
       case 'rip':
-        return 'Rip — Read raw data';
+        return `Rip — ${ripSubStepLabel(j?.active_substep)}`;
       case 'transcode':
         return 'Transcode — Re-encode A/V';
       case 'compress':

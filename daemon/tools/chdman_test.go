@@ -23,6 +23,7 @@ func (c *captureSinkCHDMan) Progress(pct float64, _ string, _ int) {
 func (c *captureSinkCHDMan) Log(_ state.LogLevel, format string, args ...any) {
 	c.logs = append(c.logs, fmt.Sprintf(format, args...))
 }
+func (c *captureSinkCHDMan) SubStep(string) {}
 
 func TestParseCHDManProgress(t *testing.T) {
 	b, err := os.ReadFile("testdata/chdman-progress.txt")

@@ -145,6 +145,21 @@ func (s *PersistentSink) flushProgress(p pendingProgress) {
 	})
 }
 
+// OnSubStep writes the redumper sub-phase to the job row and broadcasts
+// a job.substep event so the UI updates immediately. Empty name clears.
+func (s *PersistentSink) OnSubStep(name string) {
+	if err := s.store.UpdateJobSubStep(context.Background(), s.jobID, name); err != nil {
+		slog.Warn("PersistentSink: UpdateJobSubStep", "job", s.jobID, "err", err)
+	}
+	s.bc.Publish(state.Event{
+		Name: "job.substep",
+		Payload: map[string]any{
+			"job_id":  s.jobID,
+			"substep": name,
+		},
+	})
+}
+
 // OnLog appends to the log_lines table and broadcasts. The line is
 // stamped with whichever step is currently active so the webui can
 // group lines by phase.
@@ -178,7 +193,13 @@ func (s *PersistentSink) OnLog(level state.LogLevel, format string, args ...any)
 // this final bump a finished job (whose last step won't get the
 // OnStepStart reset that masks the gap mid-pipeline) is stuck reading
 // some sub-100 value forever.
+//
+// Also clears active_substep so a sub-phase label from the rip step
+// (e.g. "REFINE") does not persist into subsequent steps.
 func (s *PersistentSink) OnStepDone(step state.StepID, notes map[string]any) {
+	if err := s.store.UpdateJobSubStep(context.Background(), s.jobID, ""); err != nil {
+		slog.Warn("PersistentSink: clear substep on step done", "job", s.jobID, "err", err)
+	}
 	s.Flush()
 	if err := s.store.UpdateJobProgress(context.Background(), s.jobID, step, 100, "", 0, 0); err != nil {
 		slog.Warn("PersistentSink: UpdateJobProgress 100 on step done", "job", s.jobID, "step", step, "err", err)

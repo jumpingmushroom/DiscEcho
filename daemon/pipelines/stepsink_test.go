@@ -38,6 +38,7 @@ func (r *recordingSink) OnLog(level state.LogLevel, format string, args ...any) 
 }
 func (r *recordingSink) OnStepDone(state.StepID, map[string]any) {}
 func (r *recordingSink) OnStepFailed(state.StepID, error)        {}
+func (r *recordingSink) OnSubStep(string)                        {}
 func (r *recordingSink) JobID() string                           { return "" }
 
 func TestStepSink_AttributesProgressToBoundStep(t *testing.T) {

@@ -1,0 +1,1 @@
+ALTER TABLE jobs ADD COLUMN active_substep TEXT NOT NULL DEFAULT '';

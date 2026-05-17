@@ -23,6 +23,7 @@ func (c *captureSink) Progress(pct float64, _ string, _ int) {
 func (c *captureSink) Log(_ state.LogLevel, format string, args ...any) {
 	c.logs = append(c.logs, fmt.Sprintf(format, args...))
 }
+func (c *captureSink) SubStep(string) {}
 
 func TestMakeMKVParseInfo_BDMV(t *testing.T) {
 	b, err := os.ReadFile("testdata/makemkv-info-bdmv.txt")

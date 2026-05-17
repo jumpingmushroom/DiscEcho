@@ -3,7 +3,7 @@ import { render, cleanup } from '@testing-library/svelte';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import DriveCard from './DriveCard.svelte';
 import { jobs } from '$lib/store';
-import type { Drive, Disc } from '$lib/wire';
+import type { Drive, Disc, Job } from '$lib/wire';
 
 const idleDrive: Drive = {
   id: 'drv-1',
@@ -12,6 +12,24 @@ const idleDrive: Drive = {
   dev_path: '/dev/sr0',
   state: 'idle',
   last_seen_at: '2026-05-15T10:00:00Z',
+};
+
+const rippingDrive: Drive = {
+  ...idleDrive,
+  state: 'ripping',
+};
+
+const baseRipJob: Job = {
+  id: 'job-1',
+  disc_id: 'disc-1',
+  drive_id: 'drv-1',
+  profile_id: 'p1',
+  state: 'running',
+  active_step: 'rip',
+  progress: 50,
+  output_bytes: 0,
+  created_at: '2026-05-15T10:00:00Z',
+  steps: [],
 };
 
 const seedDisc = (overrides: Partial<Disc> = {}): Disc => ({
@@ -76,5 +94,34 @@ describe('mobile/DriveCard', () => {
   it('hides the error banner when last_error is empty', () => {
     const { queryByText } = render(DriveCard, { drive: idleDrive });
     expect(queryByText(/Drive error/i)).toBeNull();
+  });
+
+  it('shows default rip label when active_substep is absent', () => {
+    const { getByText } = render(DriveCard, {
+      drive: rippingDrive,
+      disc: seedDisc(),
+      job: baseRipJob,
+    });
+    expect(getByText(/Rip — Read raw data/)).toBeInTheDocument();
+  });
+
+  it('shows REFINE label when active_substep is REFINE', () => {
+    const job: Job = { ...baseRipJob, active_substep: 'REFINE' };
+    const { getByText } = render(DriveCard, {
+      drive: rippingDrive,
+      disc: seedDisc(),
+      job,
+    });
+    expect(getByText(/Recovering damaged sectors/i)).toBeInTheDocument();
+  });
+
+  it('shows SPLIT label when active_substep is SPLIT', () => {
+    const job: Job = { ...baseRipJob, active_substep: 'SPLIT' };
+    const { getByText } = render(DriveCard, {
+      drive: rippingDrive,
+      disc: seedDisc(),
+      job,
+    });
+    expect(getByText(/Splitting tracks/i)).toBeInTheDocument();
   });
 });

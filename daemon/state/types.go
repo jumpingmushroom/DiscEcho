@@ -205,6 +205,7 @@ type Job struct {
 	ProfileID      string     `json:"profile_id"`
 	State          JobState   `json:"state"`
 	ActiveStep     StepID     `json:"active_step,omitempty"`
+	ActiveSubStep  string     `json:"active_substep,omitempty"`
 	Progress       float64    `json:"progress"`
 	Speed          string     `json:"speed,omitempty"`
 	ETASeconds     int        `json:"eta_seconds,omitempty"`

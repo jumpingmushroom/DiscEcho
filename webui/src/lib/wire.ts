@@ -131,6 +131,7 @@ export interface Job {
   profile_id: string;
   state: JobState;
   active_step?: StepID;
+  active_substep?: string;
   progress: number;
   speed?: string;
   eta_seconds?: number;

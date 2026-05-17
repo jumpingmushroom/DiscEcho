@@ -30,3 +30,8 @@ func (s *StepSink) Progress(pct float64, speed string, etaSeconds int) {
 func (s *StepSink) Log(level state.LogLevel, format string, args ...any) {
 	s.sink.OnLog(level, format, args...)
 }
+
+// SubStep forwards a tool's sub-phase transition to the parent sink.
+func (s *StepSink) SubStep(name string) {
+	s.sink.OnSubStep(name)
+}

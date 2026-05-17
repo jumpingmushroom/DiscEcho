@@ -31,6 +31,8 @@ func (s *captureSinkDVDBackup) Log(level state.LogLevel, format string, args ...
 	})
 }
 
+func (s *captureSinkDVDBackup) SubStep(string) {}
+
 func TestDVDBackup_ParseStream_ForwardsVOBAsInfo(t *testing.T) {
 	stream := strings.NewReader(
 		"Copying VTS_01_1.VOB\n" +

@@ -42,6 +42,7 @@ func (r *recordingSink) Log(level state.LogLevel, format string, args ...any) {
 		message: tools.FormatLog(format, args...),
 	})
 }
+func (r *recordingSink) SubStep(string) {}
 
 func TestWhipper_ParseStdout_KindOfBlue(t *testing.T) {
 	body, err := os.ReadFile("testdata/whipper-stdout-kindofblue.txt")

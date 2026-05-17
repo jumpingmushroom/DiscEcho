@@ -43,4 +43,5 @@ func TestSink_NopSink(t *testing.T) {
 	var s tools.Sink = tools.NopSink{}
 	s.Progress(50, "5×", 30)
 	s.Log(state.LogLevelInfo, "hello %s", "world")
+	s.SubStep("REFINE")
 }

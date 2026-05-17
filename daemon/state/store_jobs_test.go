@@ -298,3 +298,42 @@ func TestStore_Job_FK_DiscDeleteCascades(t *testing.T) {
 		t.Errorf("job should have been cascade-deleted")
 	}
 }
+
+func TestStore_UpdateJobSubStep_RoundTrip(t *testing.T) {
+	s := openStore(t)
+	ctx := context.Background()
+	drv := newDrive(t, s, "/dev/sr0")
+	prof := newProfile(t, s, "CD-FLAC", state.DiscTypeAudioCD)
+	disc := newDisc(t, s, drv)
+	j := newJob(t, s, drv, prof, disc)
+
+	if err := s.UpdateJobSubStep(ctx, j.ID, "REFINE"); err != nil {
+		t.Fatalf("UpdateJobSubStep: %v", err)
+	}
+	got, err := s.GetJob(ctx, j.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.ActiveSubStep != "REFINE" {
+		t.Errorf("ActiveSubStep = %q, want REFINE", got.ActiveSubStep)
+	}
+
+	// Clearing
+	mustStore(t, s.UpdateJobSubStep(ctx, j.ID, ""))
+	got, err = s.GetJob(ctx, j.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.ActiveSubStep != "" {
+		t.Errorf("ActiveSubStep = %q after clear, want empty", got.ActiveSubStep)
+	}
+}
+
+func TestStore_UpdateJobSubStep_NotFound(t *testing.T) {
+	s := openStore(t)
+	ctx := context.Background()
+	err := s.UpdateJobSubStep(ctx, "no-such-job", "REFINE")
+	if err != state.ErrNotFound {
+		t.Errorf("want ErrNotFound, got %v", err)
+	}
+}

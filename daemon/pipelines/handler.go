@@ -50,6 +50,9 @@ type EventSink interface {
 	OnStepStart(stepID state.StepID)
 	OnProgress(stepID state.StepID, pct float64, speed string, etaSeconds int)
 	OnLog(level state.LogLevel, format string, args ...any)
+	// OnSubStep records a long-running sub-phase within a step (e.g.
+	// redumper's REFINE or SPLIT phase). Empty name clears the field.
+	OnSubStep(name string)
 	OnStepDone(stepID state.StepID, notes map[string]any)
 	OnStepFailed(stepID state.StepID, err error)
 	JobID() string

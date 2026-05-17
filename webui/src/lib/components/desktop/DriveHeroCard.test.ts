@@ -145,4 +145,25 @@ describe('DriveHeroCard', () => {
     expect(queryByText(/cd-info/)).toBeNull();
     expect(queryByText(/Kreon firmware/)).toBeNull();
   });
+
+  it('shows the rip sub-step label when active_substep is set', () => {
+    const job: Job = { ...ripJob, active_substep: 'REFINE' };
+    const { getByTestId } = render(DriveHeroCard, {
+      drive: rippingDrive,
+      disc: dvdDisc,
+      job,
+    });
+    const label = getByTestId('active-step-label');
+    expect(label.textContent).toContain('Recovering damaged sectors');
+  });
+
+  it('shows default rip label when active_substep is absent', () => {
+    const { getByTestId } = render(DriveHeroCard, {
+      drive: rippingDrive,
+      disc: dvdDisc,
+      job: ripJob,
+    });
+    const label = getByTestId('active-step-label');
+    expect(label.textContent).toContain('Read raw data');
+  });
 });

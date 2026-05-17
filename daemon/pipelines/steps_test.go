@@ -23,6 +23,7 @@ func (r *stepRecorder) OnStepStart(s state.StepID) {
 }
 func (r *stepRecorder) OnProgress(state.StepID, float64, string, int) {}
 func (r *stepRecorder) OnLog(state.LogLevel, string, ...any)          {}
+func (r *stepRecorder) OnSubStep(string)                              {}
 func (r *stepRecorder) OnStepDone(s state.StepID, notes map[string]any) {
 	r.events = append(r.events, stepEvent{kind: "done", step: s, notes: notes})
 }

@@ -18,6 +18,7 @@ type captureSinkRedumper struct {
 	speeds   []string
 	etas     []int
 	logs     []string
+	substeps []string
 }
 
 func (c *captureSinkRedumper) Progress(pct float64, speed string, eta int) {
@@ -27,6 +28,9 @@ func (c *captureSinkRedumper) Progress(pct float64, speed string, eta int) {
 }
 func (c *captureSinkRedumper) Log(_ state.LogLevel, format string, args ...any) {
 	c.logs = append(c.logs, fmt.Sprintf(format, args...))
+}
+func (c *captureSinkRedumper) SubStep(name string) {
+	c.substeps = append(c.substeps, name)
 }
 
 func TestParseRedumperProgress(t *testing.T) {
@@ -196,6 +200,50 @@ func TestParseRedumperProgress_B720Format(t *testing.T) {
 	last := sink.progress[len(sink.progress)-1]
 	if last != 100 {
 		t.Errorf("last progress = %f, want exactly 100", last)
+	}
+}
+
+func TestParseRedumperProgress_DetectsPhaseMarkers(t *testing.T) {
+	in := strings.NewReader(
+		"*** DUMP (time check: 0s)\n" +
+			"/ [  1%] LBA: 1024/100000\n" +
+			"*** REFINE (time check: 60s)\n" +
+			"*** SPLIT (time check: 120s)\n",
+	)
+	sink := &captureSinkRedumper{}
+	tools.ParseRedumperProgress(in, sink)
+	if len(sink.substeps) != 3 {
+		t.Fatalf("substeps = %v, want 3 entries", sink.substeps)
+	}
+	if sink.substeps[0] != "DUMP" || sink.substeps[1] != "REFINE" || sink.substeps[2] != "SPLIT" {
+		t.Errorf("substeps = %v", sink.substeps)
+	}
+	// Phase lines should also be forwarded to the log tail.
+	var phaseLogCount int
+	for _, l := range sink.logs {
+		if strings.Contains(l, "time check") {
+			phaseLogCount++
+		}
+	}
+	if phaseLogCount != 3 {
+		t.Errorf("expected 3 phase lines in log, got %d: %v", phaseLogCount, sink.logs)
+	}
+}
+
+func TestParseRedumperProgress_PhaseDoesNotResetProgress(t *testing.T) {
+	// A phase transition must NOT emit a Progress event, so the progress
+	// bar stays at its last-known value rather than appearing to reset.
+	in := strings.NewReader(
+		"/ [ 98%] LBA: 98000/100000\n" +
+			"*** REFINE (time check: 60s)\n",
+	)
+	sink := &captureSinkRedumper{}
+	tools.ParseRedumperProgress(in, sink)
+	if len(sink.progress) != 1 {
+		t.Errorf("want 1 progress event (no extra from phase line), got %d", len(sink.progress))
+	}
+	if sink.progress[0] != 98 {
+		t.Errorf("progress = %f, want 98", sink.progress[0])
 	}
 }
 

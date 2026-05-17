@@ -70,6 +70,9 @@ func (r *RecordingSink) OnLog(level state.LogLevel, format string, args ...any) 
 	r.append(RecordedEvent{Kind: EventLog, Level: level, Message: fmt.Sprintf(format, args...)})
 }
 
+// OnSubStep records a sub-step transition.
+func (r *RecordingSink) OnSubStep(string) {}
+
 // OnStepDone records a step.done event with optional notes.
 func (r *RecordingSink) OnStepDone(s state.StepID, notes map[string]any) {
 	r.append(RecordedEvent{Kind: EventDone, Step: s, Notes: notes})

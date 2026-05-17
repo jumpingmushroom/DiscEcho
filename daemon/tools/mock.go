@@ -8,10 +8,16 @@ import (
 )
 
 // MockEvent is one scripted event emitted during MockTool.Run.
-// Exactly one of Progress / Log should be non-nil.
+// Exactly one of Progress / Log / SubStep should be non-nil.
 type MockEvent struct {
 	Progress *MockProgress
 	Log      *MockLog
+	SubStep  *MockSubStep
+}
+
+// MockSubStep carries the sub-phase name for a scripted SubStep event.
+type MockSubStep struct {
+	Name string
 }
 
 type MockProgress struct {
@@ -82,6 +88,8 @@ func (m *MockTool) Run(_ context.Context, args []string, env map[string]string,
 			sink.Progress(e.Progress.Pct, e.Progress.Speed, e.Progress.ETA)
 		case e.Log != nil:
 			sink.Log(e.Log.Level, e.Log.Format, e.Log.Args...)
+		case e.SubStep != nil:
+			sink.SubStep(e.SubStep.Name)
 		}
 	}
 	return err

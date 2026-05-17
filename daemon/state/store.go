@@ -826,7 +826,7 @@ func (s *Store) GetJob(ctx context.Context, id string) (*Job, error) {
 	row := s.db.Conn().QueryRowContext(ctx, `
 		SELECT id, disc_id, COALESCE(drive_id, ''), profile_id, state, active_step,
 		       progress, speed, eta_seconds, elapsed_seconds, output_bytes,
-		       started_at, finished_at, error_message, created_at
+		       started_at, finished_at, error_message, created_at, active_substep
 		FROM jobs WHERE id = ?`, id)
 	j, err := scanJob(row)
 	if err != nil {
@@ -860,7 +860,7 @@ func (s *Store) ListJobs(ctx context.Context, f JobFilter) ([]Job, error) {
 
 	q := `SELECT id, disc_id, COALESCE(drive_id, ''), profile_id, state, active_step,
 	             progress, speed, eta_seconds, elapsed_seconds, output_bytes,
-	             started_at, finished_at, error_message, created_at
+	             started_at, finished_at, error_message, created_at, active_substep
 	      FROM jobs`
 	var args []any
 	var conds []string
@@ -905,7 +905,7 @@ func (s *Store) ListActiveAndRecentJobs(ctx context.Context, recentLimit int) ([
 	activeRows, err := s.db.Conn().QueryContext(ctx, `
 		SELECT id, disc_id, COALESCE(drive_id, ''), profile_id, state, active_step,
 		       progress, speed, eta_seconds, elapsed_seconds, output_bytes,
-		       started_at, finished_at, error_message, created_at
+		       started_at, finished_at, error_message, created_at, active_substep
 		FROM jobs
 		WHERE state NOT IN ('done','failed','cancelled')
 		ORDER BY created_at DESC`)
@@ -929,7 +929,7 @@ func (s *Store) ListActiveAndRecentJobs(ctx context.Context, recentLimit int) ([
 		recentRows, err := s.db.Conn().QueryContext(ctx, `
 			SELECT id, disc_id, COALESCE(drive_id, ''), profile_id, state, active_step,
 			       progress, speed, eta_seconds, elapsed_seconds, output_bytes,
-			       started_at, finished_at, error_message, created_at
+			       started_at, finished_at, error_message, created_at, active_substep
 			FROM jobs
 			WHERE state IN ('done','failed','cancelled')
 			ORDER BY COALESCE(NULLIF(finished_at,''), created_at) DESC
@@ -1123,6 +1123,22 @@ func (s *Store) UpdateJobProgress(ctx context.Context, id string, activeStep Ste
 	return nil
 }
 
+// UpdateJobSubStep records the redumper sub-phase (DUMP, REFINE, SPLIT
+// etc.) so the dashboard can show something useful while the rip step
+// is in a long quiet phase. Empty substep clears the field.
+func (s *Store) UpdateJobSubStep(ctx context.Context, id, substep string) error {
+	res, err := s.db.Conn().ExecContext(ctx,
+		`UPDATE jobs SET active_substep = ? WHERE id = ?`, substep, id)
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
 // RecordOutputBytes writes the move step's final output size onto a
 // job row. Called from each pipeline after the move step succeeds so
 // the LIBRARY SIZE widget can sum across all done jobs.
@@ -1161,7 +1177,7 @@ func scanJob(r rowScanner) (*Job, error) {
 	if err := r.Scan(
 		&j.ID, &j.DiscID, &j.DriveID, &j.ProfileID, &st, &activeStep,
 		&j.Progress, &j.Speed, &j.ETASeconds, &j.ElapsedSeconds, &j.OutputBytes,
-		&startedStr, &finishedStr, &j.ErrorMessage, &createdStr,
+		&startedStr, &finishedStr, &j.ErrorMessage, &createdStr, &j.ActiveSubStep,
 	); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrNotFound
@@ -1676,7 +1692,7 @@ func (s *Store) ListHistory(ctx context.Context, f HistoryFilter) ([]HistoryRow,
 		SELECT
 		  j.id, j.disc_id, COALESCE(j.drive_id, ''), j.profile_id, j.state, j.active_step,
 		  j.progress, j.speed, j.eta_seconds, j.elapsed_seconds, j.output_bytes,
-		  j.started_at, j.finished_at, j.error_message, j.created_at,
+		  j.started_at, j.finished_at, j.error_message, j.created_at, j.active_substep,
 		  d.id, COALESCE(d.drive_id, ''), d.type, d.title, d.year, d.runtime_seconds,
 		  d.size_bytes_raw, d.toc_hash, d.metadata_provider, d.metadata_id,
 		  d.candidates_json, d.metadata_json, d.created_at
@@ -1717,7 +1733,7 @@ func (s *Store) ListHistory(ctx context.Context, f HistoryFilter) ([]HistoryRow,
 		if err := rows.Scan(
 			&j.ID, &j.DiscID, &j.DriveID, &j.ProfileID, &jState, &jActive,
 			&j.Progress, &j.Speed, &j.ETASeconds, &j.ElapsedSeconds, &j.OutputBytes,
-			&jStarted, &jFinished, &j.ErrorMessage, &jCreated,
+			&jStarted, &jFinished, &j.ErrorMessage, &jCreated, &j.ActiveSubStep,
 			&d.ID, &d.DriveID, &dType, &d.Title, &d.Year, &d.RuntimeSeconds,
 			&d.SizeBytesRaw, &d.TOCHash, &d.MetadataProvider, &d.MetadataID,
 			&dCands, &dMeta, &dCreated,

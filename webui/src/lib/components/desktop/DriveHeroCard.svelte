@@ -4,6 +4,7 @@
   import PipelineStepperMini from '$lib/components/PipelineStepperMini.svelte';
   import ProgressBar from '$lib/components/ProgressBar.svelte';
   import SpeedEtaChip from '$lib/components/SpeedEtaChip.svelte';
+  import { ripSubStepLabel } from '$lib/ripSubStepLabel';
   import { createEventDispatcher } from 'svelte';
   import { cancelJob, ejectDrive, reidentify, jobs, startDisc } from '$lib/store';
   import { lastDoneJobForDisc } from '$lib/components/lastDoneJobForDisc';
@@ -102,6 +103,13 @@
       busy = null;
     }
   }
+
+  $: activeStepLabel = (() => {
+    if (job?.active_step === 'rip') {
+      return `Rip — ${ripSubStepLabel(job?.active_substep)}`;
+    }
+    return '';
+  })();
 </script>
 
 <div
@@ -170,6 +178,11 @@
     {#if job && (drive.state === 'ripping' || drive.state === 'identifying')}
       <div class="mt-3 space-y-2">
         <PipelineStepperMini {job} />
+        {#if activeStepLabel}
+          <div class="text-[11px]" style="color: var(--text-3)" data-testid="active-step-label">
+            {activeStepLabel}
+          </div>
+        {/if}
         <ProgressBar value={job.progress} height={4} animated />
         <div class="flex items-center justify-between">
           <SpeedEtaChip speed={job.speed} etaSeconds={job.eta_seconds} />
