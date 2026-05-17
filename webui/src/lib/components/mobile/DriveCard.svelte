@@ -300,6 +300,21 @@
       </div>
     {/if}
   </svelte:element>
+  {#if drive.last_error}
+    <div
+      class="mx-3 mb-2 mt-1 rounded-lg border border-error/30 bg-error/10 p-3"
+      style="font-size: 12px"
+    >
+      <div class="font-semibold text-error">Drive error</div>
+      <div class="mt-1 text-text-2">{drive.last_error}</div>
+      {#if drive.last_error_tip}
+        <div class="mt-2 text-text-3">
+          <span class="font-semibold">Tip:</span>
+          {drive.last_error_tip}
+        </div>
+      {/if}
+    </div>
+  {/if}
   {#if hasActions}
     <div class="flex flex-wrap gap-2 border-t border-border px-3 py-2">
       {#if canStop}

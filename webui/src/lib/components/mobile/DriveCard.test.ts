@@ -59,4 +59,22 @@ describe('mobile/DriveCard', () => {
     expect(getByTestId('drive-rerip')).toBeTruthy();
     expect(getByText(/Already ripped 2026-05-15 — re-rip\?/)).toBeInTheDocument();
   });
+
+  it('shows the error banner and tip when last_error is set', () => {
+    const errorDrive: Drive = {
+      ...idleDrive,
+      state: 'error',
+      last_error: 'cd-info: exit status 1',
+      last_error_tip: 'Xbox game discs require a drive with Kreon firmware …',
+    };
+    const { getByText } = render(DriveCard, { drive: errorDrive });
+    expect(getByText(/Drive error/i)).toBeInTheDocument();
+    expect(getByText(/cd-info: exit status 1/)).toBeInTheDocument();
+    expect(getByText(/Kreon firmware/)).toBeInTheDocument();
+  });
+
+  it('hides the error banner when last_error is empty', () => {
+    const { queryByText } = render(DriveCard, { drive: idleDrive });
+    expect(queryByText(/Drive error/i)).toBeNull();
+  });
 });

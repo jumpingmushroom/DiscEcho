@@ -49,6 +49,8 @@ export interface Drive {
   last_seen_at: string;
   notes?: string;
   current_disc_id?: string;
+  last_error?: string;
+  last_error_tip?: string;
 }
 
 export interface Candidate {
